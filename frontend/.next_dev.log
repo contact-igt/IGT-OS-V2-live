@@ -1,0 +1,228 @@
+
+> invictus-os@0.1.0 dev
+> next dev --webpack
+
+▲ Next.js 16.2.10 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.32:3000
+- Environments: .env.local
+✓ Ready in 139ms
+- Experiments (use with caution):
+  · optimizePackageImports
+
+ GET /dashboard 200 in 747ms (next.js: 613ms, application-code: 134ms)
+ GET /dashboard/ceo 200 in 561ms (next.js: 512ms, application-code: 49ms)
+ GET /my-workspace 200 in 260ms (next.js: 246ms, application-code: 14ms)
+ GET /tasks 200 in 398ms (next.js: 380ms, application-code: 18ms)
+ GET /tasks?view=board 200 in 12ms (next.js: 1744µs, application-code: 10ms)
+ GET /tasks?view=list 200 in 16ms (next.js: 3ms, application-code: 14ms)
+ GET /tasks?view=calendar 200 in 20ms (next.js: 2ms, application-code: 18ms)
+ GET /tasks 200 in 18ms (next.js: 3ms, application-code: 15ms)
+ GET /tasks?view=board 200 in 18ms (next.js: 4ms, application-code: 15ms)
+ GET /credentials 200 in 281ms (next.js: 262ms, application-code: 18ms)
+ GET /audit 200 in 223ms (next.js: 211ms, application-code: 12ms)
+ GET /ai 200 in 742ms (next.js: 728ms, application-code: 14ms)
+ GET /admin 200 in 251ms (next.js: 237ms, application-code: 14ms)
+ GET /ai 200 in 23ms (next.js: 11ms, application-code: 12ms)
+ GET /audit 200 in 42ms (next.js: 20ms, application-code: 23ms)
+ GET /dashboard 200 in 355ms (next.js: 327ms, application-code: 27ms)
+ GET /dashboard 200 in 58ms (next.js: 40ms, application-code: 18ms)
+⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /dashboard 200 in 81ms (next.js: 957µs, application-code: 80ms)
+⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /dashboard 200 in 8ms (next.js: 606µs, application-code: 8ms)
+ GET /dashboard 200 in 452ms (next.js: 398ms, application-code: 54ms)
+ GET /dashboard 200 in 53ms (next.js: 37ms, application-code: 16ms)
+[Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/server-development/1.pack.gz'
+[Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'
+}
+[Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/7.pack.gz'
+}
+[Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'
+}
+⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'
+}
+⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'stat',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/8.pack.gz'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development/1.pack.gz'
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/server/app-paths-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/server/app-paths-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/server/app-paths-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/server/app-paths-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+ GET /dashboard 500 in 2.9s (next.js: 2.9s, application-code: 8ms)
+ GET /dashboard 500 in 2.9s (next.js: 2.9s, application-code: 8ms)
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+ GET /dashboard 500 in 2.5s (next.js: 2.5s, application-code: 11ms)
+ GET /dashboard 500 in 2.5s (next.js: 2.5s, application-code: 11ms)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development-fallback/0.pack.gz_' -> '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/cache/webpack/client-development-fallback/0.pack.gz'
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json',
+  page: '/dashboard'
+}
+⨯ Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+Error: ENOENT: no such file or directory, open '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+    at ignore-listed frames {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/sushil/Downloads/Invictus v6 final/v6 frontend/.next/dev/routes-manifest.json'
+}
+ GET /dashboard 500 in 298ms (next.js: 291ms, application-code: 7ms)
+ GET /dashboard 500 in 298ms (next.js: 291ms, application-code: 7ms)
+[?25h

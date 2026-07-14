@@ -1,0 +1,818 @@
+import { AuditEntry, Project, LeaveBalance, AttendanceLog, LeaveType, LeaveLedgerEntry, LeaveRequest, Approval, CampaignWeeklyLog, ClientCredential, SocialMetric, Task, Notification, TimeEntry, TaskCategory } from './data_types';
+
+// ─────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────
+export const INITIAL_AUDIT_LOG: AuditEntry[] = [
+  { id: 'AUD-001', timestamp: '2026-07-08T21:45:02Z', actor: 'Abhilash B Nair', actorId: 'u3', action: 'timer_start', entity: 'Task', entityRef: 'WhatsNexus Lead Tracking', clientName: 'Pixel Eye', meta: 'Timer started' },
+  { id: 'AUD-002', timestamp: '2026-07-08T21:30:18Z', actor: 'Sushil Athithiyaa', actorId: 'u1', action: 'task_create', entity: 'Task', entityRef: 'Aarav Eye — Proof of Results', clientName: 'Aarav Eye', meta: 'Priority: Critical' },
+  { id: 'AUD-003', timestamp: '2026-07-08T20:14:55Z', actor: 'Anitha Yogan', actorId: 'u2', action: 'task_status_change', entity: 'Task', entityRef: 'Phoenix Fitness — Social Posts', clientName: 'Phoenix Fitness', meta: 'todo → in_progress' },
+  { id: 'AUD-004', timestamp: '2026-07-08T19:58:11Z', actor: 'Karan K', actorId: 'u4', action: 'timer_stop', entity: 'Task', entityRef: 'Static Creatives — Pixel Eye', clientName: 'Pixel Eye', meta: 'Duration: 1h 24m' },
+  { id: 'AUD-005', timestamp: '2026-07-08T18:22:44Z', actor: 'Sushil Athithiyaa', actorId: 'u1', action: 'task_assign', entity: 'Task', entityRef: 'Campaign Launch — Antardrashti', clientName: 'Antardrashti', meta: 'Assigned to: Anju' },
+  { id: 'AUD-006', timestamp: '2026-07-08T17:05:30Z', actor: 'Iyyappan', actorId: 'u6', action: 'timer_start', entity: 'Task', entityRef: 'Website Landing Pages', clientName: 'Optimus Eye', meta: 'Timer started' },
+  { id: 'AUD-007', timestamp: '2026-07-08T16:45:02Z', actor: 'Sushil Athithiyaa', actorId: 'u1', action: 'client_update', entity: 'Client', entityRef: 'Pixel Eye Hospital', clientName: 'Pixel Eye', meta: 'Retainer: ₹62,099' },
+  { id: 'AUD-008', timestamp: '2026-07-08T15:30:22Z', actor: 'Rutuja', actorId: 'u12', action: 'timer_stop', entity: 'Task', entityRef: 'Optimus Eye — Meta Campaigns', clientName: 'Optimus Eye', meta: 'Duration: 1h 45m' },
+  { id: 'AUD-009', timestamp: '2026-07-08T14:18:09Z', actor: 'Aiswarya Saiju', actorId: 'u10', action: 'task_status_change', entity: 'Task', entityRef: 'Desk Body Reset Campaign', clientName: 'Phoenix Fitness', meta: 'todo → in_progress' },
+  { id: 'AUD-010', timestamp: '2026-07-08T13:04:55Z', actor: 'Abhilash B Nair', actorId: 'u3', action: 'task_create', entity: 'Task', entityRef: 'Sales Lead Tracking — Rio', clientName: 'Rio Hospital', meta: 'Priority: Critical' },
+];
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+export function getClientById(id: string): Client | undefined {
+  return CLIENTS.find(c => c.id === id);
+}
+
+export function getMemberById(id: string): TeamMember | undefined {
+  return TEAM_MEMBERS.find(m => m.id === id);
+}
+
+export function getMembersByIds(ids: string[]): TeamMember[] {
+  return ids.map(id => TEAM_MEMBERS.find(m => m.id === id)).filter(Boolean) as TeamMember[];
+}
+
+export function formatMinutes(minutes: number): string {
+  if (minutes === 0) return '0m';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+export function isOverdue(task: Task): boolean {
+  if (!task.deadline || task.status === 'done') return false;
+  return new Date(task.deadline) < new Date(new Date().toDateString());
+}
+
+export function isDueToday(task: Task): boolean {
+  if (!task.deadline || task.status === 'done') return false;
+  return task.deadline === new Date().toISOString().split('T')[0];
+}
+
+/** Hourly cost of a team member (salary / 176 working hours/month) */
+export function getHourlyCost(member: TeamMember): number {
+  return Math.round(member.monthlySalaryINR / 176);
+}
+
+export const PRIORITY_CONFIG = {
+  critical: { label: 'Critical', color: '#EF4444', bg: 'rgba(239,68,68,0.25)', textClass: 'text-red-500' },
+  high:     { label: 'High',     color: '#8B5CF6', bg: 'rgba(139,92,246,0.25)', textClass: 'text-purple-500' },
+  medium:   { label: 'Medium',   color: '#F59E0B', bg: 'rgba(245,158,11,0.25)', textClass: 'text-amber-500' },
+  low:      { label: 'Low',      color: '#94A3B8', bg: 'rgba(148,163,184,0.25)', textClass: 'text-slate-400' },
+};
+
+export const STATUS_CONFIG = {
+  todo:        { label: 'To Do',       color: '#64748B', bg: 'rgba(100,116,139,0.1)' },
+  in_progress: { label: 'In Progress', color: '#2563EB', bg: 'rgba(37,99,235,0.1)' },
+  paused:      { label: 'Paused',      color: '#6366F1', bg: 'rgba(99,102,241,0.1)' },
+  rework:      { label: 'Rework',      color: '#DB2777', bg: 'rgba(219,39,119,0.1)' },
+  in_review:   { label: 'In Review',   color: '#F59E0B', bg: 'rgba(245,158,11,0.1)' },
+  blocked:     { label: 'Blocked',     color: '#EF4444', bg: 'rgba(239,68,68,0.1)' },
+  done:        { label: 'Done',        color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
+  cancelled:   { label: 'Cancelled',   color: '#94A3B8', bg: 'rgba(148,163,184,0.1)' },
+};
+
+export function calculateTaskProgress(task: Task, allTasks: Task[]): number {
+  const subtasks = allTasks.filter(t => t.parentId === task.id);
+  if (subtasks.length > 0) {
+    const completedSubtasks = subtasks.filter(t => t.status === 'done').length;
+    return Math.round((completedSubtasks / subtasks.length) * 100);
+  }
+  if (task.status === 'done') return 100;
+  if (!task.estimatedHours) return 0;
+  return Math.min(100, Math.round((task.loggedMinutes / (task.estimatedHours * 60)) * 100));
+}
+
+export const CATEGORY_LABELS: Record<TaskCategory, string> = {
+  performance_marketing: 'Performance Marketing',
+  social_media: 'Social Media',
+  video_editing: 'Video Editing',
+  design_creative: 'Design & Creative',
+  web_development: 'Web Development',
+  whatsapp_automation: 'WhatsApp Automation',
+  strategy: 'Strategy',
+  operations: 'Operations',
+  content_writing: 'Content Writing',
+  seo: 'SEO',
+};
+
+export const CATEGORY_COLORS: Record<TaskCategory, string> = {
+  performance_marketing: '#F97316',
+  social_media: '#06B6D4',
+  video_editing: '#8B5CF6',
+  design_creative: '#EC4899',
+  web_development: '#3B82F6',
+  whatsapp_automation: '#10B981',
+  strategy: '#F59E0B',
+  operations: '#64748B',
+  content_writing: '#A78BFA',
+  seo: '#34D399',
+};
+
+export const NAV_SECTIONS = [
+  { href: '/dashboard',      label: 'Dashboard',         icon: 'grid_view',             color: 'var(--c-primary)', section: 'dashboard' },
+  { href: '/my-workspace',   label: 'My Workspace',      icon: 'person',                color: 'var(--c-primary)', section: 'my-workspace' },
+  { href: '/tasks',          label: 'Tasks',             icon: 'check_box',             color: 'var(--c-primary)', section: 'tasks' },
+  { href: '/calendar',       label: 'Calendar',             icon: 'view_timeline',         color: 'var(--c-primary)', section: 'calendar' },
+  { href: '/clients',        label: 'Clients',           icon: 'business_center',       color: 'var(--c-primary)', section: 'clients' },
+  { href: '/team',           label: 'Team',              icon: 'groups',                color: 'var(--c-primary)', section: 'team' },
+  { href: '/team/workload',  label: 'Team Workload',     icon: 'workspaces',            color: 'var(--c-primary)', section: 'team-workload' },
+  { href: '/people/attendance', label: 'Attendance',     icon: 'event_available',       color: 'var(--c-primary)', section: 'attendance' },
+  { href: '/people/leave',   label: 'Leave Management',  icon: 'flight_takeoff',        color: 'var(--c-primary)', section: 'leave' },
+  { href: '/people/approvals', label: 'Approvals Inbox', icon: 'mark_email_unread',     color: 'var(--c-primary)', section: 'approvals' },
+  { href: '/analytics',      label: 'Analytics',         icon: 'insights',              color: 'var(--c-primary)', section: 'analytics' },
+  { href: '/social',         label: 'Social Hub',        icon: 'trending_up',           color: 'var(--c-primary)', section: 'social' },
+  { href: '/credentials',    label: 'Credentials',       icon: 'key',                   color: 'var(--c-primary)', section: 'credentials' },
+  { href: '/audit',          label: 'Audit Log',         icon: 'history_edu',           color: 'var(--c-primary)', section: 'audit' },
+  { href: '/ai',             label: 'Invictus Cortex',   icon: 'auto_awesome',          color: 'var(--c-primary)', section: 'ai' },
+  { href: '/admin',          label: 'Admin',             icon: 'admin_panel_settings',  color: 'var(--c-primary)', section: 'admin' },
+];
+
+export const PROJECTS: Project[] = [
+  {
+    "id": "PRJ-001",
+    "clientId": "pxle",
+    "name": "Pixel Eye Hospital — Full Website Build",
+    "type": "Full site",
+    "status": "COMPLETED",
+    "team": [
+      "EMP-008",
+      "EMP-007",
+      "EMP-005"
+    ],
+    "startDate": "2026-03-15",
+    "completedDate": "2026-05-20",
+    "estimatedHours": 80,
+    "actualHours": 76,
+    "budget": "₹45,000"
+  },
+  {
+    "id": "PRJ-002",
+    "clientId": "shte",
+    "name": "Shanti Eye Tech — Responsive Design Fix",
+    "type": "Bug fix / maintenance",
+    "status": "COMPLETED",
+    "team": [
+      "EMP-007"
+    ],
+    "startDate": "2026-06-27",
+    "completedDate": "2026-06-28",
+    "estimatedHours": 6,
+    "actualHours": 7,
+    "budget": "TBD"
+  },
+  {
+    "id": "PRJ-003",
+    "clientId": "port",
+    "name": "PORTMATRIX Logistics — React Website",
+    "type": "Full React site",
+    "status": "COMPLETED",
+    "team": [
+      "EMP-006",
+      "EMP-007",
+      "EMP-005"
+    ],
+    "startDate": "2026-04-01",
+    "completedDate": "2026-05-08",
+    "estimatedHours": 80,
+    "actualHours": 76
+  },
+  {
+    "id": "PRJ-004",
+    "clientId": "rohit",
+    "name": "Rohit Eye Hospital — LASIK Landing Page",
+    "type": "Landing page",
+    "status": "DELIVERED BUT CLIENT EXITED",
+    "team": [
+      "EMP-007",
+      "EMP-008"
+    ],
+    "startDate": "2026-06-05",
+    "completedDate": "2026-06-14",
+    "estimatedHours": 12,
+    "actualHours": 14
+  },
+  {
+    "id": "PRJ-005",
+    "clientId": "shsk",
+    "name": "Sahasraa High School — Elite-30 Landing Page",
+    "type": "Landing page",
+    "status": "IN PROGRESS",
+    "team": [
+      "EMP-008",
+      "EMP-007"
+    ],
+    "startDate": "2026-05-30",
+    "estimatedHours": 40,
+    "actualHours": 24
+  },
+  {
+    "id": "PRJ-006",
+    "clientId": "internal",
+    "name": "WhatsNexus Platform",
+    "type": "Internal SaaS product",
+    "status": "IN PROGRESS",
+    "team": [
+      "EMP-006",
+      "EMP-008",
+      "EMP-005"
+    ],
+    "startDate": "2026-03-01",
+    "estimatedHours": 400,
+    "actualHours": 190
+  }
+];
+export const ATTENDANCE_RECORDS: AttendanceRecord[] = [
+  {
+    "id": "att-001",
+    "employeeId": "EMP-001",
+    "month": "2026-04",
+    "present": 24,
+    "late": 6,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 198,
+    "avgIn": "9:45 AM",
+    "avgOut": "8:30 PM"
+  },
+  {
+    "id": "att-002",
+    "employeeId": "EMP-002",
+    "month": "2026-04",
+    "present": 25,
+    "late": 4,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 205,
+    "avgIn": "9:30 AM",
+    "avgOut": "6:45 PM"
+  },
+  {
+    "id": "att-003",
+    "employeeId": "EMP-003",
+    "month": "2026-04",
+    "present": 24,
+    "late": 8,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 192,
+    "avgIn": "10:05 AM",
+    "avgOut": "6:30 PM"
+  },
+  {
+    "id": "att-004",
+    "employeeId": "EMP-004",
+    "month": "2026-04",
+    "present": 23,
+    "late": 5,
+    "absent": 1,
+    "halfDay": 2,
+    "totalHours": 186,
+    "avgIn": "9:50 AM",
+    "avgOut": "7:00 PM"
+  },
+  {
+    "id": "att-005",
+    "employeeId": "EMP-005",
+    "month": "2026-04",
+    "present": 22,
+    "late": 10,
+    "absent": 2,
+    "halfDay": 2,
+    "totalHours": 174,
+    "avgIn": "10:15 AM",
+    "avgOut": "6:30 PM"
+  },
+  {
+    "id": "att-006",
+    "employeeId": "EMP-006",
+    "month": "2026-04",
+    "present": 25,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 208,
+    "avgIn": "9:20 AM",
+    "avgOut": "7:15 PM"
+  },
+  {
+    "id": "att-007",
+    "employeeId": "EMP-007",
+    "month": "2026-04",
+    "present": 23,
+    "late": 7,
+    "absent": 1,
+    "halfDay": 2,
+    "totalHours": 182,
+    "avgIn": "10:00 AM",
+    "avgOut": "6:30 PM"
+  },
+  {
+    "id": "att-008",
+    "employeeId": "EMP-008",
+    "month": "2026-04",
+    "present": 22,
+    "late": 9,
+    "absent": 2,
+    "halfDay": 2,
+    "totalHours": 176,
+    "avgIn": "10:10 AM",
+    "avgOut": "6:30 PM"
+  },
+  {
+    "id": "att-009",
+    "employeeId": "EMP-009",
+    "month": "2026-04",
+    "present": 25,
+    "late": 2,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 210,
+    "avgIn": "9:25 AM",
+    "avgOut": "7:30 PM"
+  },
+  {
+    "id": "att-014",
+    "employeeId": "EMP-014",
+    "month": "2026-04",
+    "present": 12,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 0,
+    "totalHours": 48,
+    "avgIn": "10:30 AM",
+    "avgOut": "3:00 PM"
+  },
+  {
+    "id": "att-015",
+    "employeeId": "EMP-001",
+    "month": "2026-05",
+    "present": 23,
+    "late": 7,
+    "absent": 0,
+    "halfDay": 3,
+    "totalHours": 185
+  },
+  {
+    "id": "att-016",
+    "employeeId": "EMP-002",
+    "month": "2026-05",
+    "present": 25,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 207
+  },
+  {
+    "id": "att-017",
+    "employeeId": "EMP-003",
+    "month": "2026-05",
+    "present": 24,
+    "late": 9,
+    "absent": 1,
+    "halfDay": 1,
+    "totalHours": 190
+  },
+  {
+    "id": "att-018",
+    "employeeId": "EMP-004",
+    "month": "2026-05",
+    "present": 24,
+    "late": 6,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 193
+  },
+  {
+    "id": "att-019",
+    "employeeId": "EMP-005",
+    "month": "2026-05",
+    "present": 23,
+    "late": 11,
+    "absent": 2,
+    "halfDay": 1,
+    "totalHours": 178
+  },
+  {
+    "id": "att-020",
+    "employeeId": "EMP-006",
+    "month": "2026-05",
+    "present": 26,
+    "late": 2,
+    "absent": 0,
+    "halfDay": 0,
+    "totalHours": 224
+  },
+  {
+    "id": "att-021",
+    "employeeId": "EMP-007",
+    "month": "2026-05",
+    "present": 24,
+    "late": 7,
+    "absent": 1,
+    "halfDay": 1,
+    "totalHours": 188
+  },
+  {
+    "id": "att-022",
+    "employeeId": "EMP-008",
+    "month": "2026-05",
+    "present": 23,
+    "late": 8,
+    "absent": 2,
+    "halfDay": 1,
+    "totalHours": 179
+  },
+  {
+    "id": "att-023",
+    "employeeId": "EMP-009",
+    "month": "2026-05",
+    "present": 25,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 211
+  },
+  {
+    "id": "att-024",
+    "employeeId": "EMP-011",
+    "month": "2026-05",
+    "present": 13,
+    "late": 5,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 99
+  },
+  {
+    "id": "att-025",
+    "employeeId": "EMP-012",
+    "month": "2026-05",
+    "present": 10,
+    "late": 4,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 74
+  },
+  {
+    "id": "att-026",
+    "employeeId": "EMP-014",
+    "month": "2026-05",
+    "present": 10,
+    "late": 2,
+    "absent": 0,
+    "halfDay": 0,
+    "totalHours": 40
+  },
+  {
+    "id": "att-027",
+    "employeeId": "EMP-001",
+    "month": "2026-06",
+    "present": 23,
+    "late": 8,
+    "absent": 0,
+    "halfDay": 3,
+    "totalHours": 184
+  },
+  {
+    "id": "att-028",
+    "employeeId": "EMP-002",
+    "month": "2026-06",
+    "present": 24,
+    "late": 4,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 200
+  },
+  {
+    "id": "att-029",
+    "employeeId": "EMP-003",
+    "month": "2026-06",
+    "present": 25,
+    "late": 7,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 199
+  },
+  {
+    "id": "att-030",
+    "employeeId": "EMP-004",
+    "month": "2026-06",
+    "present": 23,
+    "late": 8,
+    "absent": 1,
+    "halfDay": 2,
+    "totalHours": 184
+  },
+  {
+    "id": "att-031",
+    "employeeId": "EMP-005",
+    "month": "2026-06",
+    "present": 22,
+    "late": 12,
+    "absent": 2,
+    "halfDay": 2,
+    "totalHours": 170
+  },
+  {
+    "id": "att-032",
+    "employeeId": "EMP-006",
+    "month": "2026-06",
+    "present": 25,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 218
+  },
+  {
+    "id": "att-033",
+    "employeeId": "EMP-007",
+    "month": "2026-06",
+    "present": 24,
+    "late": 6,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 192
+  },
+  {
+    "id": "att-034",
+    "employeeId": "EMP-008",
+    "month": "2026-06",
+    "present": 22,
+    "late": 10,
+    "absent": 2,
+    "halfDay": 2,
+    "totalHours": 174
+  },
+  {
+    "id": "att-035",
+    "employeeId": "EMP-009",
+    "month": "2026-06",
+    "present": 25,
+    "late": 4,
+    "absent": 0,
+    "halfDay": 1,
+    "totalHours": 209
+  },
+  {
+    "id": "att-036",
+    "employeeId": "EMP-010",
+    "month": "2026-06",
+    "present": 18,
+    "late": 6,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 136
+  },
+  {
+    "id": "att-037",
+    "employeeId": "EMP-011",
+    "month": "2026-06",
+    "present": 24,
+    "late": 8,
+    "absent": 0,
+    "halfDay": 2,
+    "totalHours": 190
+  },
+  {
+    "id": "att-038",
+    "employeeId": "EMP-012",
+    "month": "2026-06",
+    "present": 24,
+    "late": 9,
+    "absent": 1,
+    "halfDay": 1,
+    "totalHours": 186
+  },
+  {
+    "id": "att-039",
+    "employeeId": "EMP-013",
+    "month": "2026-06",
+    "present": 22,
+    "late": 5,
+    "absent": 0,
+    "halfDay": 4,
+    "totalHours": 172
+  },
+  {
+    "id": "att-040",
+    "employeeId": "EMP-014",
+    "month": "2026-06",
+    "present": 12,
+    "late": 3,
+    "absent": 0,
+    "halfDay": 0,
+    "totalHours": 48
+  }
+];
+export const BENCHMARKS: PerformanceBenchmark[] = [
+  {
+    "taskType": "video_reel_edit",
+    "targetHours": 3,
+    "agencyAvgActual": 3.5,
+    "unit": "reel"
+  },
+  {
+    "taskType": "video_long_form_edit",
+    "targetHours": 8,
+    "agencyAvgActual": 9.2,
+    "unit": "video"
+  },
+  {
+    "taskType": "video_shoot_coordination",
+    "targetHours": 2,
+    "agencyAvgActual": 2.4,
+    "unit": "shoot"
+  },
+  {
+    "taskType": "poster",
+    "targetHours": 1.5,
+    "agencyAvgActual": 1.7,
+    "unit": "post"
+  },
+  {
+    "taskType": "carousel",
+    "targetHours": 2.5,
+    "agencyAvgActual": 2.6,
+    "unit": "carousel"
+  },
+  {
+    "taskType": "social_batch_12",
+    "targetHours": 5,
+    "agencyAvgActual": 5.6,
+    "unit": "batch"
+  },
+  {
+    "taskType": "ad_creative_set",
+    "targetHours": 2,
+    "agencyAvgActual": 2.1,
+    "unit": "set"
+  },
+  {
+    "taskType": "landing_page",
+    "targetHours": 16,
+    "agencyAvgActual": 13.5,
+    "unit": "page"
+  },
+  {
+    "taskType": "full_website",
+    "targetHours": 80,
+    "agencyAvgActual": 76,
+    "unit": "site"
+  },
+  {
+    "taskType": "website_responsive_fix",
+    "targetHours": 6,
+    "agencyAvgActual": 7,
+    "unit": "fix"
+  },
+  {
+    "taskType": "website_speed_opt",
+    "targetHours": 4,
+    "agencyAvgActual": 3.5,
+    "unit": "audit"
+  },
+  {
+    "taskType": "google_campaign_setup",
+    "targetHours": 3,
+    "agencyAvgActual": 3.2,
+    "unit": "campaign"
+  },
+  {
+    "taskType": "meta_campaign_setup",
+    "targetHours": 2,
+    "agencyAvgActual": 2.1,
+    "unit": "campaign"
+  },
+  {
+    "taskType": "optimization_pass",
+    "targetHours": 1,
+    "agencyAvgActual": 0.8,
+    "unit": "session"
+  },
+  {
+    "taskType": "monthly_report",
+    "targetHours": 2,
+    "agencyAvgActual": 2.3,
+    "unit": "report"
+  },
+  {
+    "taskType": "crm_emr_analysis",
+    "targetHours": 4,
+    "agencyAvgActual": 4.2,
+    "unit": "analysis"
+  },
+  {
+    "taskType": "whatsapp_automation_setup",
+    "targetHours": 10,
+    "agencyAvgActual": 11,
+    "unit": "client"
+  }
+];
+export const LEAVE_BALANCES: LeaveBalance[] = [
+  {
+    "employeeId": "EMP-001",
+    "elRemaining": 12,
+    "clRemaining": 10,
+    "slUsed": 0,
+    "notes": "Founder — flexible"
+  },
+  {
+    "employeeId": "EMP-002",
+    "elRemaining": 14,
+    "clRemaining": 9,
+    "slUsed": 0
+  },
+  {
+    "employeeId": "EMP-003",
+    "elRemaining": 11,
+    "clRemaining": 9,
+    "slUsed": 1
+  },
+  {
+    "employeeId": "EMP-004",
+    "elRemaining": 13,
+    "clRemaining": 9,
+    "slUsed": 0
+  },
+  {
+    "employeeId": "EMP-005",
+    "elRemaining": 9,
+    "clRemaining": 7,
+    "slUsed": 2,
+    "notes": "2 sick days in Jun"
+  },
+  {
+    "employeeId": "EMP-006",
+    "elRemaining": 14,
+    "clRemaining": 10,
+    "slUsed": 0,
+    "notes": "Near-zero absenteeism"
+  },
+  {
+    "employeeId": "EMP-007",
+    "elRemaining": 12,
+    "clRemaining": 9,
+    "slUsed": 0
+  },
+  {
+    "employeeId": "EMP-008",
+    "elRemaining": 8,
+    "clRemaining": 8,
+    "slUsed": 0,
+    "notes": "Exiting Jul 11; payout needed"
+  },
+  {
+    "employeeId": "EMP-009",
+    "elRemaining": 13,
+    "clRemaining": 10,
+    "slUsed": 0
+  },
+  {
+    "employeeId": "EMP-010",
+    "elRemaining": 0,
+    "clRemaining": 2,
+    "slUsed": 0,
+    "notes": "Joined Jun 5 — probation"
+  },
+  {
+    "employeeId": "EMP-011",
+    "elRemaining": 0,
+    "clRemaining": 2,
+    "slUsed": 0,
+    "notes": "Joined May 12 — probation"
+  },
+  {
+    "employeeId": "EMP-012",
+    "elRemaining": 0,
+    "clRemaining": 2,
+    "slUsed": 1,
+    "notes": "Joined May 15 — probation"
+  },
+  {
+    "employeeId": "EMP-013",
+    "elRemaining": 0,
+    "clRemaining": 2,
+    "slUsed": 0,
+    "notes": "Joined Jun 1 — probation"
+  },
+  {
+    "employeeId": "EMP-014",
+    "elRemaining": "N/A",
+    "clRemaining": "N/A",
+    "slUsed": 0,
+    "notes": "Part-time contract"
+  }
+];
+
+export const ATTENDANCE_LOGS: AttendanceLog[] = [];
+export const LEAVE_TYPES: LeaveType[] = [
+  { code: 'EL', name: 'Earned Leave', annualAllocation: 15, accrues: true, carryForwardMax: 30 },
+  { code: 'CL', name: 'Casual Leave', annualAllocation: 12, accrues: false, carryForwardMax: 0 },
+  { code: 'SL', name: 'Sick Leave', annualAllocation: 12, accrues: false, carryForwardMax: 0 }
+];
+export const LEAVE_LEDGER: LeaveLedgerEntry[] = [];
+export const LEAVE_REQUESTS: LeaveRequest[] = [];
+export const APPROVALS: Approval[] = [];
+export const CAMPAIGN_WEEKLY_LOGS: CampaignWeeklyLog[] = [];
+

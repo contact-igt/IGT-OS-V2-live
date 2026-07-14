@@ -1,0 +1,1192 @@
+// @ts-nocheck
+'use client';
+
+import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback, useState } from 'react';
+import { useAuth } from './AuthContext';
+import {
+  INITIAL_TASKS_FULL, SEED_TIME_ENTRIES_FULL, MEETING_NOTES_SEED,
+  INITIAL_AUDIT_LOG_FULL,
+  LEAVE_REQUESTS_FULL,
+  ATTENDANCE_TODAY,
+  MEETINGS_TODAY,
+  MOCK_SAAS_METRICS,
+} from '@/lib/seed_index';
+import {
+  Task, Client, TeamMember, AuditEntry, TaskApproval, ClientCredential, SocialMetric, Notification, TimeEntry,
+  INITIAL_TASKS, CLIENTS, TEAM_MEMBERS, INITIAL_AUDIT_LOG, CREDENTIALS, SOCIAL_METRICS, SEED_TIME_ENTRIES,
+  isOverdue, isDueToday, formatMinutes,
+  type AttendanceLog, type AdAccountBalance, type GitHubDevActivity, type GitHubRepo,
+  type Lead, type CampaignLog, type MeetingEvent,
+  type PaymentRecord, type Campaign, type CampaignWeeklyLog2,
+  type OpexExpense, type SaaSMetrics, type ProjectionMonth,
+  type GitHubCommit, type AdRechargeEvent, type DevProject,
+  SystemApproval, ExpenseClaim, JobPosting, Candidate, Timesheet
+} from '@/lib/data';
+
+import StopTimerModal from '@/components/tasks/StopTimerModal';
+
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+export interface ActiveTimer {
+  taskId: string;
+  userId: string;
+  startedAt: number; // Date.now()
+  accumulated: number; // previously accumulated minutes
+}
+
+export interface AppState {
+  tasks: Task[];
+  clients: Client[];
+  teamMembers: TeamMember[];
+  credentials: ClientCredential[];
+  socialMetrics: SocialMetric[];
+  activeTimers: ActiveTimer[];
+  auditLog: AuditEntry[];
+  currentUserId: string;
+  tickCount: number; // increments every second to trigger re-renders
+  notifications: Notification[];
+  timeEntries: TimeEntry[];
+  meetingNotes: any[];
+  leads: Lead[];
+  leaveRequests: any[];
+  campaignWeeklyLogs: CampaignLog[];
+  attendanceLogs: AttendanceLog[];
+  adAccountBalances: AdAccountBalance[];
+  githubActivity: GitHubDevActivity[];
+  githubRepos: GitHubRepo[];
+  payments: PaymentRecord[];
+  meetings: MeetingEvent[];
+  approvals: SystemApproval[];
+  expenseClaims: ExpenseClaim[];
+  jobPostings: JobPosting[];
+  candidates: Candidate[];
+  timesheets: Timesheet[];
+  deals: any[];
+  campaigns: Campaign[];
+  campaignLogs2: CampaignWeeklyLog2[];
+  opexExpenses: OpexExpense[];
+  saasMetrics: SaaSMetrics;
+  projections: ProjectionMonth[];
+  leaveLedger: any[];
+  googleEvents: any[];
+  isGoogleConnected: boolean;
+  googleAccessToken?: string;
+  stateVersion: number;
+  githubCommits: GitHubCommit[];
+  adRecharges: AdRechargeEvent[];
+  devProjects: DevProject[];
+  screenShareMode: boolean;
+  isGlobalLoading: boolean;
+  globalError: string | null;
+}
+
+type AppAction =
+  | { type: 'CREATE_TASK'; payload: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> }
+  | { type: 'UPDATE_TASK'; payload: { id: string; updates: Partial<Task> } }
+  | { type: 'DELETE_TASK'; payload: { id: string } }
+  | { type: 'SET_TASK_STATUS'; payload: { id: string; status: Task['status']; actorId: string; note?: string } }
+  | { type: 'START_TIMER'; payload: { taskId: string; userId: string } }
+  | { type: 'STOP_TIMER'; payload: { taskId: string; userId: string } }
+  | { type: 'TICK' }
+  | { type: 'ADD_AUDIT'; payload: AuditEntry }
+  | { type: 'LOG_TIME_MANUAL'; payload: { taskId: string; minutes: number; note: string; actorId: string; date?: string } }
+  | { type: 'ADD_TEAM_MEMBER'; payload: Omit<TeamMember, 'id'> }
+  | { type: 'UPDATE_TEAM_MEMBER'; payload: { id: string; updates: Partial<TeamMember> } }
+  | { type: 'REQUEST_APPROVAL'; payload: { taskId: string; approver: string; approvalType: 'budget' | 'task_completion' | 'self_assignment'; requestMessage?: string; requestedBy: string; } }
+  | { type: 'RESOLVE_APPROVAL'; payload: { taskId: string; approvalId: string; status: 'approved' | 'rejected'; responseMessage?: string; } }
+  | { type: 'ADD_REVIEW_COMMENT'; payload: { taskId: string; text: string; authorId: string } }
+  | { type: 'HYDRATE_STATE'; payload: AppState }
+  | { type: 'CREATE_NOTIFICATION'; payload: Omit<Notification, 'id' | 'createdAt' | 'read'> }
+  | { type: 'MARK_ALL_NOTIFICATIONS_READ'; payload: { userId: string } }
+  | { type: 'MARK_NOTIFICATION_READ'; payload: { id: string } }
+  | { type: 'SET_CURRENT_USER'; payload: { userId: string } }
+  | { type: 'UPDATE_LEAD'; payload: Lead }
+  | { type: 'ADD_LEAD'; payload: Lead }
+  | { type: 'SET_SCREEN_SHARE_MODE'; payload: boolean }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'DECIDE_APPROVAL'; payload: { id: string; decision: 'approved' | 'rejected'; note?: string } }
+  | { type: 'UPDATE_DEAL_STAGE'; payload: { id: string; stage: string } }
+  | { type: 'CREATE_DEAL'; payload: any }
+  | { type: 'SET_GOOGLE_EVENTS'; payload: { events: any[], accessToken?: string } }
+  | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'CLOCK_IN'; payload: { userId: string; date: string; time: string; isLate?: boolean } }
+  | { type: 'CLOCK_OUT'; payload: { userId: string; date: string; time: string } };
+
+// ─────────────────────────────────────────────────────────────
+// INITIAL STATE
+// ─────────────────────────────────────────────────────────────
+const initialState: AppState = {
+  tasks: [],
+  clients: CLIENTS,
+  teamMembers: TEAM_MEMBERS,
+  credentials: [],
+  socialMetrics: [],
+  activeTimers: [],
+  auditLog: [],
+  currentUserId: 'u1',
+  tickCount: 0,
+  notifications: [],
+  timeEntries: [],
+  meetingNotes: [],
+  leads: [],
+  leaveRequests: [],
+  campaignWeeklyLogs: [],
+  attendanceLogs: [],
+  adAccountBalances: [],
+  githubActivity: [],
+  githubRepos: [],
+  payments: [],
+  meetings: [],
+  campaigns: [], // fetched
+  campaignLogs2: [],
+  opexExpenses: [],
+  saasMetrics: { currentMRR: 0, targetMRR: 0, clientsByPlan: [], monthlyHistory: [] },
+  projections: [],
+  leaveLedger: [],
+  googleEvents: [],
+  isGoogleConnected: false,
+  stateVersion: 12,
+  githubCommits: [],
+  adRecharges: [],
+  devProjects: [],
+  screenShareMode: false,
+  approvals: [],
+  expenseClaims: [],
+  jobPostings: [],
+  candidates: [],
+  timesheets: [],
+  deals: [],
+  isGlobalLoading: false,
+  globalError: null,
+};
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+function makeAuditId() { return `AUD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`; }
+function makeTaskId() { return `TSK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`; }
+
+function addAudit(log: AuditEntry[], entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry[] {
+  return [
+    { id: makeAuditId(), timestamp: new Date().toISOString(), ...entry },
+    ...log,
+  ];
+}
+
+function getActorName(state: AppState, actorId: string): string {
+  return state.teamMembers.find(m => m.id === actorId)?.name ?? 'Unknown';
+}
+
+function getClientName(state: AppState, clientId: string): string {
+  return state.clients.find(c => c.id === clientId)?.name ?? '—';
+}
+
+// ─────────────────────────────────────────────────────────────
+// REDUCER
+// ─────────────────────────────────────────────────────────────
+function appReducer(state: AppState, action: AppAction): AppState {
+  switch (action.type) {
+
+    case 'SET_CURRENT_USER': {
+      return { ...state, currentUserId: action.payload.userId };
+    }
+
+    case 'CREATE_TASK': {
+      const newTask: Task = {
+        ...action.payload,
+        id: action.payload.id || makeTaskId(),
+        loggedMinutes: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const actor = getActorName(state, action.payload.createdBy);
+      const clientName = getClientName(state, action.payload.clientId);
+      return {
+        ...state,
+        tasks: [newTask, ...state.tasks],
+        auditLog: addAudit(state.auditLog, {
+          actor,
+          actorId: action.payload.createdBy,
+          action: 'task_create',
+          entity: 'Task',
+          entityRef: action.payload.title,
+          clientName,
+          meta: `Priority: ${action.payload.priority}`,
+        }),
+      };
+    }
+
+    case 'UPDATE_TASK': {
+      const task = state.tasks.find(t => t.id === action.payload.id);
+      if (!task) return state;
+      
+      let newAuditLog = state.auditLog;
+      const actor = getActorName(state, state.currentUserId);
+      const clientName = getClientName(state, task.clientId);
+      const updates = action.payload.updates;
+
+      if (updates.priority && updates.priority !== task.priority) {
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_priority_change', entity: 'Task', entityRef: task.title, clientName, meta: `${task.priority} → ${updates.priority}` });
+      }
+      if (updates.deadline !== undefined && updates.deadline !== task.deadline) {
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_deadline_change', entity: 'Task', entityRef: task.title, clientName, meta: `Deadline updated` });
+      }
+      if (updates.assignedTo !== undefined && JSON.stringify(updates.assignedTo) !== JSON.stringify(task.assignedTo)) {
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_assign_change', entity: 'Task', entityRef: task.title, clientName, meta: `Assignees updated` });
+      }
+
+      return {
+        ...state,
+        tasks: state.tasks.map(t =>
+          t.id === action.payload.id
+            ? { ...t, ...updates, updatedAt: new Date().toISOString() }
+            : t
+        ),
+        auditLog: newAuditLog,
+      };
+    }
+
+    case 'DELETE_TASK': {
+      const taskToDelete = state.tasks.find(t => t.id === action.payload.id);
+      if (!taskToDelete) return state;
+
+      const actor = getActorName(state, state.currentUserId);
+      const clientName = getClientName(state, taskToDelete.clientId);
+      const newAuditLog = addAudit(state.auditLog, {
+        actor, actorId: state.currentUserId, action: 'task_deleted', entity: 'Task', entityRef: taskToDelete.title, clientName, meta: `Task permanently deleted`
+      });
+
+      return {
+        ...state,
+        tasks: state.tasks.filter(t => t.id !== action.payload.id),
+        auditLog: newAuditLog,
+      };
+    }
+
+    case 'SET_TASK_STATUS': {
+      const task = state.tasks.find(t => t.id === action.payload.id);
+      if (!task) return state;
+      const prevStatus = task.status;
+
+      // Enforcement: Only assigner or admin can move a task back to Todo, UNLESS it's just stopping an in_progress task
+      if (action.payload.status === 'todo' && prevStatus !== 'todo' && prevStatus !== 'in_progress') {
+        const currentUser = state.teamMembers.find(m => m.id === action.payload.actorId);
+        const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'ops';
+        if (task.createdBy !== action.payload.actorId && !isAdmin) {
+          console.warn("Unauthorized: Only the task assigner or admin can move a task back to Todo.");
+          return state;
+        }
+      }
+
+      const actor = getActorName(state, action.payload.actorId);
+      const clientName = getClientName(state, task.clientId);
+      
+      const timers = [...state.activeTimers];
+      let updatedLoggedMinutes = task.loggedMinutes;
+      let auditEntries = state.auditLog;
+      const newTimeEntries = [...state.timeEntries];
+      const newNotifications = [...state.notifications];
+      const now = Date.now();
+
+      if (['paused', 'blocked', 'in_review', 'done'].includes(action.payload.status) && prevStatus !== action.payload.status) {
+        const targets = new Set<string>();
+        if (task.createdBy !== action.payload.actorId) targets.add(task.createdBy);
+        if ('u1' !== action.payload.actorId) targets.add('u1');
+        state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== action.payload.actorId).forEach(m => targets.add(m.id));
+        
+        // Extract mentions
+        if (action.payload.note) {
+          state.teamMembers.forEach(m => {
+            if (action.payload.note!.includes(`@${m.name}`) || action.payload.note!.includes(`@${m.name.split(' ')[0]}`)) {
+              targets.add(m.id);
+            }
+          });
+        }
+        
+        targets.forEach(userId => {
+          newNotifications.push({
+            id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`,
+            userId,
+            actorId: action.payload.actorId,
+            type: 'status_change',
+            taskId: task.id,
+            message: `Task moved to ${action.payload.status}${action.payload.note ? `: ${action.payload.note}` : ''}`,
+            read: false,
+            createdAt: new Date().toISOString()
+          });
+        });
+      }
+      
+      // Auto-timer logic
+      if (action.payload.status === 'in_progress' && prevStatus !== 'in_progress') {
+        // Start timer if not running
+        if (!timers.find(t => t.taskId === task.id)) {
+          timers.push({ taskId: task.id, userId: action.payload.actorId, startedAt: now, accumulated: task.loggedMinutes });
+          auditEntries = addAudit(auditEntries, {
+            actor, actorId: action.payload.actorId, action: 'timer_start', entity: 'Task', entityRef: task.title, clientName, meta: 'Timer auto-started'
+          });
+        }
+      } else if (action.payload.status !== 'in_progress' && prevStatus === 'in_progress') {
+        // Stop timer
+        const timerIndex = timers.findIndex(t => t.taskId === task.id);
+        if (timerIndex !== -1) {
+          const timer = timers[timerIndex];
+          const elapsed = Math.floor((now - timer.startedAt) / 60000);
+          updatedLoggedMinutes = timer.accumulated + elapsed;
+          timers.splice(timerIndex, 1);
+          newTimeEntries.push({
+            id: crypto.randomUUID(),
+            taskId: task.id,
+            userId: action.payload.actorId,
+            startedAt: new Date(timer.startedAt).toISOString(),
+            endedAt: new Date().toISOString(),
+            minutes: elapsed,
+            source: 'timer',
+            note: action.payload.note
+          });
+          auditEntries = addAudit(auditEntries, {
+            actor, actorId: action.payload.actorId, action: 'timer_stop', entity: 'Task', entityRef: task.title, clientName, meta: `Auto-stopped: ${formatMinutes(elapsed)}`
+          });
+        }
+      }
+      
+      // Add the status change audit log
+      auditEntries = addAudit(auditEntries, {
+        actor,
+        actorId: action.payload.actorId,
+        action: 'task_status_change',
+        entity: 'Task',
+        entityRef: task.title,
+        clientName,
+        meta: `${prevStatus} → ${action.payload.status}`,
+      });
+
+      let newCompletedAt = task.completedAt;
+      let newCompletedBy = task.completedBy;
+      if (action.payload.status === 'done' && prevStatus !== 'done') {
+        newCompletedAt = new Date().toISOString();
+        newCompletedBy = action.payload.actorId;
+      } else if (action.payload.status !== 'done' && prevStatus === 'done') {
+        newCompletedAt = undefined;
+        newCompletedBy = undefined;
+      }
+
+      return {
+        ...state,
+        activeTimers: timers,
+        timeEntries: newTimeEntries,
+        notifications: newNotifications,
+        tasks: state.tasks.map(t =>
+          t.id === action.payload.id
+            ? { ...t, status: action.payload.status, loggedMinutes: updatedLoggedMinutes, updatedAt: new Date(now).toISOString(), completedAt: newCompletedAt, completedBy: newCompletedBy }
+            : t
+        ),
+        auditLog: auditEntries,
+      };
+    }
+
+    case 'START_TIMER': {
+      const { taskId, userId } = action.payload;
+      // If timer already running for this task, no-op
+      if (state.activeTimers.find(t => t.taskId === taskId)) return state;
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task) return state;
+      const actor = getActorName(state, userId);
+      const clientName = getClientName(state, task.clientId);
+      return {
+        ...state,
+        activeTimers: [
+          ...state.activeTimers,
+          { taskId, userId, startedAt: Date.now(), accumulated: task.loggedMinutes },
+        ],
+        auditLog: addAudit(state.auditLog, {
+          actor,
+          actorId: userId,
+          action: 'timer_start',
+          entity: 'Task',
+          entityRef: task.title,
+          clientName,
+          meta: 'Timer started',
+        }),
+      };
+    }
+
+    case 'STOP_TIMER': {
+      const { taskId, userId } = action.payload;
+      const timer = state.activeTimers.find(t => t.taskId === taskId);
+      if (!timer) return state;
+      const elapsedMinutes = Math.floor((Date.now() - timer.startedAt) / 60000);
+      const totalMinutes = timer.accumulated + elapsedMinutes;
+      const task = state.tasks.find(t => t.id === taskId);
+      const actor = getActorName(state, userId);
+      const clientName = task ? getClientName(state, task.clientId) : '—';
+      const newEntry: TimeEntry = {
+        id: crypto.randomUUID(),
+        taskId,
+        userId,
+        startedAt: new Date(timer.startedAt).toISOString(),
+        endedAt: new Date().toISOString(),
+        minutes: elapsedMinutes,
+        source: 'timer'
+      };
+      return {
+        ...state,
+        timeEntries: [...state.timeEntries, newEntry],
+        activeTimers: state.activeTimers.filter(t => t.taskId !== taskId),
+        tasks: state.tasks.map(t =>
+          t.id === taskId
+            ? { ...t, loggedMinutes: totalMinutes, updatedAt: new Date().toISOString() }
+            : t
+        ),
+        auditLog: addAudit(state.auditLog, {
+          actor,
+          actorId: userId,
+          action: 'timer_stop',
+          entity: 'Task',
+          entityRef: task?.title ?? taskId,
+          clientName,
+          meta: `Duration: ${formatMinutes(elapsedMinutes)}`,
+        }),
+      };
+    }
+
+    case 'LOG_TIME_MANUAL': {
+      const { taskId, minutes, actorId } = action.payload;
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task) return state;
+      const actor = getActorName(state, actorId);
+      const clientName = getClientName(state, task.clientId);
+      const dt = action.payload.date ? new Date(action.payload.date) : new Date();
+      const newEntry: TimeEntry = {
+        id: crypto.randomUUID(),
+        taskId,
+        userId: actorId,
+        startedAt: dt.toISOString(),
+        endedAt: dt.toISOString(),
+        minutes: minutes,
+        source: 'manual',
+        note: action.payload.note
+      };
+      return {
+        ...state,
+        timeEntries: [...state.timeEntries, newEntry],
+        tasks: state.tasks.map(t =>
+          t.id === taskId
+            ? { ...t, loggedMinutes: t.loggedMinutes + minutes, updatedAt: new Date().toISOString() }
+            : t
+        ),
+        auditLog: addAudit(state.auditLog, {
+          actor,
+          actorId,
+          action: 'time_logged',
+          entity: 'Task',
+          entityRef: task.title,
+          clientName,
+          meta: `Manual: ${formatMinutes(minutes)}`,
+        }),
+      };
+    }
+
+    case 'ADD_AUDIT': {
+      return { ...state, auditLog: [action.payload, ...state.auditLog] };
+    }
+
+    case 'ADD_TEAM_MEMBER': {
+      const newMember: TeamMember = {
+        ...action.payload,
+        id: `u${crypto.randomUUID().slice(0, 8)}`,
+      };
+      return { ...state, teamMembers: [...state.teamMembers, newMember] };
+    }
+
+    case 'UPDATE_TEAM_MEMBER': {
+      return {
+        ...state,
+        teamMembers: state.teamMembers.map(m =>
+          m.id === action.payload.id ? { ...m, ...action.payload.updates } : m
+        ),
+      };
+    }
+
+    case 'UPDATE_LEAD': {
+      return {
+        ...state,
+        leads: state.leads.map(l =>
+          l.id === action.payload.id ? action.payload : l
+        ),
+      };
+    }
+
+    case 'ADD_LEAD': {
+      return {
+        ...state,
+        leads: [action.payload, ...state.leads],
+      };
+    }
+
+    case 'REQUEST_APPROVAL': {
+      const { taskId, approver, approvalType, requestMessage, requestedBy } = action.payload;
+      return {
+        ...state,
+        tasks: state.tasks.map(t => {
+          if (t.id === taskId) {
+            const newApproval: TaskApproval = {
+              id: `app_${Math.random().toString(36).substr(2, 9)}`,
+              requestedBy,
+              approver,
+              type: approvalType,
+              status: 'pending',
+              requestMessage
+            };
+            return { ...t, approvals: [...(t.approvals || []), newApproval], updatedAt: new Date().toISOString() };
+          }
+          return t;
+        })
+      };
+    }
+
+    case 'RESOLVE_APPROVAL': {
+      const { taskId, approvalId, status, responseMessage } = action.payload;
+      const task = state.tasks.find(t => t.id === taskId);
+      const actor = getActorName(state, state.currentUserId);
+      const clientName = getClientName(state, task?.clientId || '');
+
+      const approval = task?.approvals?.find(a => a.id === approvalId);
+      
+      let nextState = { ...state };
+      
+      nextState.tasks = nextState.tasks.map(t => {
+        if (t.id === taskId) {
+          const updatedApprovals = (t.approvals || []).map(app => 
+            app.id === approvalId ? { ...app, status, responseMessage } : app
+          );
+          let extraUpdates = {};
+          if (status === 'approved' && approval?.type === 'time_log' && approval.meta?.minutes) {
+             extraUpdates = { loggedMinutes: t.loggedMinutes + approval.meta.minutes };
+          }
+          return { ...t, ...extraUpdates, approvals: updatedApprovals, updatedAt: new Date().toISOString() };
+        }
+        return t;
+      });
+      
+      if (status === 'approved' && approval?.type === 'time_log' && approval.meta?.minutes) {
+        const dt = new Date();
+        const newEntry: TimeEntry = {
+          id: crypto.randomUUID(),
+          taskId,
+          userId: approval.requestedBy,
+          startedAt: dt.toISOString(),
+          endedAt: dt.toISOString(),
+          minutes: approval.meta.minutes,
+          source: 'manual',
+          note: approval.meta.note || ''
+        };
+        nextState.timeEntries = [...nextState.timeEntries, newEntry];
+      }
+      
+      nextState.auditLog = addAudit(nextState.auditLog, {
+        actor,
+        actorId: state.currentUserId,
+        action: `approval_${status}`,
+        entity: 'Task',
+        entityRef: task?.title || 'Unknown Task',
+        clientName,
+        meta: `Approval ${status}${responseMessage ? `: ${responseMessage}` : ''}`,
+      });
+      
+      return nextState;
+    }
+
+    case 'DECIDE_APPROVAL': {
+      const idx = state.approvals.findIndex(a => a.id === action.payload.id);
+      if (idx === -1) return state;
+      const updated = [...state.approvals];
+      updated[idx] = { 
+        ...updated[idx], 
+        status: action.payload.decision, 
+        decidedAt: new Date().toISOString(),
+        decisionNote: action.payload.note
+      };
+      return { ...state, approvals: updated };
+    }
+
+    case 'UPDATE_DEAL_STAGE': {
+      return {
+        ...state,
+        deals: state.deals.map(d => d.id === action.payload.id ? { ...d, stage: action.payload.stage } : d)
+      };
+    }
+
+    case 'CREATE_DEAL': {
+      return {
+        ...state,
+        deals: [...state.deals, { ...action.payload, id: `deal_${Date.now()}` }]
+      };
+    }
+
+    case 'ADD_REVIEW_COMMENT': {
+      const { taskId, text, authorId } = action.payload;
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task) return state;
+      
+      const actor = getActorName(state, authorId);
+      const clientName = getClientName(state, task.clientId);
+      
+      // Extract mentions
+      const targets = new Set<string>();
+      if (task.createdBy !== authorId) targets.add(task.createdBy);
+      if ('u1' !== authorId) targets.add('u1');
+      state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== authorId).forEach(m => targets.add(m.id));
+      
+      state.teamMembers.forEach(m => {
+        if (text.includes(`@${m.name}`) || text.includes(`@${m.name.split(' ')[0]}`)) {
+          targets.add(m.id);
+        }
+      });
+      
+      const newNotifications = [...state.notifications];
+      targets.forEach(userId => {
+        newNotifications.push({
+          id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`,
+          userId,
+          actorId: authorId,
+          type: 'mention',
+          taskId: task.id,
+          message: `Commented: ${text}`,
+          read: false,
+          createdAt: new Date().toISOString()
+        });
+      });
+      
+      return {
+        ...state,
+        notifications: newNotifications,
+        auditLog: addAudit(state.auditLog, {
+          actor,
+          actorId: authorId,
+          action: 'commented',
+          entity: 'Task',
+          entityRef: task.title,
+          clientName,
+          meta: text,
+        })
+      };
+    }
+
+    case 'TICK': {
+      return state; // Deprecated. No longer re-renders the whole app.
+    }
+    
+    
+        case 'SET_LOADING':
+      return { ...state, isGlobalLoading: action.payload };
+    case 'SET_ERROR':
+      return { ...state, globalError: action.payload, isGlobalLoading: false };
+    case 'SET_SCREEN_SHARE_MODE':
+      return { ...state, screenShareMode: action.payload };
+    case 'CREATE_NOTIFICATION':
+      return { ...state, notifications: [ { id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`, createdAt: new Date().toISOString(), read: false, ...action.payload }, ...state.notifications ] };
+    case 'MARK_NOTIFICATION_READ':
+      return { ...state, notifications: state.notifications.map(n => n.id === action.payload.id ? { ...n, read: true } : n) };
+    case 'MARK_ALL_NOTIFICATIONS_READ':
+      return {
+        ...state,
+        notifications: state.notifications.map(n => n.userId === action.payload.userId ? { ...n, read: true } : n)
+      };
+
+    case 'HYDRATE_STATE': {
+      const payloadTasks = Array.isArray(action.payload.tasks) ? action.payload.tasks.map((t: any) => ({ ...t, assignedTo: t.assignedTo || [] })) : undefined;
+      const payloadToMerge: any = { ...action.payload };
+      if (payloadTasks) {
+        payloadToMerge.tasks = payloadTasks;
+      } else if (action.payload.tasks && !Array.isArray(action.payload.tasks)) {
+        delete payloadToMerge.tasks;
+      }
+      if (action.payload.teamMembers && !Array.isArray(action.payload.teamMembers)) delete payloadToMerge.teamMembers;
+      if (action.payload.clients && !Array.isArray(action.payload.clients)) delete payloadToMerge.clients;
+      if (action.payload.campaigns && !Array.isArray(action.payload.campaigns)) delete payloadToMerge.campaigns;
+      
+      const migratedState = { ...state, ...payloadToMerge };
+      if (!migratedState.stateVersion || migratedState.stateVersion < 12) {
+        migratedState.stateVersion = 12;
+        migratedState.teamMembers = initialState.teamMembers;
+        // IMPORTANT: wipe all seed/dummy data so app starts clean
+        migratedState.tasks = [];
+        migratedState.timeEntries = [];
+        migratedState.auditLog = [];
+        migratedState.attendanceLogs = []; // clear old corrupted attendance data
+        migratedState.adAccountBalances = initialState.adAccountBalances;
+        migratedState.githubActivity = initialState.githubActivity;
+        migratedState.githubRepos = initialState.githubRepos;
+        migratedState.payments = initialState.payments;
+        migratedState.meetings = initialState.meetings;
+        migratedState.leads = initialState.leads;
+        migratedState.campaignWeeklyLogs = initialState.campaignWeeklyLogs;
+        migratedState.campaignLogs2 = initialState.campaignLogs2;
+        migratedState.opexExpenses = initialState.opexExpenses;
+        migratedState.saasMetrics = initialState.saasMetrics;
+        migratedState.projections = initialState.projections;
+        migratedState.leaveLedger = initialState.leaveLedger;
+        migratedState.googleEvents = initialState.googleEvents;
+        migratedState.isGoogleConnected = initialState.isGoogleConnected;
+        migratedState.githubCommits = initialState.githubCommits;
+        migratedState.adRecharges = initialState.adRecharges;
+        migratedState.devProjects = initialState.devProjects;
+
+        // Add synthetic time entries for tasks
+        const synthEntries: TimeEntry[] = [];
+        migratedState.tasks = migratedState.tasks.map((t: Task) => {
+          const mt = { ...t };
+          if (mt.loggedMinutes > 0) {
+            synthEntries.push({
+              id: crypto.randomUUID(), taskId: mt.id, userId: mt.assignedTo[0] || mt.createdBy,
+              startedAt: mt.updatedAt, endedAt: mt.updatedAt, minutes: mt.loggedMinutes, source: 'manual', migrated: true
+            });
+          }
+          if (mt.status === 'done' && !mt.completedAt) mt.completedAt = mt.updatedAt;
+          return mt;
+        });
+        migratedState.timeEntries = synthEntries;
+        migratedState.notifications = [];
+      }
+      return { 
+        ...initialState, 
+        ...migratedState,
+        tasks: migratedState.tasks || initialState.tasks,
+        clients: action.payload.clients || initialState.clients,
+        teamMembers: migratedState.teamMembers || initialState.teamMembers,
+        activeTimers: action.payload.activeTimers || initialState.activeTimers,
+        auditLog: action.payload.auditLog || initialState.auditLog,
+        credentials: action.payload.credentials || initialState.credentials,
+        socialMetrics: action.payload.socialMetrics || initialState.socialMetrics,
+        githubCommits: action.payload.githubCommits || initialState.githubCommits,
+        adRecharges: action.payload.adRecharges || initialState.adRecharges,
+        devProjects: action.payload.devProjects || initialState.devProjects
+      };
+    }
+
+    case 'CLOCK_IN': {
+      const { userId, date, time, isLate } = action.payload;
+      const actor = getActorName(state, userId);
+      const newAttendanceLogs = [...state.attendanceLogs];
+      const existing = newAttendanceLogs.find(l => l.userId === userId && l.date === date);
+      if (!existing) {
+        newAttendanceLogs.push({ userId, date, clockIn: time, clockOut: null, totalMinutes: 0, status: isLate ? 'late' : 'present' });
+      }
+      return {
+        ...state,
+        attendanceLogs: newAttendanceLogs,
+        auditLog: addAudit(state.auditLog, { actor, actorId: userId, action: 'clock_in', entity: 'Attendance', entityRef: date, clientName: '—', meta: 'User clocked in' })
+      };
+    }
+
+    case 'CLOCK_OUT': {
+      const { userId, date, time } = action.payload;
+      const actor = getActorName(state, userId);
+      const newAttendanceLogs = state.attendanceLogs.map(l => (l.userId === userId && l.date === date) ? { ...l, clockOut: time } : l);
+      
+      const h = new Date(time).getHours();
+      let newNotifications = [...state.notifications];
+      if (h >= 9 && h < 18) {
+        newNotifications.push({ id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`, userId, actorId: 'system', type: 'status_change', taskId: 'system', message: 'Warning: You have been clocked out before 6 PM. A Google Chat notification has been sent.', read: false, createdAt: new Date().toISOString() });
+      }
+
+      return {
+        ...state,
+        attendanceLogs: newAttendanceLogs,
+        notifications: newNotifications,
+        auditLog: addAudit(state.auditLog, { actor, actorId: userId, action: 'clock_out', entity: 'Attendance', entityRef: date, clientName: '—', meta: 'User clocked out' })
+      };
+    }
+
+    default:
+      return state;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// CONTEXT
+// ─────────────────────────────────────────────────────────────
+interface AppContextValue {
+  state: AppState;
+  dispatch: React.Dispatch<AppAction>;
+  decideApproval: (id: string, decision: 'approved' | 'rejected', note?: string) => void;
+  updateDealStage: (id: string, stage: string) => void;
+  createDeal: (deal: any) => void;
+  saveMeetingNote: (note: any) => void;
+  // Convenience computed
+  activeTasks: Task[];
+  overdueTasks: Task[];
+  todayTasks: Task[];
+  getTimerElapsed: (taskId: string) => number; // seconds
+  getTaskLoggedMinutes: (taskId: string) => number;
+  isTimerRunning: (taskId: string) => boolean;
+  startTimer: (taskId: string) => void;
+  stopTimer: (taskId: string) => void; // Immediate stop
+  requestStopTimer: (taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => void; // Opens modal
+  setTaskStatus: (taskId: string, status: Task['status'], note?: string) => void;
+  createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => void;
+  updateTask: (id: string, updates: Partial<Task>) => void;
+  deleteTask: (id: string) => void;
+  addTeamMember: (data: Omit<TeamMember, 'id'>) => void;
+  updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
+  setCurrentUser: (userId: string) => void;
+  requestApproval: (taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => void;
+  resolveApproval: (taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => void;
+  addReviewComment: (taskId: string, text: string) => void;
+  setScreenShareMode: (active: boolean) => void;
+  reloadData: () => void;
+  clockIn: (userId: string, date: string, time: string, isLate?: boolean) => void;
+  clockOut: (userId: string, date: string, time: string) => void;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+
+// ─────────────────────────────────────────────────────────────
+// PROVIDER
+// ─────────────────────────────────────────────────────────────
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { token, logout, user } = useAuth();
+
+  const [state, dispatch] = useReducer(appReducer, initialState);
+  const prevUserRef = useRef<string | undefined>(user?.id);
+  const stateRef = useRef(state);
+  stateRef.current = state; // inline ref sync — no useEffect needed
+  
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nowStr = new Date().toISOString();
+    
+    if (user?.id && user.id !== prevUserRef.current) {
+      dispatch({ type: 'SET_CURRENT_USER', payload: { userId: user.id } });
+      // Only clock in if NOT already clocked in today (prevent duplicate entries)
+      const todayLog = stateRef.current.attendanceLogs.find(
+        (a: any) => a.userId === user.id && a.date === todayStr
+      );
+      if (!todayLog) {
+        dispatch({ type: 'CLOCK_IN', payload: { userId: user.id, date: todayStr, time: nowStr } });
+      }
+    } else if (!user?.id && prevUserRef.current) {
+      dispatch({ type: 'CLOCK_OUT', payload: { userId: prevUserRef.current, date: todayStr, time: nowStr } });
+    }
+    prevUserRef.current = user?.id;
+
+    const handleBeforeUnload = () => {
+      if (user?.id) {
+        const today = new Date().toISOString().split('T')[0];
+        const nowStr = new Date().toISOString();
+        const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today);
+        
+        if (currentLog && !currentLog.clockOut) {
+          let updatedState = { ...stateRef.current };
+          
+          // 1. Clock out
+          updatedState.attendanceLogs = updatedState.attendanceLogs.map(a => 
+            a.id === currentLog.id ? { ...a, clockOut: nowStr } : a
+          );
+          
+          // 2. Stop any active timers
+          const userTimers = updatedState.activeTimers.filter(t => t.userId === user.id);
+          if (userTimers.length > 0) {
+            const nowMs = Date.now();
+            let newTasks = [...updatedState.tasks];
+            let newEntries = [...updatedState.timeEntries];
+            
+            userTimers.forEach(timer => {
+               const elapsedMin = Math.floor((nowMs - timer.startedAt) / 60000);
+               const totalMin = timer.accumulated + elapsedMin;
+               if (totalMin > 0) {
+                 newTasks = newTasks.map(t => t.id === timer.taskId ? { ...t, loggedMinutes: (t.loggedMinutes || 0) + totalMin } : t);
+                 newEntries.push({
+                   id: 'te-' + Date.now() + Math.random(),
+                   taskId: timer.taskId,
+                   userId: user.id,
+                   minutes: totalMin,
+                   date: today,
+                   note: 'Auto-logged on tab close'
+                 });
+               }
+            });
+            
+            updatedState.tasks = newTasks;
+            updatedState.timeEntries = newEntries;
+            updatedState.activeTimers = updatedState.activeTimers.filter(t => t.userId !== user.id);
+          }
+          
+          localStorage.setItem('invictus_app_state_v2', JSON.stringify(updatedState));
+        }
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [user?.id]);
+
+  const fetchData = useCallback(async () => {
+    return; // Bypass backend fetch for local mock mode
+    if (!token) return;
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const headers = { 'Authorization': `Bearer ${token}` };
+      
+      const [tasksRes, clientsRes, usersRes, campaignsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/tasks`, { headers }),
+        fetch(`${baseUrl}/api/clients`, { headers }),
+        fetch(`${baseUrl}/api/users`, { headers }),
+        fetch(`${baseUrl}/api/campaigns`, { headers })
+      ]);
+
+      if (tasksRes.status === 401 || clientsRes.status === 401) {
+        logout();
+        return;
+      }
+
+      const tasks = tasksRes.ok ? await tasksRes.json() : [];
+      const clients = clientsRes.ok ? await clientsRes.json() : [];
+      const users = usersRes.ok ? await usersRes.json() : [];
+      const campaigns = campaignsRes.ok ? await campaignsRes.json() : [];
+
+      dispatch({ type: 'HYDRATE_STATE', payload: {
+        tasks: tasks.data || tasks,
+        clients: clients.data || clients,
+        teamMembers: users.data || users,
+        campaigns: campaigns.data || campaigns,
+        isGlobalLoading: false,
+        globalError: null
+      } as any });
+      dispatch({ type: 'SET_LOADING', payload: false });
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', payload: 'Could not load tasks' });
+    }
+  }, [token, logout]);
+
+  useEffect(() => {
+    if (token) {
+      fetchData();
+    } else {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }, [token, fetchData]);
+
+
+  const [isMounted, setIsMounted] = React.useState(false);
+  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
+  const [stoppingTaskTargetStatus, setStoppingTaskTargetStatus] = useState<'paused' | 'in_review' | 'blocked' | null>(null);
+
+  // Persistence (BUG-07)
+  useEffect(() => {
+    const saved = localStorage.getItem('invictus_app_state_v2');
+    if (saved) {
+      try {
+        dispatch({ type: 'HYDRATE_STATE', payload: JSON.parse(saved) });
+      } catch (e) {}
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+
+    // Only persist essential slices — never serialize the full state (3-8MB)
+    const timer = setTimeout(() => {
+      const essentialState = {
+        tasks:             state.tasks,
+        clients:           state.clients,
+        teamMembers:       state.teamMembers,
+        attendanceLogs:    state.attendanceLogs,
+        activeTimers:      state.activeTimers,
+        notifications:     state.notifications,
+        currentUserId:     state.currentUserId,
+        leaveRequests:     state.leaveRequests,
+        googleEvents:      state.googleEvents,
+        isGoogleConnected: state.isGoogleConnected,
+        stateVersion:      state.stateVersion,
+      };
+      try {
+        localStorage.setItem('invictus_app_state_v2', JSON.stringify(essentialState));
+      } catch {
+        // localStorage full — clear stale data and retry
+        localStorage.removeItem('invictus_app_state_v2');
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [
+    state.tasks,
+    state.clients,
+    state.teamMembers,
+    state.attendanceLogs,
+    state.activeTimers,
+    state.notifications,
+    state.currentUserId,
+    state.leaveRequests,
+    state.googleEvents,
+    state.isGoogleConnected,
+    state.stateVersion,
+    isMounted,
+  ]);
+
+  const getTimerElapsed = useCallback((taskId: string): number => {
+    const timer = state.activeTimers.find(t => t.taskId === taskId);
+    if (!timer) return 0;
+    return Math.floor((Date.now() - timer.startedAt) / 1000);
+  }, [state.activeTimers]); // removed state.tickCount
+
+  const getTaskLoggedMinutes = useCallback((taskId: string): number => {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return 0;
+    const timer = state.activeTimers.find(t => t.taskId === taskId);
+    if (!timer) return task.loggedMinutes;
+    return task.loggedMinutes + Math.floor((Date.now() - timer.startedAt) / 60000);
+  }, [state.tasks, state.activeTimers]); // removed state.tickCount
+
+  const isTimerRunning = useCallback((taskId: string) =>
+    state.activeTimers.some(t => t.taskId === taskId),
+  [state.activeTimers]);
+
+  const startTimer = useCallback((taskId: string) => {
+    dispatch({ type: 'START_TIMER', payload: { taskId, userId: state.currentUserId } });
+  }, [state.currentUserId]);
+
+  const stopTimer = useCallback((taskId: string) => {
+    dispatch({ type: 'STOP_TIMER', payload: { taskId, userId: state.currentUserId } });
+  }, [state.currentUserId]);
+
+  const requestStopTimer = useCallback((taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => {
+    setStoppingTaskId(taskId);
+    setStoppingTaskTargetStatus(targetStatus || null);
+  }, []);
+
+  const setTaskStatus = useCallback((taskId: string, status: Task['status'], note?: string) => {
+    dispatch({ type: 'SET_TASK_STATUS', payload: { id: taskId, status, actorId: state.currentUserId, note } });
+  }, [state.currentUserId]);
+
+  const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => {
+    dispatch({ type: 'CREATE_TASK', payload: data });
+  }, []);
+
+  const updateTask = useCallback((id: string, updates: Partial<Task>) => {
+    dispatch({ type: 'UPDATE_TASK', payload: { id, updates } });
+  }, []);
+
+  const deleteTask = useCallback((id: string) => {
+    const task = state.tasks.find(t => t.id === id);
+    if (!task) return;
+    if (window.confirm(`Delete '${task.title}'? This cannot be undone.`)) {
+      dispatch({ type: 'DELETE_TASK', payload: { id } });
+    }
+  }, [state.tasks]);
+
+  const addTeamMember = useCallback((data: Omit<TeamMember, 'id'>) => dispatch({ type: 'ADD_TEAM_MEMBER', payload: data }), []);
+  const updateTeamMember = useCallback((id: string, updates: Partial<TeamMember>) => dispatch({ type: 'UPDATE_TEAM_MEMBER', payload: { id, updates } }), []);
+  const setCurrentUser = useCallback((userId: string) => dispatch({ type: 'SET_CURRENT_USER', payload: { userId } }), []);
+
+  const requestApproval = useCallback((taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => {
+    dispatch({ type: 'REQUEST_APPROVAL', payload: { taskId, approver, approvalType, requestMessage, requestedBy: state.currentUserId } });
+  }, [state.currentUserId]);
+
+  const resolveApproval = useCallback((taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => {
+    dispatch({ type: 'RESOLVE_APPROVAL', payload: { taskId, approvalId, status, responseMessage } });
+  }, []);
+
+  const decideApproval = useCallback((id: string, decision: 'approved' | 'rejected', note?: string) => {
+    dispatch({ type: 'DECIDE_APPROVAL', payload: { id, decision, note } });
+  }, []);
+
+  const updateDealStage = useCallback((id: string, stage: string) => {
+    dispatch({ type: 'UPDATE_DEAL_STAGE', payload: { id, stage } });
+  }, []);
+
+  const createDeal = useCallback((deal: any) => {
+    dispatch({ type: 'CREATE_DEAL', payload: deal });
+  }, []);
+
+  const saveMeetingNote = useCallback((note: any) => {
+    // Add logic to save meeting note to state or API
+    console.log('Saved meeting note:', note);
+  }, []);
+
+  const addReviewComment = useCallback((taskId: string, text: string) => {
+    dispatch({ type: 'ADD_REVIEW_COMMENT', payload: { taskId, text, authorId: state.currentUserId } });
+  }, [state.currentUserId]);
+
+  const setScreenShareMode = useCallback((active: boolean) => {
+    dispatch({ type: 'SET_SCREEN_SHARE_MODE', payload: active });
+  }, []);
+
+  const todayStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+  const activeTasks = React.useMemo(() => state.tasks.filter(t => t.status !== 'done'), [state.tasks]);
+  const overdueTasks = React.useMemo(() => state.tasks.filter(t => t.deadline && t.status !== 'done' && t.deadline < todayStr), [state.tasks, todayStr]);
+  const todayTasks = React.useMemo(() => state.tasks.filter(t => t.deadline && t.status !== 'done' && t.deadline === todayStr), [state.tasks, todayStr]);
+  const clockIn = useCallback((userId: string, date: string, time: string, isLate?: boolean) => {
+    dispatch({ type: 'CLOCK_IN', payload: { userId, date, time, isLate } });
+  }, []);
+
+  const clockOut = useCallback((userId: string, date: string, time: string) => {
+    dispatch({ type: 'CLOCK_OUT', payload: { userId, date, time } });
+  }, []);
+
+  const contextValue = React.useMemo(() => ({
+    reloadData: fetchData,
+    state,
+    dispatch,
+    activeTasks,
+    overdueTasks,
+    todayTasks,
+    getTimerElapsed,
+    getTaskLoggedMinutes,
+    isTimerRunning,
+    startTimer,
+    stopTimer,
+    requestStopTimer,
+    setTaskStatus,
+    createTask,
+    updateTask,
+    deleteTask,
+    addTeamMember,
+    updateTeamMember,
+    setCurrentUser,
+    requestApproval,
+    resolveApproval,
+    decideApproval,
+    updateDealStage,
+    createDeal,
+    saveMeetingNote,
+    addReviewComment,
+    setScreenShareMode,
+    clockIn,
+    clockOut,
+  }), [
+    state, fetchData, activeTasks, overdueTasks, todayTasks,
+    getTimerElapsed, getTaskLoggedMinutes, isTimerRunning,
+    startTimer, stopTimer, requestStopTimer, setTaskStatus,
+    createTask, updateTask, deleteTask, addTeamMember, updateTeamMember,
+    setCurrentUser, requestApproval, resolveApproval, decideApproval,
+    updateDealStage, createDeal, saveMeetingNote, addReviewComment,
+    setScreenShareMode, clockIn, clockOut,
+  ]);
+
+  return (
+    <AppContext.Provider value={contextValue}>
+      {children}
+      {isMounted && stoppingTaskId && (
+        <StopTimerModal 
+          taskId={stoppingTaskId} 
+          targetStatus={stoppingTaskTargetStatus}
+          onClose={() => {
+            setStoppingTaskId(null);
+            setStoppingTaskTargetStatus(null);
+          }} 
+        />
+      )}
+    </AppContext.Provider>
+  );
+}
+
+export function useApp() {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp must be used inside AppProvider');
+  return ctx;
+}
