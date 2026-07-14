@@ -153,6 +153,10 @@ if (process.env.DATABASE_URL) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
+    if (!pool) {
+      return res.status(500).json({ error: 'Database is not configured.' });
+    }
+
     try {
       // Fuzzy case-insensitive match on name or email prefix
       const result = await pool.query(
