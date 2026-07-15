@@ -33,10 +33,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    setIsMounted(true);
+
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
+
     // Check local storage for token on mount
     const savedToken = localStorage.getItem('invictus_jwt');
     const savedUser = localStorage.getItem('invictus_user');
@@ -70,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && isMounted) {
       if (!token && !pathname.startsWith('/login')) {
         router.push('/login');
       } else if (token) {
@@ -81,20 +89,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [token, loading, pathname, router, user]);
+  }, [token, loading, pathname, router, user, isMounted]);
 
   const login = (newToken: string, newUser: User) => {
-    localStorage.setItem('invictus_jwt', newToken);
-    localStorage.setItem('invictus_user', JSON.stringify(newUser));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('invictus_jwt', newToken);
+      localStorage.setItem('invictus_user', JSON.stringify(newUser));
+    }
     setToken(newToken);
     setUser(newUser);
     router.push(getDashboardRoute(newUser));
   };
 
   const logout = () => {
-    localStorage.removeItem('invictus_jwt');
-    localStorage.removeItem('invictus_user');
-    localStorage.removeItem('invictus_app_state');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('invictus_jwt');
+      localStorage.removeItem('invictus_user');
+      localStorage.removeItem('invictus_app_state');
+    }
     setToken(null);
     setUser(null);
     router.push('/login');
