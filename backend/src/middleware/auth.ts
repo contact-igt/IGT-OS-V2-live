@@ -13,12 +13,7 @@ declare global {
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  
-  if (token === 'mock-jwt-token-123') {
-    req.user = { id: 'mock-user', role: 'admin', email: 'mock@invictus.com' };
-    return next();
-  }
-  
+
   try {
     const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key';
     req.user = jwt.verify(token, JWT_SECRET);

@@ -5,7 +5,9 @@ import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', requireAuth, requireRole('admin', 'ops'), async (req: Request, res: Response) => {
+// Any authenticated user can read the roster (needed to populate assignee pickers
+// and the frontend's mock-id <-> real-id mapping) — only non-sensitive columns are selected.
+router.get('/', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 

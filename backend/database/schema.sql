@@ -11,9 +11,9 @@ CREATE TYPE user_role AS ENUM ('admin', 'ops', 'team', 'viewer');
 CREATE TYPE user_department AS ENUM ('bd', 'operations', 'design', 'development', 'video', 'performance_marketing', 'sales');
 CREATE TYPE client_category AS ENUM ('eye_care', 'fitness', 'healthcare', 'edtech', 'automotive', 'construction', 'other');
 CREATE TYPE contract_status AS ENUM ('active', 'paused', 'churned');
-CREATE TYPE task_category AS ENUM ('performance_marketing', 'social_media', 'video_editing', 'web_development', 'design_creative', 'content_writing', 'strategy', 'operations', 'whatsapp_automation', 'other');
+CREATE TYPE task_category AS ENUM ('performance_marketing', 'social_media', 'video_editing', 'web_development', 'design_creative', 'content_writing', 'strategy', 'operations', 'whatsapp_automation', 'seo', 'other');
 CREATE TYPE task_priority AS ENUM ('critical', 'high', 'medium', 'low');
-CREATE TYPE task_status AS ENUM ('todo', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled');
+CREATE TYPE task_status AS ENUM ('todo', 'in_progress', 'paused', 'in_review', 'done', 'blocked', 'cancelled');
 CREATE TYPE audit_action AS ENUM ('status_changed', 'assigned', 'unassigned', 'timer_started', 'timer_stopped', 'file_uploaded', 'comment_added', 'task_created', 'task_edited', 'marked_done', 'marked_undone', 'priority_changed', 'deadline_changed', 'export_requested', 'export_approved', 'export_downloaded');
 CREATE TYPE export_type AS ENUM ('time_report', 'task_report', 'client_report', 'campaign_report', 'full_export');
 CREATE TYPE export_status AS ENUM ('pending', 'approved', 'rejected', 'downloaded');
@@ -204,7 +204,20 @@ CREATE TABLE public.invoices (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 13. Leave Requests
+-- 13. Notifications
+CREATE TABLE public.notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  type TEXT NOT NULL DEFAULT 'assignment',
+  task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
+  message TEXT NOT NULL,
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_notifications_user_id ON public.notifications(user_id);
+
+-- 14. Leave Requests
 CREATE TABLE public.leave_requests (
   id SERIAL PRIMARY KEY,
   user_id VARCHAR(100),

@@ -100,10 +100,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Only clear this session's auth — not invictus_app_state_v2. Tasks/notifications
+    // now sync to the real backend, but that blob still caches shared local state;
+    // clearing it on logout would wipe other accounts' tasks from this browser too.
     if (typeof window !== 'undefined') {
       localStorage.removeItem('invictus_jwt');
       localStorage.removeItem('invictus_user');
-      localStorage.removeItem('invictus_app_state');
     }
     setToken(null);
     setUser(null);

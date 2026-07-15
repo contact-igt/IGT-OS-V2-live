@@ -3,10 +3,18 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// node-postgres parses DATE columns into a JS Date at local midnight by default,
+// which silently shifts the calendar date when re-serialized via toISOString() on
+// a server whose local timezone is ahead of UTC (e.g. IST). Returning the raw
+// 'YYYY-MM-DD' string instead avoids that entirely — callers do their own
+// date/time composition (see tasks.ts's serializeTask).
+types.setTypeParser(1082, (val) => val);
 
 import userRoutes from './routes/users';
 import taskRoutes from './routes/tasks';
+import notificationRoutes from './routes/notifications';
 import clientRoutes from './routes/clients';
 import campaignRoutes from './routes/campaigns';
 import analyticsRoutes from './routes/analytics';
@@ -249,6 +257,7 @@ app.get('/api/data', async (req: Request, res: Response) => {
 // Mount Loop 1 API routes
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/analytics', analyticsRoutes);

@@ -14,8 +14,31 @@ const PRIORITY_COLORS = {
   critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#94A3B8'
 };
 
+const isLeadershipMember = (m?: { role?: string; roleTag?: string } | null) =>
+  m?.role === 'super_admin' || m?.role === 'admin' || m?.roleTag === 'leadership';
+
+// Assignment hierarchy: leadership and the CTO can assign to anyone (Thariq's cross-department
+// assignments are gated by an approval/notify side-effect in handleSubmit, not by hiding options);
+// Abhilash (Operations Manager) can assign to anyone except leadership/the CTO; other department
+// heads are scoped to their own department; everyone else is locked to self-assignment.
+function getAssignmentScope(currentUser: any, teamMembers: any[]): { mode: 'open' | 'locked'; options: any[] } {
+  if (!currentUser) return { mode: 'locked', options: [] };
+  if (isLeadershipMember(currentUser) || currentUser.id === 'u-thariq') {
+    return { mode: 'open', options: teamMembers };
+  }
+  if (currentUser.id === 'u-abhilash') {
+    return { mode: 'open', options: teamMembers.filter(m => !isLeadershipMember(m) && m.id !== 'u-thariq') };
+  }
+  if (currentUser.isHeadOfDepartment) {
+    return { mode: 'open', options: teamMembers.filter(m => m.department === currentUser.department && !isLeadershipMember(m)) };
+  }
+  return { mode: 'locked', options: [] };
+}
+
 export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
-  const { createTask, state, requestApproval } = useApp();
+  const { createTask, state, requestApproval, notifyUser } = useApp();
+  const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
+  const scope = getAssignmentScope(currentUser, state.teamMembers);
 
   const [form, setForm] = useState({
     title: '',
@@ -24,7 +47,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     clientId: defaultClientId ?? '',
     category: 'performance_marketing' as TaskCategory,
     priority: 'high' as Task['priority'],
-    assignedTo: (state.teamMembers.find(m => m.id === state.currentUserId)?.role === "admin" || state.teamMembers.find(m => m.id === state.currentUserId)?.role === "super_admin" || state.teamMembers.find(m => m.id === state.currentUserId)?.roleTag === "leadership") ? [] : [state.currentUserId],
+    assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
     deadline: '',
     estimatedHours: '',
     description: '',
@@ -40,9 +63,6 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
   // Reset form when opened
   useEffect(() => {
     if (isOpen) {
-      const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
-      const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
-      
       setForm({
         title: defaultTitle || '',
         type: defaultType || 'task',
@@ -50,7 +70,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         clientId: defaultClientId ?? '',
         category: 'performance_marketing',
         priority: 'high',
-        assignedTo: isLeadership ? [] : [state.currentUserId],
+        assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
         deadline: '',
         estimatedHours: '',
         description: '',
@@ -102,6 +122,15 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (!form.clientId) e.clientId = 'Client is required';
     if (!form.deadline) e.deadline = 'Deadline is required';
     if (form.type === 'subtask' && !form.parentId) e.parentId = 'Parent Task is required for subtasks';
+    if (form.assignedTo.length === 0) {
+      e.assignedTo = 'Assign at least one team member';
+    } else if (!isLeadershipMember(currentUser) && currentUser?.id !== 'u-thariq') {
+      const targetsLeadershipOrCto = form.assignedTo.some(id => {
+        const m = state.teamMembers.find(t => t.id === id);
+        return m && (isLeadershipMember(m) || m.id === 'u-thariq');
+      });
+      if (targetsLeadershipOrCto) e.assignedTo = 'You cannot assign tasks to leadership';
+    }
     return e;
   };
 
@@ -109,11 +138,24 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setSubmitting(true);
-    
-    const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
-    const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
+
+    const isThariq = currentUser?.id === 'u-thariq';
     const ceo = state.teamMembers.find(m => m.role === 'super_admin');
-    
+    // Anyone with an "open" assignment scope (leadership, Thariq, Abhilash, other dept heads)
+    // manages their own assignments without a CEO self-assignment approval request.
+    const needsSelfAssignApproval = scope.mode === 'locked';
+
+    const applyThariqSideEffect = (taskId: string, taskTitle: string) => {
+      if (!isThariq || !ceo) return;
+      const allDev = form.assignedTo.every(id => state.teamMembers.find(m => m.id === id)?.department === 'Development');
+      if (allDev) {
+        const names = form.assignedTo.map(id => state.teamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', ');
+        notifyUser(ceo.id, `CTO has assigned "${taskTitle}" to ${names}`, taskId);
+      } else {
+        requestApproval(taskId, ceo.id, 'self_assignment', 'CTO assigned outside Development — requires Sushil/Anitha approval');
+      }
+    };
+
     const assets = form.driveLink.trim() ? [{ name: 'Drive Link', url: form.driveLink.trim() }] : [];
     
     if (isBatchMode) {
@@ -140,7 +182,8 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
           taskType: form.taskType || undefined,
           dependencies: form.dependencies.length > 0 ? form.dependencies : undefined,
         });
-        if (!isLeadership && ceo && form.assignedTo.includes(state.currentUserId)) {
+        applyThariqSideEffect(newTaskId, title);
+        if (needsSelfAssignApproval && ceo && form.assignedTo.includes(state.currentUserId)) {
           requestApproval(newTaskId, ceo.id, 'self_assignment', 'User self-assigned a new batch task');
         }
       });
@@ -166,8 +209,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         taskType: form.taskType || undefined,
         dependencies: form.dependencies.length > 0 ? form.dependencies : undefined,
       });
+      applyThariqSideEffect(newTaskId, form.title.trim());
 
-      if (!isLeadership && ceo && form.assignedTo.includes(state.currentUserId)) {
+      if (needsSelfAssignApproval && ceo && form.assignedTo.includes(state.currentUserId)) {
         requestApproval(newTaskId, ceo.id, 'self_assignment', 'User self-assigned a new task');
       }
 
@@ -194,7 +238,8 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             taskType: form.taskType || undefined,
             dependencies: form.dependencies.length > 0 ? form.dependencies : undefined,
           });
-          if (!isLeadership && ceo && form.assignedTo.includes(state.currentUserId)) {
+          applyThariqSideEffect(newSubtaskId, title);
+          if (needsSelfAssignApproval && ceo && form.assignedTo.includes(state.currentUserId)) {
             requestApproval(newSubtaskId, ceo.id, 'self_assignment', 'User self-assigned a new batch subtask');
           }
         });
@@ -485,88 +530,76 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
           {/* Assignees */}
           <div className="relative">
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--c-text-2)' }}>Assignees</label>
-            {(() => {
-              const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
-              const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
-              
-              if (!isLeadership) {
-                return (
-                  <div className="input-base min-h-[42px] flex items-center flex-wrap gap-1.5 opacity-70 cursor-not-allowed">
-                    {form.assignedTo.map(id => {
-                      const m = state.teamMembers.find(t => t.id === id);
-                      if (!m) return null;
-                      return (
-                        <div key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-2 border border-border text-[11px] font-medium text-text">
-                          <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
-                            {m.initials || m.name.charAt(0)}
-                          </div>
-                          {m.name.split(' ')[0]}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              }
-              
-              return (
-                <div 
-                  className="input-base min-h-[42px] flex items-center flex-wrap gap-1.5 cursor-pointer"
-                  onClick={() => setAssigneeDropdownOpen(!isAssigneeDropdownOpen)}
-                >
-                  {form.assignedTo.length === 0 && (
-                    <span className="text-text-3 text-[13px]">Select team members...</span>
-                  )}
-                  {form.assignedTo.map(id => {
-                    const m = state.teamMembers.find(t => t.id === id);
-                    if (!m) return null;
+            {scope.mode === 'locked' ? (
+              <div className="input-base min-h-[42px] flex items-center flex-wrap gap-1.5 opacity-70 cursor-not-allowed">
+                {form.assignedTo.map(id => {
+                  const m = state.teamMembers.find(t => t.id === id);
+                  if (!m) return null;
+                  return (
+                    <div key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-2 border border-border text-[11px] font-medium text-text">
+                      <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
+                        {m.initials || m.name.charAt(0)}
+                      </div>
+                      {m.name.split(' ')[0]}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div
+                className="input-base min-h-[42px] flex items-center flex-wrap gap-1.5 cursor-pointer"
+                onClick={() => setAssigneeDropdownOpen(!isAssigneeDropdownOpen)}
+              >
+                {form.assignedTo.length === 0 && (
+                  <span className="text-text-3 text-[13px]">Select team members...</span>
+                )}
+                {form.assignedTo.map(id => {
+                  const m = state.teamMembers.find(t => t.id === id);
+                  if (!m) return null;
+                  return (
+                    <div key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-2 border border-border text-[11px] font-medium text-text">
+                      <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
+                        {m.initials || m.name.charAt(0)}
+                      </div>
+                      {m.name.split(' ')[0]}
+                      <button type="button" onClick={(e) => { e.stopPropagation(); toggleAssignee(m.id); }} className="text-text-3 hover:text-red-500 ml-1">
+                        <span className="material-symbols-outlined text-[14px]">close</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {errors.assignedTo && <p className="text-[11px] mt-1 text-red-500">{errors.assignedTo}</p>}
+
+            {scope.mode === 'open' && isAssigneeDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setAssigneeDropdownOpen(false)} />
+                <div className="absolute z-20 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-[220px] overflow-y-auto custom-scrollbar">
+                  {scope.options.map(m => {
+                    const selected = form.assignedTo.includes(m.id);
                     return (
-                      <div key={m.id} className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-2 border border-border text-[11px] font-medium text-text">
-                        <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
+                      <div
+                        key={m.id}
+                        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-hover transition-colors"
+                        onClick={() => {
+                          toggleAssignee(m.id);
+                        }}
+                      >
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
                           {m.initials || m.name.charAt(0)}
                         </div>
-                        {m.name.split(' ')[0]}
-                        <button type="button" onClick={(e) => { e.stopPropagation(); toggleAssignee(m.id); }} className="text-text-3 hover:text-red-500 ml-1">
-                          <span className="material-symbols-outlined text-[14px]">close</span>
-                        </button>
+                        <div className="flex-1 text-[13px] text-text font-medium">{m.name}</div>
+                        {selected && <span className="material-symbols-outlined text-primary text-[18px]">check</span>}
                       </div>
                     );
                   })}
+                  {scope.options.length === 0 && (
+                    <div className="px-3 py-2.5 text-[12px] text-text-3">No team members available.</div>
+                  )}
                 </div>
-              );
-            })()}
-            
-            {(() => {
-              const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
-              const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
-              
-              if (!isLeadership) return null;
-              
-              return isAssigneeDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setAssigneeDropdownOpen(false)} />
-                  <div className="absolute z-20 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-[220px] overflow-y-auto custom-scrollbar">
-                    {state.teamMembers.map(m => {
-                      const selected = form.assignedTo.includes(m.id);
-                      return (
-                        <div 
-                          key={m.id}
-                          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-hover transition-colors"
-                          onClick={() => {
-                            toggleAssignee(m.id);
-                          }}
-                        >
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: m.color || '#94A3B8' }}>
-                            {m.initials || m.name.charAt(0)}
-                          </div>
-                          <div className="flex-1 text-[13px] text-text font-medium">{m.name}</div>
-                          {selected && <span className="material-symbols-outlined text-primary text-[18px]">check</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })()}
+              </>
+            )}
           </div>
           
           {/* Subtasks Batch for Goals */}
