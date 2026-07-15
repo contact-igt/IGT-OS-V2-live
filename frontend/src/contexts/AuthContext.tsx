@@ -33,10 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    setIsMounted(true);
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
     // Check local storage for token on mount
     const savedToken = localStorage.getItem('invictus_jwt');
     const savedUser = localStorage.getItem('invictus_user');
@@ -70,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && isMounted) {
       if (!token && !pathname.startsWith('/login')) {
         router.push('/login');
       } else if (token) {
@@ -81,23 +87,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [token, loading, pathname, router, user]);
+  }, [token, loading, pathname, router, user, isMounted]);
 
   const login = (newToken: string, newUser: User) => {
-    localStorage.setItem('invictus_jwt', newToken);
-    localStorage.setItem('invictus_user', JSON.stringify(newUser));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('invictus_jwt', newToken);
+      localStorage.setItem('invictus_user', JSON.stringify(newUser));
+    }
     setToken(newToken);
     setUser(newUser);
     router.push(getDashboardRoute(newUser));
   };
 
   const logout = () => {
-    // Only clear this session's auth — not invictus_app_state_v2. This app has no
-    // real backend for tasks/notifications, so that blob is the shared "database"
-    // every user on this browser reads from; clearing it on logout would destroy
-    // tasks/assignments other accounts created, not just stale per-session data.
-    localStorage.removeItem('invictus_jwt');
-    localStorage.removeItem('invictus_user');
+    // Only clear this session's auth — not invictus_app_state_v2. Tasks/notifications
+    // now sync to the real backend, but that blob still caches shared local state;
+    // clearing it on logout would wipe other accounts' tasks from this browser too.
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('invictus_jwt');
+      localStorage.removeItem('invictus_user');
+    }
     setToken(null);
     setUser(null);
     router.push('/login');
