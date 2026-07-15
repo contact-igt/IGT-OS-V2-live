@@ -1,7 +1,7 @@
 import re
 import os
 
-paths = ["./database/seed.sql", "./supabase/seed.sql"]
+paths = ["./database/seed.sql"]
 for path in paths:
     if os.path.exists(path):
         with open(path, "r") as f:
