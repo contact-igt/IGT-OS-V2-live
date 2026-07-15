@@ -101,6 +101,18 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
           <span>Est {est}h</span>
           <span>&middot;</span>
           <span>Logged {logged}h</span>
+          <span>&middot;</span>
+          {task.deadline ? (
+            <span className={`flex items-center gap-1 ${overdueDays > 0 ? 'text-red-500 font-semibold' : ''}`}>
+              <span className="material-symbols-outlined text-[12px]">calendar_today</span>
+              {new Date(task.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-text-3 italic">
+              <span className="material-symbols-outlined text-[12px]">calendar_today</span>
+              No due date
+            </span>
+          )}
         </div>
         
         {/* Progress Bar */}

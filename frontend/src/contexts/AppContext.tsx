@@ -870,6 +870,7 @@ interface AppContextValue {
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
   setCurrentUser: (userId: string) => void;
   requestApproval: (taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => void;
+  notifyUser: (userId: string, message: string, taskId?: string, type?: string) => void;
   resolveApproval: (taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => void;
   addReviewComment: (taskId: string, text: string) => void;
   setScreenShareMode: (active: boolean) => void;
@@ -890,6 +891,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const prevUserRef = useRef<string | undefined>(user?.id);
   const stateRef = useRef(state);
   stateRef.current = state; // inline ref sync — no useEffect needed
+
+  // Mock ids ('u-sushil', 'c1', ...) used throughout the app's hierarchy/permission
+  // logic don't match the real backend's UUIDs. These maps (built from /api/users
+  // and /api/clients by matching email / short code) translate between the two so
+  // tasks actually persist to Postgres under real foreign keys, while every existing
+  // component keeps working against the familiar mock ids.
+  const userIdMapRef = useRef<{ toDb: Record<string, string>; toMock: Record<string, string> }>({ toDb: {}, toMock: {} });
+  const clientIdMapRef = useRef<{ toDb: Record<string, string>; toMock: Record<string, string> }>({ toDb: {}, toMock: {} });
+  // Maps a freshly-created task's local id to the real id Postgres assigned it, until
+  // the next fetchData() makes the real id the task's id everywhere.
+  const taskIdMapRef = useRef<Record<string, string>>({});
   
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -910,7 +922,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     prevUserRef.current = user?.id;
 
     const handleBeforeUnload = () => {
-      if (user?.id) {
+      // Read the JWT directly (not the possibly-stale `user` closure) so a logout that
+      // fires this same handler via its own navigation doesn't resurrect cleared state.
+      if (user?.id && localStorage.getItem('invictus_jwt')) {
         const today = new Date().toISOString().split('T')[0];
         const nowStr = new Date().toISOString();
         const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today);
@@ -955,46 +969,76 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [user?.id]);
 
   const fetchData = useCallback(async () => {
-    return; // Bypass backend fetch for local mock mode
     if (!token) return;
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const headers = { 'Authorization': `Bearer ${token}` };
-      
-      const [tasksRes, clientsRes, usersRes, campaignsRes] = await Promise.all([
-        fetch(`${baseUrl}/api/tasks`, { headers }),
-        fetch(`${baseUrl}/api/clients`, { headers }),
+
+      const [usersRes, clientsRes, tasksRes, notificationsRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, { headers }),
-        fetch(`${baseUrl}/api/campaigns`, { headers })
+        fetch(`${baseUrl}/api/clients`, { headers }),
+        fetch(`${baseUrl}/api/tasks`, { headers }),
+        fetch(`${baseUrl}/api/notifications`, { headers }),
       ]);
 
-      if (tasksRes.status === 401 || clientsRes.status === 401) {
+      if (usersRes.status === 401 || tasksRes.status === 401) {
         logout();
         return;
       }
 
-      const tasks = tasksRes.ok ? await tasksRes.json() : [];
-      const clients = clientsRes.ok ? await clientsRes.json() : [];
-      const users = usersRes.ok ? await usersRes.json() : [];
-      const campaigns = campaignsRes.ok ? await campaignsRes.json() : [];
+      const dbUsers = usersRes.ok ? await usersRes.json() : [];
+      const dbClients = clientsRes.ok ? await clientsRes.json() : [];
+      const dbTasks = tasksRes.ok ? await tasksRes.json() : [];
+      const dbNotifications = notificationsRes.ok ? await notificationsRes.json() : [];
+
+      // Build the mock-id <-> real-id maps (see refs above for why these exist).
+      const toDbUser: Record<string, string> = {};
+      const toMockUser: Record<string, string> = {};
+      for (const mock of stateRef.current.teamMembers) {
+        const match = dbUsers.find((u: any) => u.email && mock.email && u.email.toLowerCase() === mock.email.toLowerCase());
+        if (match) { toDbUser[mock.id] = match.id; toMockUser[match.id] = mock.id; }
+      }
+      userIdMapRef.current = { toDb: toDbUser, toMock: toMockUser };
+
+      const toDbClient: Record<string, string> = {};
+      const toMockClient: Record<string, string> = {};
+      for (const mock of CLIENTS) {
+        const match = dbClients.find((c: any) => (c.short_code || c.shortCode)?.toUpperCase() === mock.code?.toUpperCase());
+        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = mock.id; }
+      }
+      clientIdMapRef.current = { toDb: toDbClient, toMock: toMockClient };
+
+      const translatedTasks = dbTasks.map((t: any) => ({
+        ...t,
+        type: t.type || 'task',
+        assignedTo: (t.assignedTo || []).map((dbId: string) => toMockUser[dbId]).filter(Boolean),
+        createdBy: toMockUser[t.createdBy] || t.createdBy,
+        clientId: toMockClient[t.clientId] || t.clientId,
+        tags: t.tags || [],
+      }));
+
+      const translatedNotifications = dbNotifications.map((n: any) => ({
+        ...n,
+        userId: toMockUser[n.userId] || n.userId,
+        actorId: toMockUser[n.actorId] || n.actorId,
+      }));
 
       dispatch({ type: 'HYDRATE_STATE', payload: {
-        tasks: tasks.data || tasks,
-        clients: clients.data || clients,
-        teamMembers: users.data || users,
-        campaigns: campaigns.data || campaigns,
+        tasks: translatedTasks,
+        notifications: translatedNotifications,
         isGlobalLoading: false,
         globalError: null
       } as any });
       dispatch({ type: 'SET_LOADING', payload: false });
     } catch (err: any) {
-      dispatch({ type: 'SET_ERROR', payload: 'Could not load tasks' });
+      console.error('fetchData failed, keeping local state:', err);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, [token, logout]);
 
@@ -1101,6 +1145,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isGoogleConnected: state.isGoogleConnected,
         stateVersion:      state.stateVersion,
       };
+      // Skip writes once logged out — otherwise this timer (scheduled before logout)
+      // fires after logout's localStorage.removeItem and silently resurrects the
+      // just-cleared state.
+      if (!localStorage.getItem('invictus_jwt')) return;
       try {
         localStorage.setItem('invictus_app_state_v2', JSON.stringify(essentialState));
       } catch {
@@ -1156,17 +1204,94 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setStoppingTaskTargetStatus(targetStatus || null);
   }, []);
 
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
   const setTaskStatus = useCallback((taskId: string, status: Task['status'], note?: string) => {
     dispatch({ type: 'SET_TASK_STATUS', payload: { id: taskId, status, actorId: state.currentUserId, note } });
-  }, [state.currentUserId]);
+
+    if (token) {
+      const dbTaskId = taskIdMapRef.current[taskId] || taskId;
+      fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      }).catch(err => console.error('Failed to sync status change to backend:', err));
+    }
+  }, [state.currentUserId, token]);
 
   const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => {
     dispatch({ type: 'CREATE_TASK', payload: data });
-  }, []);
+
+    if (token) {
+      (async () => {
+        try {
+          const dbClientId = clientIdMapRef.current.toDb[data.clientId];
+          if (!dbClientId) {
+            console.warn('No backend client mapping for', data.clientId, '— task created locally only.');
+            return;
+          }
+          const dbAssignedTo = (data.assignedTo || []).map(mockId => userIdMapRef.current.toDb[mockId]).filter(Boolean);
+
+          const res = await fetch(`${apiBaseUrl}/api/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              title: data.title,
+              description: data.description,
+              clientId: dbClientId,
+              category: data.category,
+              assignedTo: dbAssignedTo,
+              priority: data.priority,
+              status: data.status,
+              deadline: data.deadline,
+              estimatedHours: data.estimatedHours,
+              tags: data.tags,
+            }),
+          });
+          if (!res.ok) { console.error('Backend rejected task creation:', await res.text()); return; }
+          const created = await res.json();
+          if (data.id) taskIdMapRef.current[data.id] = created.id;
+
+          // Mirror the local assignment notification (see CREATE_TASK reducer case) to the
+          // backend so it's visible to the assignee's account in a different session too.
+          for (const dbUserId of dbAssignedTo) {
+            fetch(`${apiBaseUrl}/api/notifications`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ userId: dbUserId, type: 'assignment', taskId: created.id, message: `You have been assigned a new task: ${data.title}` }),
+            }).catch(err => console.error('Failed to sync assignment notification:', err));
+          }
+        } catch (err) {
+          console.error('Failed to sync new task to backend:', err);
+        }
+      })();
+    }
+  }, [token]);
 
   const updateTask = useCallback((id: string, updates: Partial<Task>) => {
     dispatch({ type: 'UPDATE_TASK', payload: { id, updates } });
-  }, []);
+
+    if (token) {
+      (async () => {
+        try {
+          const dbTaskId = taskIdMapRef.current[id] || id;
+          const body: any = { ...updates };
+          if (updates.assignedTo) {
+            body.assignedTo = updates.assignedTo.map(mockId => userIdMapRef.current.toDb[mockId]).filter(Boolean);
+          }
+          delete body.clientId; // client reassignment isn't supported by this path today
+
+          await fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(body),
+          });
+        } catch (err) {
+          console.error('Failed to sync task update to backend:', err);
+        }
+      })();
+    }
+  }, [token]);
 
   const deleteTask = useCallback((id: string) => {
     const task = state.tasks.find(t => t.id === id);
@@ -1183,6 +1308,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const requestApproval = useCallback((taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => {
     dispatch({ type: 'REQUEST_APPROVAL', payload: { taskId, approver, approvalType, requestMessage, requestedBy: state.currentUserId } });
   }, [state.currentUserId]);
+
+  // Notify an arbitrary user (mock id) of something (e.g. Thariq assigning within Development
+  // still needs Sushil informed). Dispatches locally and syncs to the backend so it survives
+  // a different login session, the same way task-assignment notifications do.
+  const notifyUser = useCallback((userId: string, message: string, taskId?: string, type: string = 'assignment') => {
+    dispatch({ type: 'CREATE_NOTIFICATION', payload: { userId, actorId: state.currentUserId, type, taskId: taskId || '', message } });
+
+    if (token) {
+      const dbUserId = userIdMapRef.current.toDb[userId];
+      const dbTaskId = taskId ? (taskIdMapRef.current[taskId] || taskId) : undefined;
+      if (dbUserId) {
+        fetch(`${apiBaseUrl}/api/notifications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ userId: dbUserId, type, taskId: dbTaskId, message }),
+        }).catch(err => console.error('Failed to sync notification to backend:', err));
+      }
+    }
+  }, [state.currentUserId, token]);
 
   const resolveApproval = useCallback((taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => {
     dispatch({ type: 'RESOLVE_APPROVAL', payload: { taskId, approvalId, status, responseMessage } });
@@ -1246,6 +1390,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateTeamMember,
     setCurrentUser,
     requestApproval,
+    notifyUser,
     resolveApproval,
     decideApproval,
     updateDealStage,
@@ -1260,7 +1405,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     getTimerElapsed, getTaskLoggedMinutes, isTimerRunning,
     startTimer, stopTimer, requestStopTimer, setTaskStatus,
     createTask, updateTask, deleteTask, addTeamMember, updateTeamMember,
-    setCurrentUser, requestApproval, resolveApproval, decideApproval,
+    setCurrentUser, requestApproval, notifyUser, resolveApproval, decideApproval,
     updateDealStage, createDeal, saveMeetingNote, addReviewComment,
     setScreenShareMode, clockIn, clockOut,
   ]);

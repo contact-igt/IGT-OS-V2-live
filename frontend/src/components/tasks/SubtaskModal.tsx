@@ -56,9 +56,11 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
   const addRow = () => setRows(prev => [...prev, emptyRow()]);
   const removeRow = (i: number) => setRows(prev => prev.filter((_, idx) => idx !== i));
 
+  const hasMissingDeadline = rows.some(r => r.title.trim() && !r.deadline);
+
   const handleSubmit = () => {
     const validRows = rows.filter(r => r.title.trim());
-    if (!validRows.length) return;
+    if (!validRows.length || hasMissingDeadline) return;
     setIsSubmitting(true);
 
     const now = new Date().toISOString();
@@ -274,17 +276,22 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 6 }}>
-                    Deadline
+                    Deadline *
                   </label>
                   <input
                     type="date"
                     value={rows[0].deadline}
                     onChange={e => updateRow(0, { deadline: e.target.value })}
                     style={{
-                      background: 'var(--c-input)', border: '1px solid var(--c-border)', borderRadius: 8,
+                      background: 'var(--c-input)',
+                      border: `1px solid ${!rows[0].deadline && rows[0].title.trim() ? '#EF4444' : 'var(--c-border)'}`,
+                      borderRadius: 8,
                       color: 'var(--c-text)', fontSize: 13, padding: '9px 12px', width: '100%', boxSizing: 'border-box',
                     }}
                   />
+                  {!rows[0].deadline && rows[0].title.trim() && (
+                    <p style={{ fontSize: 11, color: '#EF4444', marginTop: 4 }}>Deadline is required</p>
+                  )}
                 </div>
               </div>
 
@@ -328,7 +335,7 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
             /* ─── Batch Mode ─── */
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 130px 100px 80px 32px', gap: 8, padding: '0 0 8px', borderBottom: '1px solid var(--c-border)', marginBottom: 8 }}>
-                {['Subtask Title', 'Assignee', 'Deadline', 'Priority', 'Est. h', ''].map(h => (
+                {['Subtask Title', 'Assignee', 'Deadline *', 'Priority', 'Est. h', ''].map(h => (
                   <p key={h} style={{ fontSize: 10, fontWeight: 800, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</p>
                 ))}
               </div>
@@ -369,7 +376,8 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
                       onChange={e => updateRow(i, { deadline: e.target.value })}
                       style={{
                         padding: '8px 8px', fontSize: 12, background: 'var(--c-input)',
-                        border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text)',
+                        border: `1px solid ${!row.deadline && row.title.trim() ? '#EF4444' : 'var(--c-border)'}`,
+                        borderRadius: 8, color: 'var(--c-text)',
                       }}
                     />
                     <select
@@ -466,7 +474,10 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '16px 24px', borderTop: '1px solid var(--c-border)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+        <div style={{ padding: '16px 24px', borderTop: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+          {hasMissingDeadline && (
+            <p style={{ fontSize: 11, color: '#EF4444', marginRight: 'auto' }}>Every subtask needs a deadline before you can create it.</p>
+          )}
           <button
             onClick={onClose}
             style={{
@@ -478,11 +489,11 @@ export default function SubtaskModal({ parentTask, onClose }: Props) {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting || !rows.some(r => r.title.trim())}
+            disabled={isSubmitting || !rows.some(r => r.title.trim()) || hasMissingDeadline}
             style={{
               padding: '9px 24px', borderRadius: 10, fontSize: 13, fontWeight: 800,
               background: '#2AB182', border: 'none', color: '#fff', cursor: 'pointer',
-              opacity: !rows.some(r => r.title.trim()) ? 0.5 : 1,
+              opacity: (!rows.some(r => r.title.trim()) || hasMissingDeadline) ? 0.5 : 1,
               transition: 'all 0.15s',
             }}
           >

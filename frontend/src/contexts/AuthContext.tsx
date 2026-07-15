@@ -92,9 +92,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Only clear this session's auth — not invictus_app_state_v2. This app has no
+    // real backend for tasks/notifications, so that blob is the shared "database"
+    // every user on this browser reads from; clearing it on logout would destroy
+    // tasks/assignments other accounts created, not just stale per-session data.
     localStorage.removeItem('invictus_jwt');
     localStorage.removeItem('invictus_user');
-    localStorage.removeItem('invictus_app_state');
     setToken(null);
     setUser(null);
     router.push('/login');

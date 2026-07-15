@@ -12,6 +12,7 @@ export default function MyWorkspacePage() {
   const { state, setTaskStatus } = useApp();
   const { user: authUser } = useAuth();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   
   const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === authUser.id) || authUser : null;
   const firstName = currentUser?.name?.split(' ')[0] || 'Team Member';
@@ -48,6 +49,12 @@ export default function MyWorkspacePage() {
   
   const inReviewTasks = myTasks.filter(t => t.status === 'in_review');
   const upcomingTasks = myTasks.filter(t => !todaysFocus.find(tf => tf.id === t.id) && t.status !== 'in_review');
+  const overdueCount = myTasks.filter(t => {
+    if (!t.deadline) return false;
+    const dl = new Date(t.deadline);
+    dl.setHours(0, 0, 0, 0);
+    return dl.getTime() < today.getTime();
+  }).length;
   
   const activeTimerTask = myTasks.find(t => t.status === 'in_progress');
   const unreadCount = (state.notifications || []).filter(n => n.userId === state.currentUserId && !n.read).length;
@@ -70,7 +77,7 @@ export default function MyWorkspacePage() {
             )}
           </h2>
           <p className="text-[var(--c-text-2)] text-sm mt-1 flex items-center gap-2">
-            {dateStr} &middot; <span className="font-semibold text-[var(--c-text)]">{todaysFocus.length} due today</span> &middot; <span className="font-semibold text-red-500">1 overdue</span>
+            {dateStr} &middot; <span className="font-semibold text-[var(--c-text)]">{todaysFocus.length} due today</span> &middot; <span className="font-semibold text-red-500">{overdueCount} overdue</span>
           </p>
         </div>
         <div className="flex items-center gap-3 md:gap-4">
@@ -137,11 +144,14 @@ export default function MyWorkspacePage() {
               <ChevronRight className="text-[var(--c-text-3)]" /> Upcoming & Backlog
             </h3>
             <div className="space-y-4 opacity-75 hover:opacity-100 transition-opacity">
-              {upcomingTasks.slice(0, 3).map(t => (
+              {(showAllUpcoming ? upcomingTasks : upcomingTasks.slice(0, 3)).map(t => (
                 <TeamTaskCard key={t.id} task={t} onClick={() => setSelectedTaskId(t.id)} />
               ))}
-              {upcomingTasks.length > 3 && (
-                <button className="w-full py-3 bg-[var(--c-surface)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-2)] font-bold hover:text-[var(--c-text)] transition">
+              {!showAllUpcoming && upcomingTasks.length > 3 && (
+                <button
+                  onClick={() => setShowAllUpcoming(true)}
+                  className="w-full py-3 bg-[var(--c-surface)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-2)] font-bold hover:text-[var(--c-text)] transition"
+                >
                   View {upcomingTasks.length - 3} more tasks
                 </button>
               )}

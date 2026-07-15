@@ -171,6 +171,12 @@
 .input-base::placeholder { color: var(--c-text-3); }
 .input-base:focus { border-color: #2AB182; box-shadow: 0 0 0 3px rgba(42,177,130,0.12); }
 
+/* Native date/time picker icon is dark by default and invisible on dark inputs */
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 /* Buttons */
 .btn-primary {
   background-color: var(--c-primary);
