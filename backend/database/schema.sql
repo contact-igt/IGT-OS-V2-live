@@ -203,3 +203,18 @@ CREATE TABLE public.invoices (
   due_date DATE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 13. Leave Requests
+CREATE TABLE public.leave_requests (
+  id SERIAL PRIMARY KEY,
+  user_id VARCHAR(100),
+  user_name VARCHAR(200),
+  type VARCHAR(50),
+  from_date DATE,
+  to_date DATE,
+  reason TEXT,
+  reporting_manager VARCHAR(200) DEFAULT 'Abhilash B Nair',
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+

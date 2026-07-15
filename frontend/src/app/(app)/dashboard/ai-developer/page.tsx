@@ -119,7 +119,7 @@ export default function AIDeveloperDashboard() {
                   </a>
                   <a href="#" className="flex items-center gap-3 text-sm text-[var(--c-text-2)] hover:text-[var(--c-primary)] transition-colors p-2 rounded-lg hover:bg-[var(--c-surface-2)]">
                     <span className="material-symbols-outlined text-[18px]">database</span>
-                    Supabase Console
+                    Postgres Console
                   </a>
                 </div>
               </div>

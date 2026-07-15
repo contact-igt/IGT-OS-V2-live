@@ -1,6 +1,6 @@
 // ============================================================
 // INVICTUS OS — Master Data Store v3
-// All mock data. Replace with Supabase queries when ready.
+// All mock data. Replace with PostgreSQL queries when ready.
 // ============================================================
 
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
