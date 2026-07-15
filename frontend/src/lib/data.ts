@@ -35,7 +35,7 @@ export interface Notification {
   id: string;
   userId: string; // The recipient
   actorId: string; // The person who triggered it
-  type: 'mention' | 'status_change';
+  type: 'mention' | 'status_change' | 'assignment';
   taskId: string;
   message: string;
   read: boolean;

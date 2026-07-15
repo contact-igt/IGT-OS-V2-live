@@ -426,34 +426,15 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             </div>
           </div>
 
-          {/* Task Type and Dependencies */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Task Type (Optional)</label>
-              <select className="input-base" value={form.taskType} onChange={e => set('taskType', e.target.value)}>
-                <option value="">None</option>
-                {Object.keys(DEFAULT_BENCHMARKS).map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Dependencies (Hold Cmd/Ctrl)</label>
-              <select 
-                multiple 
-                className="input-base text-[12px] h-[36px]" 
-                style={{ padding: '4px' }}
-                value={form.dependencies} 
-                onChange={e => {
-                  const opts = Array.from(e.target.selectedOptions, option => option.value);
-                  set('dependencies', opts);
-                }}
-              >
-                {state.tasks.filter(t => t.id !== form.parentId && t.status !== 'done').map(t => (
-                  <option key={t.id} value={t.id}>{t.title}</option>
-                ))}
-              </select>
-            </div>
+          {/* Task Type */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Task Type (Optional)</label>
+            <select className="input-base" value={form.taskType} onChange={e => set('taskType', e.target.value)}>
+              <option value="">None</option>
+              {Object.keys(DEFAULT_BENCHMARKS).map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
           </div>
 
           {/* Priority */}
@@ -484,7 +465,14 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>
                 Deadline <span className="text-red-500">*</span>
               </label>
-              <input type="datetime-local" className="input-base" value={form.deadline} onChange={e => set('deadline', e.target.value)} />
+              <input 
+                type="datetime-local" 
+                className="input-base" 
+                value={form.deadline} 
+                onChange={e => set('deadline', e.target.value)} 
+                onClick={(e: any) => { try { e.target.showPicker(); } catch (err) {} }}
+                onFocus={(e: any) => { try { e.target.showPicker(); } catch (err) {} }}
+              />
               {errors.deadline && <p className="text-[11px] mt-1 text-red-500">{errors.deadline}</p>}
             </div>
             <div>

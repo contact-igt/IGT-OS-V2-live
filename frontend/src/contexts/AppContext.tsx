@@ -202,9 +202,26 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
       const actor = getActorName(state, action.payload.createdBy);
       const clientName = getClientName(state, action.payload.clientId);
+      
+      const newNotifications = [...state.notifications];
+      const assignees = action.payload.assignedTo || [];
+      assignees.forEach((userId: string) => {
+        newNotifications.push({
+          id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`,
+          userId,
+          actorId: action.payload.createdBy || 'system',
+          type: 'assignment',
+          taskId: newTask.id,
+          message: `You have been assigned a new task: ${newTask.title}`,
+          read: false,
+          createdAt: new Date().toISOString()
+        });
+      });
+
       return {
         ...state,
         tasks: [newTask, ...state.tasks],
+        notifications: newNotifications,
         auditLog: addAudit(state.auditLog, {
           actor,
           actorId: action.payload.createdBy,
@@ -232,6 +249,25 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (updates.deadline !== undefined && updates.deadline !== task.deadline) {
         newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_deadline_change', entity: 'Task', entityRef: task.title, clientName, meta: `Deadline updated` });
       }
+      
+      const prevAssignees = task.assignedTo || [];
+      const newAssignees = updates.assignedTo || [];
+      const addedAssignees = newAssignees.filter(uId => !prevAssignees.includes(uId));
+      
+      const newNotifications = [...state.notifications];
+      addedAssignees.forEach((userId: string) => {
+        newNotifications.push({
+          id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`,
+          userId,
+          actorId: state.currentUserId || 'system',
+          type: 'assignment',
+          taskId: task.id,
+          message: `You have been assigned to task: ${task.title}`,
+          read: false,
+          createdAt: new Date().toISOString()
+        });
+      });
+
       if (updates.assignedTo !== undefined && JSON.stringify(updates.assignedTo) !== JSON.stringify(task.assignedTo)) {
         newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_assign_change', entity: 'Task', entityRef: task.title, clientName, meta: `Assignees updated` });
       }
@@ -243,6 +279,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
             ? { ...t, ...updates, updatedAt: new Date().toISOString() }
             : t
         ),
+        notifications: newNotifications,
         auditLog: newAuditLog,
       };
     }
