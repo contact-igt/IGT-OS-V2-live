@@ -1010,18 +1010,78 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isMounted, setIsMounted] = React.useState(false);
   const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
   const [stoppingTaskTargetStatus, setStoppingTaskTargetStatus] = useState<'paused' | 'in_review' | 'blocked' | null>(null);
+  
+  // Notification alert sounds & popups
+  const [activeToast, setActiveToast] = useState<{ id: string; message: string; taskId?: string } | null>(null);
+  const prevNotifsLength = useRef(0);
 
   // Persistence (BUG-07)
   useEffect(() => {
     const saved = localStorage.getItem('invictus_app_state_v2');
     if (saved) {
       try {
-        dispatch({ type: 'HYDRATE_STATE', payload: JSON.parse(saved) });
+        const parsed = JSON.parse(saved);
+        dispatch({ type: 'HYDRATE_STATE', payload: parsed });
+        prevNotifsLength.current = parsed.notifications?.length || 0;
       } catch (e) {}
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
   }, []);
+
+  // Monitor notifications to trigger popups and play audio chime
+  useEffect(() => {
+    if (!isMounted) return;
+    
+    const count = state.notifications.length;
+    if (count > prevNotifsLength.current) {
+      // Find the newly added notification(s)
+      const latestNotif = state.notifications[0];
+      if (latestNotif && latestNotif.userId === state.currentUserId) {
+        // Play synthetic sound chimes
+        try {
+          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContext) {
+            const ctx = new AudioContext();
+            const playTone = (freq: number, startTime: number, duration: number) => {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(freq, startTime);
+              gain.gain.setValueAtTime(0, startTime);
+              gain.gain.linearRampToValueAtTime(0.12, startTime + 0.04);
+              gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(startTime);
+              osc.stop(startTime + duration);
+            };
+            const now = ctx.currentTime;
+            playTone(523.25, now, 0.35); // C5
+            playTone(783.99, now + 0.08, 0.45); // G5 (slack-like double chime)
+          }
+        } catch (err) {
+          console.warn('Audio chime failed:', err);
+        }
+
+        // Show sliding toast popup
+        setActiveToast({
+          id: latestNotif.id,
+          message: latestNotif.message,
+          taskId: latestNotif.taskId,
+        });
+      }
+    }
+    prevNotifsLength.current = count;
+  }, [state.notifications, state.currentUserId, isMounted]);
+
+  // Clear toast alert after 4.5 seconds
+  useEffect(() => {
+    if (activeToast) {
+      const t = setTimeout(() => setActiveToast(null), 4500);
+      return () => clearTimeout(t);
+    }
+  }, [activeToast]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -1217,6 +1277,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setStoppingTaskTargetStatus(null);
           }} 
         />
+      )}
+      
+      {/* Toast Alert popup system */}
+      {isMounted && activeToast && (
+        <>
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes toastSlideIn {
+              0% { transform: translateY(20px) scale(0.95); opacity: 0; }
+              100% { transform: translateY(0) scale(1); opacity: 1; }
+            }
+            .animate-toast-slide {
+              animation: toastSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+          `}} />
+          <div 
+            onClick={() => {
+              if (activeToast.taskId) {
+                window.dispatchEvent(new CustomEvent('open-task-drawer', { detail: { taskId: activeToast.taskId } }));
+              }
+              setActiveToast(null);
+            }}
+            className="fixed bottom-6 right-6 z-[9999] bg-[#1E293B] border border-[#2AB182]/30 rounded-xl p-4 shadow-[0_12px_40px_rgba(0,0,0,0.4)] flex items-start gap-3.5 cursor-pointer animate-toast-slide hover:border-[#2AB182] transition-colors max-w-sm"
+          >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(42,177,130,0.15)' }}>
+              <span className="material-symbols-outlined text-[#2AB182]" style={{ fontSize: 20, fontVariationSettings: "'FILL' 1" }}>notifications_active</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-[13px] text-white leading-tight">New Notification</p>
+              <p className="text-[12px] text-slate-300 leading-snug mt-1 break-words">{activeToast.message}</p>
+            </div>
+            <button className="text-slate-400 hover:text-white flex-shrink-0 p-0.5 rounded hover:bg-slate-700/50 transition-colors" onClick={(e) => { e.stopPropagation(); setActiveToast(null); }}>
+              <span className="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          </div>
+        </>
       )}
     </AppContext.Provider>
   );
