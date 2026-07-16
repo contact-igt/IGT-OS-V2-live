@@ -361,7 +361,7 @@ export const CLIENTS: Client[] = [
   { id: 'c12', code: 'SJTN', name: 'Sujit Annan',                  category: 'Eye Care',     monthlyRetainerINR: 0,     agencyFeeINR: 0,     contractStatus: 'active', primaryContact: 'Sujit Annan',       notes: 'Personal account.', budgetUtilization: 0, color: '#06B6D4' },
   { id: 'c-shte', code: 'SHTE', name: 'Shanti Eye Tech', category: 'Eye Care', monthlyRetainerINR: 0, agencyFeeINR: 0, contractStatus: 'active', primaryContact: 'TBC', notes: 'Veeravel completed responsive changes Jun 28. Client relationship exists — revenue to be confirmed.', budgetUtilization: 0, color: '#06B6D4' },
   { id: 'c-shsk', code: 'SHSK', name: 'Sahasraa High School', category: 'EdTech', monthlyRetainerINR: 0, agencyFeeINR: 0, contractStatus: 'active', primaryContact: 'TBC', notes: 'Elite-30 Admissions campaign + landing page in progress. Started by Jashwanth (now exited). Revenue TBC.', budgetUtilization: 0, color: '#8B5CF6' },
-  { id: 'c-igt', code: 'IGT-INTERNAL', name: 'Invictus Internal', category: 'Internal', monthlyRetainerINR: 0, agencyFeeINR: 0, contractStatus: 'active', primaryContact: 'Sushil', notes: 'Internal tasks.', budgetUtilization: 0, color: '#2AB182', isInternal: true },
+  { id: 'c-igt', code: 'IGTI', name: 'Invictus Internal', category: 'Internal', monthlyRetainerINR: 0, agencyFeeINR: 0, contractStatus: 'active', primaryContact: 'Sushil', notes: 'Internal tasks.', budgetUtilization: 0, color: '#2AB182', isInternal: true },
 ];
 
 // ─────────────────────────────────────────────────────────────
