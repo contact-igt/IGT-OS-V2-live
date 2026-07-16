@@ -19,7 +19,7 @@ import {
   type Lead, type CampaignLog, type MeetingEvent,
   type PaymentRecord, type Campaign, type CampaignWeeklyLog2,
   type OpexExpense, type SaaSMetrics, type ProjectionMonth,
-  type GitHubCommit, type AdRechargeEvent, type DevProject,
+  type GitHubCommit, type AdRechargeEvent, type DevProject, type SocialAccount,
   SystemApproval, ExpenseClaim, JobPosting, Candidate, Timesheet
 } from '@/lib/data';
 
@@ -41,6 +41,7 @@ export interface AppState {
   teamMembers: TeamMember[];
   credentials: ClientCredential[];
   socialMetrics: SocialMetric[];
+  socialAccounts: SocialAccount[];
   activeTimers: ActiveTimer[];
   auditLog: AuditEntry[];
   currentUserId: string;
@@ -122,6 +123,7 @@ const initialState: AppState = {
   teamMembers: TEAM_MEMBERS,
   credentials: [],
   socialMetrics: [],
+  socialAccounts: [],
   activeTimers: [],
   auditLog: [],
   currentUserId: 'u1',
@@ -915,6 +917,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       if (!todayLog) {
         dispatch({ type: 'CLOCK_IN', payload: { userId: user.id, date: todayStr, time: nowStr } });
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        fetch(`${baseUrl}/api/attendance/clock-in`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(err => console.error('Error syncing clock-in:', err));
       }
     } else if (!user?.id && prevUserRef.current) {
       dispatch({ type: 'CLOCK_OUT', payload: { userId: prevUserRef.current, date: todayStr, time: nowStr } });
@@ -924,14 +931,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const handleBeforeUnload = () => {
       // Read the JWT directly (not the possibly-stale `user` closure) so a logout that
       // fires this same handler via its own navigation doesn't resurrect cleared state.
-      if (user?.id && localStorage.getItem('invictus_jwt')) {
+      const jwt = localStorage.getItem('invictus_jwt');
+      if (user?.id && jwt) {
         const today = new Date().toISOString().split('T')[0];
         const nowStr = new Date().toISOString();
         const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today);
-        
+
         if (currentLog && !currentLog.clockOut) {
+          // keepalive lets the browser finish this request after the page starts unloading —
+          // a normal awaited fetch is unreliable inside beforeunload.
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+          fetch(`${baseUrl}/api/attendance/clock-out`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${jwt}` },
+            keepalive: true,
+          }).catch(() => {});
+
           let updatedState = { ...stateRef.current };
-          
+
           // 1. Clock out
           updatedState.attendanceLogs = updatedState.attendanceLogs.map(a => 
             a.id === currentLog.id ? { ...a, clockOut: nowStr } : a
@@ -980,11 +997,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [usersRes, clientsRes, tasksRes, notificationsRes] = await Promise.all([
+      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, { headers }),
         fetch(`${baseUrl}/api/clients`, { headers }),
         fetch(`${baseUrl}/api/tasks`, { headers }),
         fetch(`${baseUrl}/api/notifications`, { headers }),
+        fetch(`${baseUrl}/api/attendance`, { headers }),
+        fetch(`${baseUrl}/api/github/live`, { headers }),
+        fetch(`${baseUrl}/api/social/accounts`, { headers }),
       ]);
 
       if (usersRes.status === 401 || tasksRes.status === 401) {
@@ -996,6 +1016,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbClients = clientsRes.ok ? await clientsRes.json() : [];
       const dbTasks = tasksRes.ok ? await tasksRes.json() : [];
       const dbNotifications = notificationsRes.ok ? await notificationsRes.json() : [];
+      const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
+      const dbGithub = githubRes.ok ? await githubRes.json() : { repos: [], commits: [], pullRequests: [] };
+      const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
 
       // Build the mock-id <-> real-id maps (see refs above for why these exist).
       const toDbUser: Record<string, string> = {};
@@ -1029,9 +1052,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         actorId: toMockUser[n.actorId] || n.actorId,
       }));
 
+      // NOTE: unlike tasks/notifications, attendance userId is intentionally left as the
+      // real backend UUID, not translated through toMockUser — the existing local
+      // CLOCK_IN/CLOCK_OUT dispatches (and state.currentUserId) have always stored the
+      // real `user.id` from useAuth() here, so this keeps the DB-hydrated rows consistent
+      // with that pre-existing convention.
+      const translatedAttendance = dbAttendance.map((a: any) => {
+        const totalMinutes = a.clockIn && a.clockOut
+          ? Math.max(0, Math.round((new Date(a.clockOut).getTime() - new Date(a.clockIn).getTime()) / 60000))
+          : 0;
+        return {
+          ...a,
+          totalMinutes,
+          lateFlag: a.status === 'late',
+          source: 'web',
+          autoClosed: false,
+        };
+      });
+
+      const githubCommits = (dbGithub.commits || []).map((c: any) => ({
+        id: c.id,
+        userId: toMockUser[c.authorUserId] || null,
+        repo: c.repo,
+        clientId: null,
+        taskId: c.linkedTaskId || null,
+        message: c.message,
+        additions: c.additions || 0,
+        deletions: c.deletions || 0,
+        timestamp: c.timestamp,
+        isLive: true,
+      }));
+
+      const githubRepos = (dbGithub.repos || []).map((repo: any) => {
+        const repoCommits = (dbGithub.commits || []).filter((c: any) => c.repo === repo.name);
+        return {
+          name: repo.name,
+          clientId: null,
+          commitsThisWeek: repoCommits.length,
+          lastPushed: repoCommits[0]?.timestamp ? new Date(repoCommits[0].timestamp).toLocaleDateString() : 'Unknown',
+          contributors: Array.from(new Set(repoCommits.map((c: any) => toMockUser[c.authorUserId]).filter(Boolean))),
+          status: 'active' as const,
+        };
+      });
+
+      const devProjects = (dbGithub.repos || []).map((repo: any) => {
+        const repoCommits = (dbGithub.commits || []).filter((c: any) => c.repo === repo.name);
+        const repoPRs = (dbGithub.pullRequests || []).filter((pr: any) => pr.repo === repo.name);
+        const developers = Array.from(new Set(repoCommits.map((c: any) => toMockUser[c.authorUserId]).filter(Boolean))) as string[];
+        return {
+          id: repo.id,
+          repoName: `${repo.owner}/${repo.name}`,
+          clientId: null,
+          name: repo.name,
+          commitsThisWeek: repoCommits.length,
+          developers,
+          status: 'active' as const,
+          openPRs: repoPRs.filter((pr: any) => pr.state === 'open').length,
+          openIssues: repo.openIssues || 0,
+          lastPush: repoCommits[0]?.timestamp ? new Date(repoCommits[0].timestamp).toLocaleDateString() : 'Unknown',
+          isInternal: repo.name.toLowerCase().includes('internal') || repo.name.toLowerCase().includes('os'),
+        };
+      });
+
+      const socialAccounts = (dbSocial.accounts || []).map((a: any) => ({
+        ...a,
+        clientId: toMockClient[a.clientId] || null,
+      }));
+
       dispatch({ type: 'HYDRATE_STATE', payload: {
         tasks: translatedTasks,
         notifications: translatedNotifications,
+        attendanceLogs: translatedAttendance,
+        githubCommits,
+        githubRepos,
+        devProjects,
+        socialAccounts,
         isGlobalLoading: false,
         globalError: null
       } as any });
@@ -1379,11 +1474,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const todayTasks = React.useMemo(() => state.tasks.filter(t => t.deadline && t.status !== 'done' && t.deadline === todayStr), [state.tasks, todayStr]);
   const clockIn = useCallback((userId: string, date: string, time: string, isLate?: boolean) => {
     dispatch({ type: 'CLOCK_IN', payload: { userId, date, time, isLate } });
-  }, []);
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/attendance/clock-in`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(err => console.error('Error syncing clock-in:', err));
+    }
+  }, [token]);
 
   const clockOut = useCallback((userId: string, date: string, time: string) => {
     dispatch({ type: 'CLOCK_OUT', payload: { userId, date, time } });
-  }, []);
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/attendance/clock-out`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(err => console.error('Error syncing clock-out:', err));
+    }
+  }, [token]);
 
   const contextValue = React.useMemo(() => ({
     reloadData: fetchData,
