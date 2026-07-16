@@ -1059,6 +1059,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeToast, setActiveToast] = useState<{ id: string; message: string; taskId?: string } | null>(null);
   const prevNotifsLength = useRef(0);
 
+  // Surfaces backend-sync failures that would otherwise fail silently in the console —
+  // e.g. a task whose client/assignee has no real-DB mapping never reaches the server,
+  // so it looks fine locally but vanishes the moment fetchData() re-hydrates from the
+  // backend on the next login. Without this, that data loss is invisible until it's too late.
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const warnSyncFailure = useCallback((message: string) => {
+    console.error('[backend sync]', message);
+    setSyncWarning(message);
+  }, []);
+  useEffect(() => {
+    if (syncWarning) {
+      const t = setTimeout(() => setSyncWarning(null), 7000);
+      return () => clearTimeout(t);
+    }
+  }, [syncWarning]);
+
   // Persistence (BUG-07)
   useEffect(() => {
     const saved = localStorage.getItem('invictus_app_state_v2');
