@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
@@ -11,7 +11,7 @@ const CONNECT_ERROR_MESSAGES: Record<string, string> = {
   instagram_no_linked_account: "None of that Facebook account's Pages have a linked Instagram Business or Creator account.",
 };
 
-export default function SocialHubPage() {
+function SocialHubPageInner() {
   const { state, reloadData } = useApp();
   const [search, setSearch] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -258,5 +258,13 @@ export default function SocialHubPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SocialHubPage() {
+  return (
+    <Suspense fallback={<div className="w-full h-full" />}>
+      <SocialHubPageInner />
+    </Suspense>
   );
 }
