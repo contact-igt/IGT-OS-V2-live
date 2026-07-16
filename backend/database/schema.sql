@@ -231,3 +231,112 @@ CREATE TABLE public.leave_requests (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 15. Attendance Logs
+CREATE TABLE public.attendance_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  date DATE NOT NULL,
+  clock_in TIMESTAMPTZ NOT NULL,
+  clock_out TIMESTAMPTZ,
+  status TEXT DEFAULT 'present', -- 'present' | 'late'
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (user_id, date)
+);
+
+-- 16. GitHub App Integration
+ALTER TABLE public.users ADD COLUMN github_username TEXT UNIQUE;
+ALTER TABLE public.tasks ADD COLUMN display_code TEXT UNIQUE;
+
+CREATE TABLE public.github_installations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  github_org TEXT NOT NULL,
+  installed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  installed_at TIMESTAMPTZ DEFAULT now(),
+  is_active BOOLEAN DEFAULT true
+);
+
+CREATE TABLE public.github_repos (
+  id TEXT PRIMARY KEY,
+  installation_id UUID REFERENCES public.github_installations(id) ON DELETE CASCADE NOT NULL,
+  repo_name TEXT NOT NULL,
+  client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
+  project_id UUID,
+  is_tracked BOOLEAN DEFAULT true
+);
+
+CREATE TABLE public.github_commits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
+  sha TEXT UNIQUE NOT NULL,
+  author_github_username TEXT NOT NULL,
+  author_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  message TEXT NOT NULL,
+  committed_at TIMESTAMPTZ NOT NULL,
+  additions INTEGER DEFAULT 0,
+  deletions INTEGER DEFAULT 0,
+  files_changed INTEGER DEFAULT 0,
+  linked_task_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL
+);
+
+CREATE TABLE public.github_pull_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
+  pr_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  author_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  opened_at TIMESTAMPTZ NOT NULL,
+  merged_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  status TEXT NOT NULL, -- 'open' | 'merged' | 'closed'
+  additions INTEGER DEFAULT 0,
+  deletions INTEGER DEFAULT 0,
+  commits_count INTEGER DEFAULT 0,
+  linked_task_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL,
+  UNIQUE (repo_id, pr_number)
+);
+
+CREATE TABLE public.github_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pr_id UUID REFERENCES public.github_pull_requests(id) ON DELETE CASCADE NOT NULL,
+  reviewer_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  state TEXT NOT NULL,
+  submitted_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE public.github_deployments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
+  environment TEXT NOT NULL,
+  deployed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  deployed_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL
+);
+
+-- 17. Social Media Integration (Instagram + YouTube)
+CREATE TABLE public.social_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
+  platform TEXT NOT NULL, -- 'instagram' | 'youtube'
+  account_label TEXT NOT NULL,
+  platform_user_id TEXT UNIQUE NOT NULL,
+  encrypted_access_token BYTEA NOT NULL,
+  access_token_iv BYTEA NOT NULL,
+  encrypted_refresh_token BYTEA,
+  refresh_token_iv BYTEA,
+  token_expires_at TIMESTAMPTZ,
+  last_synced_at TIMESTAMPTZ,
+  latest_posts JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE public.social_metric_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID REFERENCES public.social_accounts(id) ON DELETE CASCADE NOT NULL,
+  followers INTEGER,
+  reach INTEGER,
+  views INTEGER,
+  watch_time_hours FLOAT,
+  engagement_rate FLOAT,
+  synced_at TIMESTAMPTZ DEFAULT now()
+);
+

@@ -20,6 +20,12 @@ import campaignRoutes from './routes/campaigns';
 import analyticsRoutes from './routes/analytics';
 import healthRoutes from './routes/health';
 import timeLogsRoutes from './routes/time_logs';
+import attendanceRoutes from './routes/attendance';
+import githubWebhookRoutes from './routes/githubWebhook';
+import githubDataRoutes from './routes/githubData';
+import instagramAuthRoutes from './routes/instagramAuth';
+import youtubeAuthRoutes from './routes/youtubeAuth';
+import socialSyncRoutes from './routes/socialSync';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import { requireAuth } from './middleware/auth';
 
@@ -30,6 +36,10 @@ const PORT = process.env.PORT || 4000;
 
 // Setup CORS and JSON parsing
 app.use(cors());
+// Must be mounted BEFORE express.json() below — the webhook needs the raw request
+// body (as Express received it) to verify GitHub's HMAC signature; once express.json()
+// has parsed it, the original bytes are gone.
+app.use('/api/webhooks/github', express.raw({ type: 'application/json' }), githubWebhookRoutes);
 app.use(express.json());
 
 // Initialize PG Pool if DATABASE_URL is available
@@ -263,6 +273,11 @@ app.use('/api/campaigns', campaignRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/github', githubDataRoutes);
+app.use('/api/auth/instagram', instagramAuthRoutes);
+app.use('/api/auth/youtube', youtubeAuthRoutes);
+app.use('/api/social', socialSyncRoutes);
 
 // Public — no auth required (login page hero)
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {

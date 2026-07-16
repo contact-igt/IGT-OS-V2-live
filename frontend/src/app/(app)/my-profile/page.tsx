@@ -3,9 +3,22 @@
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { User, Phone, Briefcase, Calendar, Clock, Star, Activity, Plus, FileText, CheckCircle, TrendingUp, Layers, PenTool, LayoutDashboard, MonitorPlay, Film, Code, Bug, Zap, Target, BarChart3, TrendingDown, Users, Search } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-const RoleSpecificMetrics = ({ department }: { department: string }) => {
+interface PerformanceMetrics {
+  score: number;
+  hoursThisWeekMinutes: number;
+  hoursThisWeekTargetMinutes: number;
+  avgWorkMinutesPerActiveDay: number;
+}
+
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h}h ${m}m`;
+}
+
+const RoleSpecificMetrics = ({ department, metrics, metricsLoading }: { department: string; metrics: PerformanceMetrics | null; metricsLoading: boolean }) => {
   switch (department) {
     case 'leadership':
     case 'operations':
@@ -156,7 +169,7 @@ const RoleSpecificMetrics = ({ department }: { department: string }) => {
               <span className="text-sm font-medium text-app-text2">Current Score</span>
             </div>
             <div className="text-xl font-bold font-syne text-app-text">
-              9.2/10
+              {metricsLoading ? '—' : metrics ? `${metrics.score.toFixed(1)}/10` : 'N/A'}
             </div>
           </div>
           <div className="bg-app-surface2 border border-app-border rounded-lg p-4 flex items-center justify-between">
@@ -165,7 +178,7 @@ const RoleSpecificMetrics = ({ department }: { department: string }) => {
               <span className="text-sm font-medium text-app-text2">Avg Work Time</span>
             </div>
             <div className="text-sm font-bold text-app-text">
-              7h 45m
+              {metricsLoading ? '—' : metrics ? formatMinutes(metrics.avgWorkMinutesPerActiveDay) : 'N/A'}
             </div>
           </div>
           <div className="bg-app-surface2 border border-app-border rounded-lg p-4 flex items-center justify-between">
@@ -174,7 +187,7 @@ const RoleSpecificMetrics = ({ department }: { department: string }) => {
               <span className="text-sm font-medium text-app-text2">Hours This Week</span>
             </div>
             <div className="text-sm font-bold text-app-text">
-              38 / 40
+              {metricsLoading ? '—' : metrics ? `${(metrics.hoursThisWeekMinutes / 60).toFixed(1)} / ${metrics.hoursThisWeekTargetMinutes / 60}` : 'N/A'}
             </div>
           </div>
         </div>
@@ -192,6 +205,21 @@ export default function MyProfilePage() {
     emergencyContact: ''
   });
   const [leaveState, setLeaveState] = useState({ type: 'sick', fromDate: '', toDate: '', reason: '' });
+  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const token = localStorage.getItem('invictus_jwt');
+    setMetricsLoading(true);
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/analytics/me/performance`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => setPerformanceMetrics(data))
+      .catch(err => console.error('Failed to load performance metrics:', err))
+      .finally(() => setMetricsLoading(false));
+  }, [user?.id]);
 
   const handleLeaveSubmit = async () => {
     try {
@@ -369,7 +397,7 @@ export default function MyProfilePage() {
               <Activity className="w-5 h-5 text-primary" /> Performance & Metrics
             </h2>
             
-            <RoleSpecificMetrics department={currentUser.department || ''} />
+            <RoleSpecificMetrics department={currentUser.department || ''} metrics={performanceMetrics} metricsLoading={metricsLoading} />
           </div>
 
           {/* Leave Request Form */}

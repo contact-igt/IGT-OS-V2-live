@@ -4,7 +4,7 @@
 // ============================================================
 
 // Re-export dashboard types for consumers
-export type { AttendanceLog, AdAccountBalance, GitHubDevActivity, GitHubRepo, Lead, CampaignLog, MeetingEvent, GitHubCommit, AdRechargeEvent, DevProject } from './seed_meetings';
+export type { AttendanceLog, AdAccountBalance, GitHubDevActivity, GitHubRepo, Lead, CampaignLog, MeetingEvent, GitHubCommit, AdRechargeEvent, DevProject, SocialAccount } from './seed_meetings';
 
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
 export type TaskStatus = 'todo' | 'in_progress' | 'paused' | 'rework' | 'in_review' | 'blocked' | 'done' | 'cancelled';

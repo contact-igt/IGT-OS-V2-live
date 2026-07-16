@@ -9,6 +9,18 @@ interface Props {
 }
 
 export default function SocialMediaWidget({ compactMode, state }: Props) {
+  const accounts = state?.socialAccounts || [];
+  const totalReach = accounts.reduce((acc: number, a: any) => acc + (a.reach || a.views || 0), 0);
+  const avgEngagement = accounts.length > 0
+    ? accounts.reduce((acc: number, a: any) => acc + (a.engagementRate || 0), 0) / accounts.length
+    : 0;
+
+  const igFollowers = accounts.filter((a: any) => a.platform === 'instagram').reduce((acc: number, a: any) => acc + (a.followers || 0), 0);
+  const ytFollowers = accounts.filter((a: any) => a.platform === 'youtube').reduce((acc: number, a: any) => acc + (a.followers || 0), 0);
+  const totalFollowers = igFollowers + ytFollowers;
+  const igShare = totalFollowers > 0 ? Math.round((igFollowers / totalFollowers) * 100) : 0;
+  const ytShare = totalFollowers > 0 ? 100 - igShare : 0;
+
   return (
     <>
       {" "}
@@ -49,17 +61,10 @@ export default function SocialMediaWidget({ compactMode, state }: Props) {
                 Total Reach
               </div>
               <div className="text-2xl font-bold text-blue-500">
-                {state.socialMetrics
-                  ? (
-                      state.socialMetrics.reduce(
-                        (acc: number, sm: any) => acc + (sm.reach || 0),
-                        0,
-                      ) / 1000
-                    ).toFixed(1) + "K"
-                  : "1.2M"}
+                {totalReach >= 1000000 ? (totalReach / 1000000).toFixed(1) + "M" : (totalReach / 1000).toFixed(1) + "K"}
               </div>
-              <div className="text-[10px] text-emerald-500 font-medium mt-1">
-                ↑ Active tracking
+              <div className="text-[10px] text-[var(--c-text-3)] font-medium mt-1">
+                {accounts.length > 0 ? `${accounts.length} account${accounts.length === 1 ? '' : 's'} tracked` : 'No accounts connected'}
               </div>
             </div>
             <div className="bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm">
@@ -67,64 +72,42 @@ export default function SocialMediaWidget({ compactMode, state }: Props) {
                 Engagement Rate
               </div>
               <div className="text-2xl font-bold">
-                {state.socialMetrics && state.socialMetrics.length > 0
-                  ? (
-                      state.socialMetrics.reduce(
-                        (acc: number, sm: any) =>
-                          acc + (sm.engagementRate || 0),
-                        0,
-                      ) / state.socialMetrics.length
-                    ).toFixed(1) + "%"
-                  : "4.8%"}
+                {avgEngagement.toFixed(1)}%
               </div>
-              <div className="text-[10px] text-emerald-500 font-medium mt-1">
-                ↑ Across channels
+              <div className="text-[10px] text-[var(--c-text-3)] font-medium mt-1">
+                Avg across channels
               </div>
             </div>
           </div>
 
           <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm flex-1 flex flex-col">
             <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-3">
-              Top Performing Platforms
+              Platform Split (by followers)
             </div>
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span>Instagram</span>
-                  <span>54%</span>
+            {totalFollowers === 0 ? (
+              <div className="text-xs text-[var(--c-text-3)] italic">No follower data yet — connect an account and sync.</div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs font-medium mb-1">
+                    <span>Instagram</span>
+                    <span>{igShare}%</span>
+                  </div>
+                  <div className="w-full bg-[var(--c-border)] rounded-full h-1.5">
+                    <div className="bg-pink-500 h-1.5 rounded-full" style={{ width: `${igShare}%` }}></div>
+                  </div>
                 </div>
-                <div className="w-full bg-[var(--c-border)] rounded-full h-1.5">
-                  <div
-                    className="bg-pink-500 h-1.5 rounded-full"
-                    style={{ width: "54%" }}
-                  ></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span>LinkedIn</span>
-                  <span>32%</span>
-                </div>
-                <div className="w-full bg-[var(--c-border)] rounded-full h-1.5">
-                  <div
-                    className="bg-blue-600 h-1.5 rounded-full"
-                    style={{ width: "32%" }}
-                  ></div>
+                <div>
+                  <div className="flex justify-between text-xs font-medium mb-1">
+                    <span>YouTube</span>
+                    <span>{ytShare}%</span>
+                  </div>
+                  <div className="w-full bg-[var(--c-border)] rounded-full h-1.5">
+                    <div className="bg-red-600 h-1.5 rounded-full" style={{ width: `${ytShare}%` }}></div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="flex justify-between text-xs font-medium mb-1">
-                  <span>X (Twitter)</span>
-                  <span>14%</span>
-                </div>
-                <div className="w-full bg-[var(--c-border)] rounded-full h-1.5">
-                  <div
-                    className="bg-neutral-800 dark:bg-neutral-300 h-1.5 rounded-full"
-                    style={{ width: "14%" }}
-                  ></div>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

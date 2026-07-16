@@ -9,7 +9,7 @@ import RoleWidget from '@/components/team/RoleWidget';
 import { Play, Square, CheckCircle, Bell, User, Clock, ChevronRight } from 'lucide-react';
 
 export default function MyWorkspacePage() {
-  const { state, setTaskStatus } = useApp();
+  const { state, setTaskStatus, clockIn, clockOut } = useApp();
   const { user: authUser } = useAuth();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
@@ -58,9 +58,6 @@ export default function MyWorkspacePage() {
   
   const activeTimerTask = myTasks.find(t => t.status === 'in_progress');
   const unreadCount = (state.notifications || []).filter(n => n.userId === state.currentUserId && !n.read).length;
-
-  const clockIn = (userId: string, dateStr: string, timeStr: string, isLate: boolean) => { console.log('Clock in', userId, dateStr); };
-  const clockOut = (userId: string, dateStr: string, timeStr: string) => { console.log('Clock out', userId, dateStr); };
 
   return (
     <div className="flex flex-col h-full gap-6 pb-20 md:pb-10 max-w-7xl mx-auto">

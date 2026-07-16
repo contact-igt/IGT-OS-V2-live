@@ -152,6 +152,31 @@ export interface DevProject {
   alertMessage?: string;
 }
 
+export interface SocialAccount {
+  id: string;
+  clientId: string | null;
+  platform: 'instagram' | 'youtube';
+  label: string;
+  lastSyncedAt: string | null;
+  lastUpdated: string | null;
+  followers: number | null;
+  followersChange: string | null;
+  followersGrowth30d: number | null;
+  reach: number | null;
+  reachChange: string | null;
+  views: number | null;
+  viewsChange: string | null;
+  watchTimeHours: number | null;
+  engagementRate: number | null;
+  sinceLastSync: {
+    followers: number;
+    reachPct: string | null;
+    viewsPct: string | null;
+    engagementRateDelta: string | null;
+  } | null;
+  latestPosts: { title: string; publishedAt: string; views: number; comments?: number; likes?: number; url: string }[];
+}
+
 // ── SEED: ATTENDANCE (today = Jul 12 2026) ──────────────────
 
 export const ATTENDANCE_TODAY: AttendanceLog[] = [

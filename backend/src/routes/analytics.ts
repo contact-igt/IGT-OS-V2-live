@@ -50,6 +50,83 @@ router.get('/team/:userId/month', requireAuth, async (req: Request, res: Respons
   }
 });
 
+// GET /me/performance — self-service performance score for the logged-in user.
+// Score is a weighted composite of on-time completion rate (50%), task throughput (30%),
+// and logged-hours consistency (20%), derived entirely from tasks/time_logs — no separate
+// "performance" table exists, and audit_logs (which would give an exact completion
+// timestamp) is never written to anywhere in this backend, so `tasks.updated_at` is used
+// as an approximate stand-in for "when a task was marked done".
+router.get('/me/performance', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  const WEEKLY_HOUR_TARGET_MINUTES = 40 * 60;
+  const WEEKLY_TASK_TARGET = 5;
+
+  try {
+    const userId = req.user.id;
+
+    const [weekResult, monthResult, taskResult] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(duration_minutes), 0) AS minutes
+         FROM public.time_logs
+         WHERE user_id = $1 AND started_at >= date_trunc('week', NOW()) AND ended_at IS NOT NULL`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(duration_minutes), 0) AS total_minutes,
+                COUNT(DISTINCT DATE(started_at)) AS active_days
+         FROM public.time_logs
+         WHERE user_id = $1 AND started_at >= NOW() - INTERVAL '30 days' AND ended_at IS NOT NULL`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (
+             WHERE status = 'done' AND deadline_date IS NOT NULL AND updated_at >= NOW() - INTERVAL '60 days'
+           ) AS completed_with_deadline,
+           COUNT(*) FILTER (
+             WHERE status = 'done' AND deadline_date IS NOT NULL AND updated_at >= NOW() - INTERVAL '60 days'
+             AND updated_at <= (deadline_date + COALESCE(deadline_time, '23:59:59'::time))
+           ) AS on_time,
+           COUNT(*) FILTER (
+             WHERE status = 'done' AND updated_at >= NOW() - INTERVAL '7 days'
+           ) AS completed_this_week
+         FROM public.tasks
+         WHERE $1 = ANY(assigned_to)`,
+        [userId]
+      ),
+    ]);
+
+    const hoursThisWeekMinutes = Number(weekResult.rows[0].minutes);
+
+    const totalMinutes30d = Number(monthResult.rows[0].total_minutes);
+    const activeDays30d = Number(monthResult.rows[0].active_days);
+    const avgWorkMinutesPerActiveDay = activeDays30d > 0 ? Math.round(totalMinutes30d / activeDays30d) : 0;
+
+    const completedWithDeadline = Number(taskResult.rows[0].completed_with_deadline);
+    const onTime = Number(taskResult.rows[0].on_time);
+    const completedThisWeek = Number(taskResult.rows[0].completed_this_week);
+
+    const onTimeRate = completedWithDeadline > 0 ? onTime / completedWithDeadline : 0.8;
+    const throughputRatio = Math.min(completedThisWeek / WEEKLY_TASK_TARGET, 1);
+    const hoursConsistency = Math.min(hoursThisWeekMinutes / WEEKLY_HOUR_TARGET_MINUTES, 1);
+
+    const score = Math.round((onTimeRate * 0.5 + throughputRatio * 0.3 + hoursConsistency * 0.2) * 10 * 10) / 10;
+
+    res.json({
+      score,
+      hoursThisWeekMinutes,
+      hoursThisWeekTargetMinutes: WEEKLY_HOUR_TARGET_MINUTES,
+      avgWorkMinutesPerActiveDay,
+      breakdown: { onTimeRate, throughputRatio, hoursConsistency },
+    });
+  } catch (error: any) {
+    console.error('Error fetching performance analytics:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/agency/finance', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
