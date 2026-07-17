@@ -18,8 +18,15 @@ function formatMinutes(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
-const RoleSpecificMetrics = ({ department, metrics, metricsLoading }: { department: string; metrics: PerformanceMetrics | null; metricsLoading: boolean }) => {
-  switch (department) {
+const RoleSpecificMetrics = ({ department, metrics, metricsLoading, agencyMetrics, initiativesStats, activeClientCount }: {
+  department: string;
+  metrics: PerformanceMetrics | null;
+  metricsLoading: boolean;
+  agencyMetrics: { monthlyArr: number | null; agencyHealthPercent: number | null } | null;
+  initiativesStats: { done: number; total: number };
+  activeClientCount: number;
+}) => {
+  switch (department.toLowerCase()) {
     case 'leadership':
     case 'operations':
       return (
@@ -29,25 +36,29 @@ const RoleSpecificMetrics = ({ department, metrics, metricsLoading }: { departme
               <TrendingUp className="w-5 h-5 text-green-500" />
               <span className="text-sm font-medium text-app-text2">Agency Health Score</span>
             </div>
-            <div className="text-xl font-bold font-syne text-app-text">98%</div>
+            <div className="text-xl font-bold font-syne text-app-text">
+              {agencyMetrics?.agencyHealthPercent === null || agencyMetrics?.agencyHealthPercent === undefined ? 'Not set' : `${agencyMetrics.agencyHealthPercent}%`}
+            </div>
           </div>
           <div className="bg-app-surface2 border border-app-border rounded-lg p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Users className="w-5 h-5 text-blue-400" />
               <span className="text-sm font-medium text-app-text2">Active Clients</span>
             </div>
-            <div className="text-sm font-bold text-app-text">14</div>
+            <div className="text-sm font-bold text-app-text">{activeClientCount}</div>
           </div>
           <div className="bg-app-surface2 border border-app-border rounded-lg p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <span className="text-sm font-medium text-app-text2">Strategic Initiatives</span>
             </div>
-            <div className="text-sm font-bold text-app-text">7/10 Completed</div>
+            <div className="text-sm font-bold text-app-text">
+              {initiativesStats.total === 0 ? 'No initiatives yet' : `${initiativesStats.done}/${initiativesStats.total} Completed`}
+            </div>
           </div>
         </div>
       );
-    
+
     case 'design':
       return (
         <div className="space-y-4">
@@ -207,6 +218,12 @@ export default function MyProfilePage() {
   const [leaveState, setLeaveState] = useState({ type: 'sick', fromDate: '', toDate: '', reason: '' });
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
+  const [githubUsername, setGithubUsername] = useState<string | null>(null);
+  const [githubUsernameInput, setGithubUsernameInput] = useState('');
+  const [githubSaveError, setGithubSaveError] = useState<string | null>(null);
+  const [githubSaving, setGithubSaving] = useState(false);
+  const [agencyMetrics, setAgencyMetrics] = useState<{ monthlyArr: number | null; agencyHealthPercent: number | null } | null>(null);
+  const [initiativesStats, setInitiativesStats] = useState({ done: 0, total: 0 });
 
   useEffect(() => {
     if (!user?.id) return;
@@ -219,7 +236,57 @@ export default function MyProfilePage() {
       .then(data => setPerformanceMetrics(data))
       .catch(err => console.error('Failed to load performance metrics:', err))
       .finally(() => setMetricsLoading(false));
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => {
+        setGithubUsername(data.github_username || null);
+        setGithubUsernameInput(data.github_username || '');
+      })
+      .catch(err => console.error('Failed to load github username:', err));
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/agency-metrics`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => setAgencyMetrics(data))
+      .catch(err => console.error('Failed to load agency metrics:', err));
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/agency-metrics/initiatives`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then((data: Array<{ progressPercent: number }>) => {
+        setInitiativesStats({ done: data.filter(i => i.progressPercent === 100).length, total: data.length });
+      })
+      .catch(err => console.error('Failed to load strategic initiatives:', err));
   }, [user?.id]);
+
+  const handleSaveGithubUsername = async () => {
+    setGithubSaveError(null);
+    setGithubSaving(true);
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ githubUsername: githubUsernameInput.trim() || null })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setGithubSaveError(data.error || 'Failed to save');
+        return;
+      }
+      setGithubUsername(data.github_username || null);
+      setGithubUsernameInput(data.github_username || '');
+    } catch (e) {
+      setGithubSaveError('Failed to save');
+    } finally {
+      setGithubSaving(false);
+    }
+  };
 
   const handleLeaveSubmit = async () => {
     try {
@@ -401,6 +468,38 @@ export default function MyProfilePage() {
               </div>
             </div>
           </div>
+
+          <div className="bg-app-surface border border-app-border rounded-xl p-6 relative overflow-hidden group hover:border-purple-500/50 transition-colors">
+            <h2 className="text-lg font-bold font-syne mb-2 flex items-center gap-2">
+              <Code className="w-5 h-5 text-purple-500" /> Developer Settings
+            </h2>
+            <p className="text-xs text-app-text2 mb-4">
+              Link your GitHub account so commits and pull requests you push are attributed to you in Development activity.
+            </p>
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-app-text3 uppercase tracking-wider mb-1 block">GitHub Username</label>
+                <input
+                  type="text"
+                  value={githubUsernameInput}
+                  onChange={(e) => { setGithubUsernameInput(e.target.value); setGithubSaveError(null); }}
+                  className="w-full bg-app-surface2 border border-app-border rounded px-3 py-1.5 text-sm text-app-text outline-none focus:border-primary"
+                  placeholder="e.g. octocat"
+                />
+              </div>
+              <button
+                onClick={handleSaveGithubUsername}
+                disabled={githubSaving || githubUsernameInput.trim() === (githubUsername || '')}
+                className="bg-app-surface2 hover:bg-app-hover text-app-text px-4 py-[7px] rounded-lg font-medium transition-colors text-sm border border-app-border disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {githubSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {githubSaveError && <p className="text-xs text-red-400 mt-2">{githubSaveError}</p>}
+            {githubUsername && !githubSaveError && (
+              <p className="text-xs text-app-text2 mt-2">Linked as <span className="text-app-text font-medium">@{githubUsername}</span></p>
+            )}
+          </div>
         </div>
 
         {/* Right Column - Performance & Leaves */}
@@ -410,7 +509,14 @@ export default function MyProfilePage() {
               <Activity className="w-5 h-5 text-primary" /> Performance & Metrics
             </h2>
             
-            <RoleSpecificMetrics department={currentUser.department || ''} metrics={performanceMetrics} metricsLoading={metricsLoading} />
+            <RoleSpecificMetrics
+              department={currentUser.department || ''}
+              metrics={performanceMetrics}
+              metricsLoading={metricsLoading}
+              agencyMetrics={agencyMetrics}
+              initiativesStats={initiativesStats}
+              activeClientCount={state.clients.length}
+            />
           </div>
 
           {/* Leave Request Form */}

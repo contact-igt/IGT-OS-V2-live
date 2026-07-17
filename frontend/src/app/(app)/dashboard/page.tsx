@@ -64,10 +64,20 @@ export default function DashboardPage() {
   
   const [layouts, setLayouts] = useState<any>(() => JSON.parse(JSON.stringify(DEFAULT_LAYOUT)));
   const [mounted, setMounted] = useState(false);
+  const [monthlyArr, setMonthlyArr] = useState<number | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/agency-metrics`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('invictus_jwt')}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => setMonthlyArr(data.monthlyArr))
+      .catch(err => console.error('Failed to load agency metrics:', err));
   }, []);
 
   const [financeIdleTimer, setFinanceIdleTimer] = useState<number>(0);
@@ -337,54 +347,63 @@ export default function DashboardPage() {
                     <div className="flex justify-between items-end mb-2">
                       <div>
                         <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-1">Collected (MTD)</div>
-                        <div className="text-3xl font-bold tracking-tight">₹4.2L</div>
+                        <div className="text-3xl font-bold tracking-tight">{renderMoney(totalCollected)}</div>
                       </div>
-                      <div className="text-sm font-medium text-[var(--c-text-2)] mb-1">Target: <span className="text-[var(--c-text)]">₹8.0L</span></div>
+                      <div className="text-sm font-medium text-[var(--c-text-2)] mb-1">Target: <span className="text-[var(--c-text)]">{renderMoney(totalDue)}</span></div>
                     </div>
                     <div className="w-full bg-[var(--c-border)] rounded-full h-2 mt-3">
-                      <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '52.5%' }}></div>
+                      <div className="bg-yellow-500 h-2 rounded-full" style={{ width: `${totalDue > 0 ? Math.min(100, (totalCollected / totalDue) * 100) : 0}%` }}></div>
                     </div>
                   </div>
 
-                  {/* Projections Graph */}
-                  <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm flex-1 flex flex-col">
-                    <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-3">Revenue Projection (Jul-Dec)</div>
-                    <div className="flex items-end justify-between gap-2 flex-1 mt-2 min-h-[100px]">
-                      {[1.0, 1.05, 1.12, 1.18, 1.25, 1.35].map((mult, idx) => {
-                        const baseMrr = 420000; // Base ₹4.2L
-                        const val = baseMrr * mult;
-                        const height = Math.min(100, Math.max(20, (mult - 0.5) * 100));
-                        const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        return (
-                          <div key={idx} className="flex flex-col items-center flex-1 group h-full justify-end">
-                            <div className="w-full bg-yellow-500/20 rounded-t-sm group-hover:bg-yellow-500/40 transition-colors relative" style={{ height: `${height}%` }}>
-                              <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-[var(--c-text)] text-[var(--c-bg)] text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 font-bold pointer-events-none">
-                                ₹{(val/100000).toFixed(1)}L
+                  {monthlyArr === null ? (
+                    <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm flex-1 flex flex-col items-center justify-center text-center gap-2">
+                      <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase">Revenue Projection</div>
+                      <p className="text-xs text-[var(--c-text-2)] max-w-[220px]">Set a Monthly ARR on the CEO Dashboard to see a projection here.</p>
+                      <button onClick={() => router.push('/dashboard/ceo')} className="text-xs text-primary font-bold hover:underline">Go to CEO Dashboard</button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Projections Graph */}
+                      <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm flex-1 flex flex-col">
+                        <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-3">Revenue Projection (Jul-Dec)</div>
+                        <div className="flex items-end justify-between gap-2 flex-1 mt-2 min-h-[100px]">
+                          {[1.0, 1.05, 1.12, 1.18, 1.25, 1.35].map((mult, idx) => {
+                            const val = monthlyArr * mult;
+                            const height = Math.min(100, Math.max(20, (mult - 0.5) * 100));
+                            const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                            return (
+                              <div key={idx} className="flex flex-col items-center flex-1 group h-full justify-end">
+                                <div className="w-full bg-yellow-500/20 rounded-t-sm group-hover:bg-yellow-500/40 transition-colors relative" style={{ height: `${height}%` }}>
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-[var(--c-text)] text-[var(--c-bg)] text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 font-bold pointer-events-none">
+                                    {renderMoney(val)}
+                                  </div>
+                                </div>
+                                <div className="text-[10px] font-medium text-[var(--c-text-2)] mt-1">{months[idx]}</div>
                               </div>
-                            </div>
-                            <div className="text-[10px] font-medium text-[var(--c-text-2)] mt-1">{months[idx]}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                  {/* Dec 2026 Target */}
-                  <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm">
-                    <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-3">Dec 2026 Target</div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-[10px] text-[var(--c-text-2)] uppercase mb-1">Projected MRR</div>
-                        <div className="text-lg font-bold text-[var(--c-text)]">₹5.67L</div>
-                        <div className="text-[10px] text-yellow-500 font-medium mt-0.5">↑ 35% growth</div>
+                      {/* Dec 2026 Target */}
+                      <div className="bg-[var(--c-surface)] border border-[var(--c-border)] p-4 rounded-xl shadow-sm">
+                        <div className="text-xs font-semibold text-[var(--c-text-2)] uppercase mb-3">Dec 2026 Target</div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="text-[10px] text-[var(--c-text-2)] uppercase mb-1">Projected MRR</div>
+                            <div className="text-lg font-bold text-[var(--c-text)]">{renderMoney(monthlyArr * 1.35)}</div>
+                            <div className="text-[10px] text-yellow-500 font-medium mt-0.5">↑ 35% growth</div>
+                          </div>
+                          <div className="border-l border-[var(--c-border)] pl-4">
+                            <div className="text-[10px] text-[var(--c-text-2)] uppercase mb-1">Est. Profit (35%)</div>
+                            <div className="text-lg font-bold text-emerald-500">{renderMoney(monthlyArr * 1.35 * 0.35)}</div>
+                            <div className="text-[10px] text-[var(--c-text-2)] font-medium mt-0.5">Monthly run rate</div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="border-l border-[var(--c-border)] pl-4">
-                        <div className="text-[10px] text-[var(--c-text-2)] uppercase mb-1">Est. Profit (35%)</div>
-                        <div className="text-lg font-bold text-emerald-500">₹1.98L</div>
-                        <div className="text-[10px] text-[var(--c-text-2)] font-medium mt-0.5">Monthly run rate</div>
-                      </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (

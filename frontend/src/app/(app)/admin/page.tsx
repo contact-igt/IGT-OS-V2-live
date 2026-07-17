@@ -3,7 +3,7 @@
 import { useApp } from '@/contexts/AppContext';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { TeamMember, RoleTag } from '@/lib/data';
+import { TeamMember, RoleTag, NAV_SECTIONS } from '@/lib/data';
 
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
@@ -48,15 +48,6 @@ interface ApiKeyIntegration {
   addedAt: string;
 }
 
-function generatePassword() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let pass = '';
-  for (let i = 0; i < 12; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return pass;
-}
-
 export default function AdminPage() {
   const { state, updateTeamMember, addTeamMember, reloadData } = useApp();
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
@@ -97,11 +88,98 @@ export default function AdminPage() {
     }
   }, [state.currentUserId, state.teamMembers, router]);
 
-  const handleResetPassword = (member: TeamMember) => {
-    const newPassword = generatePassword();
-    updateTeamMember(member.id, { password: newPassword });
-    alert(`Password reset for ${member.name}. New password: ${newPassword}`);
+  const handleResetPassword = async (member: TeamMember) => {
     setActionMenuOpen(null);
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const roster = await rosterRes.json();
+      const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
+      if (!realUser) {
+        alert(`Could not find a real backend account for ${member.name} (${member.email}).`);
+        return;
+      }
+      const res = await fetch(`${baseUrl}/api/users/${realUser.id}/admin-reset-password`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to reset password');
+        return;
+      }
+      alert(`Password reset for ${member.name}. New temporary password: ${data.tempPassword}\n\nThey'll be required to change it on next login. Share it securely.`);
+    } catch (err) {
+      alert('Could not connect to the server.');
+    }
+  };
+
+  const [isPageAccessModalOpen, setIsPageAccessModalOpen] = useState(false);
+  const [pageAccessMember, setPageAccessMember] = useState<TeamMember | null>(null);
+  const [pageAccessRealUserId, setPageAccessRealUserId] = useState<string | null>(null);
+  const [pageAccessChecked, setPageAccessChecked] = useState<Record<string, boolean>>({});
+  const [pageAccessLoading, setPageAccessLoading] = useState(false);
+  const [pageAccessSaving, setPageAccessSaving] = useState(false);
+  const [pageAccessError, setPageAccessError] = useState('');
+
+  const openPageAccessModal = async (member: TeamMember) => {
+    setActionMenuOpen(null);
+    setPageAccessMember(member);
+    setPageAccessRealUserId(null);
+    setPageAccessError('');
+    setPageAccessChecked({});
+    setPageAccessLoading(true);
+    setIsPageAccessModalOpen(true);
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const roster = await rosterRes.json();
+      const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
+      if (!realUser) {
+        setPageAccessError(`Could not find a real backend account for ${member.name} (${member.email}).`);
+        return;
+      }
+      setPageAccessRealUserId(realUser.id);
+      const res = await fetch(`${baseUrl}/api/page-access/${realUser.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) {
+        const checked: Record<string, boolean> = {};
+        (data.pages || []).forEach((p: string) => { checked[p] = true; });
+        setPageAccessChecked(checked);
+      }
+    } catch (err) {
+      setPageAccessError('Could not connect to the server.');
+    } finally {
+      setPageAccessLoading(false);
+    }
+  };
+
+  const handleSavePageAccess = async () => {
+    if (!pageAccessRealUserId) return;
+    setPageAccessSaving(true);
+    setPageAccessError('');
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const pages = Object.entries(pageAccessChecked).filter(([, v]) => v).map(([k]) => k);
+      const res = await fetch(`${baseUrl}/api/page-access/${pageAccessRealUserId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ pages }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPageAccessError(data.error || 'Failed to save');
+        return;
+      }
+      setIsPageAccessModalOpen(false);
+    } catch (err) {
+      setPageAccessError('Could not connect to the server.');
+    } finally {
+      setPageAccessSaving(false);
+    }
   };
 
   const handleBlockAccess = (member: TeamMember) => {
@@ -208,7 +286,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="flex flex-col h-full gap-8 relative pb-10">
+    <div className="flex flex-col gap-8 relative pb-10">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 relative z-10">
         <div>
           <h2 className="text-3xl font-bold text-text font-syne flex items-center gap-2">
@@ -234,7 +312,6 @@ export default function AdminPage() {
                 <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider">User</th>
                 <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider">Role</th>
                 <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider">Color</th>
-                <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider">Password</th>
                 <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider">Permissions</th>
                 <th className="p-4 text-[11px] font-bold text-text-3 uppercase tracking-wider text-right">Actions</th>
               </tr>
@@ -277,21 +354,6 @@ export default function AdminPage() {
                     </div>
                   </td>
                   <td className="p-4">
-                    <div className="flex items-center gap-2">
-                      <code className="bg-surface px-2 py-1 rounded text-text-2 text-[12px] min-w-[80px]">
-                        {revealedPasswords[member.id] ? (member.password || 'not set') : '••••••••'}
-                      </code>
-                      <button 
-                        onClick={() => togglePasswordVisibility(member.id)}
-                        className="text-text-3 hover:text-primary transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">
-                          {revealedPasswords[member.id] ? 'visibility_off' : 'visibility'}
-                        </span>
-                      </button>
-                    </div>
-                  </td>
-                  <td className="p-4">
                     <div className="flex flex-wrap gap-2 max-w-[200px]">
                       {FEATURE_PERMISSIONS.map(perm => {
                         const hasPerm = member.permissions?.includes(perm.id) || member.role === 'admin';
@@ -326,11 +388,17 @@ export default function AdminPage() {
                         <button className="w-full px-4 py-2 text-[12px] text-text hover:bg-surface flex items-center gap-2">
                           <span className="material-symbols-outlined text-[16px]">edit</span> Edit User
                         </button>
-                        <button 
+                        <button
                           className="w-full px-4 py-2 text-[12px] text-text hover:bg-surface flex items-center gap-2"
                           onClick={() => handleResetPassword(member)}
                         >
                           <span className="material-symbols-outlined text-[16px]">key</span> Reset Password
+                        </button>
+                        <button
+                          className="w-full px-4 py-2 text-[12px] text-text hover:bg-surface flex items-center gap-2"
+                          onClick={() => openPageAccessModal(member)}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">shield_lock</span> Manage Page Access
                         </button>
                         <div className="h-px bg-border my-1"></div>
                         <button 
@@ -621,8 +689,8 @@ export default function AdminPage() {
               </div>
 
               <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-border">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsAddKeyModalOpen(false)}
                   className="btn-secondary"
                 >
@@ -633,6 +701,68 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isPageAccessModalOpen && pageAccessMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-surface-2 border border-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-surface">
+              <h3 className="font-bold text-[16px] text-text flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">shield_lock</span>
+                Page Access — {pageAccessMember.name}
+              </h3>
+              <button
+                onClick={() => setIsPageAccessModalOpen(false)}
+                className="text-text-3 hover:text-text transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="p-5 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+              <p className="text-[12px] text-text-2">
+                Grant extra pages beyond what {pageAccessMember.name.split(' ')[0]}'s role normally allows. Unchecking a page only removes an explicit grant — it never takes away access their role already gives them.
+              </p>
+
+              {pageAccessLoading ? (
+                <p className="text-[12px] text-text-3 text-center py-4">Loading…</p>
+              ) : pageAccessError && !pageAccessRealUserId ? (
+                <p className="text-[12px] text-red-400">{pageAccessError}</p>
+              ) : (
+                <div className="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto custom-scrollbar pr-1">
+                  {NAV_SECTIONS.map(section => (
+                    <label key={section.href} className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-surface cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!pageAccessChecked[section.href]}
+                        onChange={e => setPageAccessChecked(prev => ({ ...prev, [section.href]: e.target.checked }))}
+                        className="rounded border-border text-primary focus:ring-primary/20"
+                      />
+                      <span className="text-[13px] text-text">{section.label}</span>
+                      <span className="text-[10px] text-text-3 font-mono ml-auto">{section.href}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {pageAccessError && pageAccessRealUserId && <p className="text-[11px] text-red-400">{pageAccessError}</p>}
+
+              <div className="flex justify-end gap-3 mt-2 pt-4 border-t border-border">
+                <button type="button" onClick={() => setIsPageAccessModalOpen(false)} className="btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePageAccess}
+                  disabled={pageAccessSaving || pageAccessLoading || !pageAccessRealUserId}
+                  className="btn-primary disabled:opacity-60"
+                >
+                  {pageAccessSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -3,18 +3,18 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useState, useMemo, Suspense } from 'react';
-import { 
-  LayoutDashboard, User, CheckSquare, CalendarDays, Briefcase, 
+import {
+  LayoutDashboard, User, CheckSquare, CalendarDays, Briefcase,
   Users, Layers, TrendingUp, Key, History, Sparkles, Shield,
   Menu, PanelLeftClose, Zap, LogOut, Terminal, Brush, Film, LineChart,
-  List, Calendar, BarChart, FileBarChart, Megaphone, Wallet
+  List, Calendar, BarChart, FileBarChart, Megaphone, Wallet, Star
 } from 'lucide-react';
 import { NAV_SECTIONS } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
-  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/my-profile'] },
+  { title: 'Workspace',    items: ['/dashboard', '/dashboard/ceo', '/my-workspace', '/tasks', '/calendar', '/my-profile'] },
   { title: 'Agency Ops',  items: ['/team', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];
@@ -26,7 +26,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   groups: Users, workspaces: Layers, trending_up: TrendingUp,
   key: Key, history_edu: History, auto_awesome: Sparkles,
   admin_panel_settings: Shield, campaign: Megaphone,
-  account_balance: Wallet, point_of_sale: TrendingUp,
+  account_balance: Wallet, point_of_sale: TrendingUp, stars: Star,
 };
 
 function SideNavBarInner() {
@@ -104,37 +104,39 @@ function SideNavBarInner() {
               
               const role = currentUser.role;
               const department = currentUser.department;
-              
+              const grantedPages = currentUser.grantedPages || [];
+              const isGranted = grantedPages.includes(item.href);
+
               // Strict role-based filtering for Admin/CEO
               if (role === 'super_admin' || role === 'admin') {
                 // Hide department dashboards to avoid clutter for the CEO
                 const hiddenForCeo = [
-                  '/dashboard/coo', '/dashboard/ops', '/dashboard/developer', 
-                  '/dashboard/designer', '/dashboard/video-editor', '/dashboard/marketer', 
+                  '/dashboard/coo', '/dashboard/ops', '/dashboard/developer',
+                  '/dashboard/designer', '/dashboard/video-editor', '/dashboard/marketer',
                   '/dashboard/sales', '/dashboard/team', '/dashboard/ai-developer'
                 ];
                 if (hiddenForCeo.includes(item.href)) return false;
                 return true;
               }
-              
+
               // Strict role-based filtering for COO/Ops
               if (role === 'ops') {
                 const allowedForOps = [
-                  '/dashboard/coo', '/dashboard/ops', 
-                  '/my-workspace', '/tasks', '/my-profile', 
+                  '/dashboard/coo', '/dashboard/ops',
+                  '/my-workspace', '/tasks', '/my-profile',
                   '/clients'
                 ];
-                if (!allowedForOps.includes(item.href)) return false;
+                if (!allowedForOps.includes(item.href) && !isGranted) return false;
                 return true;
               }
-              
+
               // Filtering for regular team members
               if (item.section === 'dashboard') return false; // Hide completely
-              
+
               // General Section Filtering for team
               const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/my-profile'];
-              if (!allowedForTeam.includes(item.href)) return false;
-              
+              if (!allowedForTeam.includes(item.href) && !isGranted) return false;
+
               return true;
             });
 
