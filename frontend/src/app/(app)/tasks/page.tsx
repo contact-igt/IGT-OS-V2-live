@@ -46,6 +46,14 @@ function TasksPageInner() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [revertTaskId, setRevertTaskId] = useState<string | null>(null);
+  const [ganttModalDate, setGanttModalDate] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (!ganttModalDate) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setGanttModalDate(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [ganttModalDate]);
 
   // Sorting state for list view
   const [sortField, setSortField] = useState<'title'|'client'|'status'|'priority'|'deadline'>('deadline');
@@ -415,7 +423,11 @@ function TasksPageInner() {
                     const isToday = dateStr === todayCalStr;
                     const isCurrentMonth = d.getMonth() === currentMonth.getMonth();
                     return (
-                      <div key={i} className={`min-h-[120px] p-2 flex flex-col rounded-lg border ${isToday ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-surface-2 hover:border-text-3 transition-colors'} ${!isCurrentMonth ? 'opacity-40' : ''}`}>
+                      <div
+                        key={i}
+                        onClick={() => setGanttModalDate(d)}
+                        className={`min-h-[120px] p-2 flex flex-col rounded-lg border cursor-pointer ${isToday ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-surface-2 hover:border-text-3 transition-colors'} ${!isCurrentMonth ? 'opacity-40' : ''}`}
+                      >
                         <div className="flex justify-between items-start mb-2">
                           <div className={`text-[12px] font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-primary text-white' : 'text-text-2'}`}>
                             {d.getDate()}
@@ -423,9 +435,9 @@ function TasksPageInner() {
                         </div>
                         <div className="flex flex-col gap-1.5 flex-1">
                           {dayTasks.slice(0, 3).map(t => (
-                            <div 
-                              key={t.id} 
-                              onClick={() => setSelectedTaskId(t.id)}
+                            <div
+                              key={t.id}
+                              onClick={(e) => { e.stopPropagation(); setSelectedTaskId(t.id); }}
                               className="text-[10px] font-semibold truncate p-1.5 rounded cursor-pointer hover:opacity-80 transition-opacity"
                               style={{ background: PRIORITY_CONFIG[t.priority].bg, color: PRIORITY_CONFIG[t.priority].color }}
                               title={t.title}
@@ -647,6 +659,42 @@ function TasksPageInner() {
           memberFilter={memberFilter}
           priorityFilter={priorityFilter}
         />
+      )}
+
+      {/* Day-click Gantt popup */}
+      {ganttModalDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setGanttModalDate(null)}
+        >
+          <div
+            className="bg-surface-2 border border-border rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border bg-surface flex-shrink-0">
+              <h3 className="font-bold text-[16px] text-text flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 20 }}>calendar_month</span>
+                {ganttModalDate.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              </h3>
+              <button
+                onClick={() => setGanttModalDate(null)}
+                className="text-text-3 hover:text-text transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-4 overflow-hidden">
+              <GanttView
+                selectedTaskId={selectedTaskId}
+                setSelectedTaskId={setSelectedTaskId}
+                clientFilter={clientFilter}
+                memberFilter={memberFilter}
+                priorityFilter={priorityFilter}
+                initialDate={ganttModalDate}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       <TaskDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
