@@ -3,7 +3,7 @@
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { User, Phone, Briefcase, Calendar, Clock, Star, Activity, Plus, FileText, CheckCircle, TrendingUp, Layers, PenTool, LayoutDashboard, MonitorPlay, Film, Code, Bug, Zap, Target, BarChart3, TrendingDown, Users, Search } from 'lucide-react';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 interface PerformanceMetrics {
   score: number;
@@ -236,7 +236,20 @@ export default function MyProfilePage() {
     }
   };
 
-  const currentUser = state.teamMembers.find(m => m.id === user?.id || (user?.email && m.email === user.email));
+  // Falls back to the real authenticated user when they're not in the hardcoded
+  // TEAM_MEMBERS mock roster (any employee added after that list was seeded) — same
+  // fallback pattern already used in my-workspace/page.tsx. Fields TeamMember has that
+  // the raw auth User doesn't get placeholder values so nothing renders as undefined.
+  // Memoized so the fallback object has a stable reference across renders — without
+  // this, a fresh object literal every render retriggers the currentUser-effect below
+  // in an infinite loop.
+  const mockMatch = state.teamMembers.find(m => m.id === user?.id || (user?.email && m.email === user.email));
+  const currentUser = useMemo(() => {
+    if (mockMatch) return mockMatch;
+    if (!user) return undefined;
+    return { ...user, phoneNumber: '', emergencyContact: '', employeeId: 'N/A', title: '', dateJoined: '', leavesAvailable: 0, leavesTaken: 0 } as typeof state.teamMembers[number];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockMatch, user?.id]);
 
   // Initialize form data when currentUser is loaded
   React.useEffect(() => {

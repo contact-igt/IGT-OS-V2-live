@@ -4,16 +4,21 @@ import React from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { GitBranch, AlertCircle, CheckCircle2, Clock, FolderGit2 } from 'lucide-react';
 
-export default function DevRepos() {
+export default function DevRepos({ search = '' }: { search?: string }) {
   const { state } = useApp();
   const { devProjects, teamMembers, currentUserId } = state;
 
   const currentUser = teamMembers.find(m => m.id === currentUserId);
   const isDeveloper = currentUser?.roleTag?.includes('developer') || currentUser?.department === 'Development';
 
-  const visibleProjects = isDeveloper
+  const scopedProjects = isDeveloper
     ? devProjects.filter(p => p.developers.includes(currentUserId))
     : devProjects;
+
+  const query = search.trim().toLowerCase();
+  const visibleProjects = query
+    ? scopedProjects.filter(p => p.name.toLowerCase().includes(query) || p.repoName.toLowerCase().includes(query))
+    : scopedProjects;
 
   const internalProjects = visibleProjects.filter(p => p.isInternal);
   const clientProjects = visibleProjects.filter(p => !p.isInternal);
@@ -121,7 +126,7 @@ export default function DevRepos() {
     return (
       <div className="flex flex-col items-center justify-center h-64" style={{ color: 'var(--c-text-2)' }}>
         <FolderGit2 size={48} className="mb-4 opacity-20" />
-        <p>No projects assigned to you.</p>
+        <p>{query ? 'No projects match your search.' : 'No projects assigned to you.'}</p>
       </div>
     );
   }

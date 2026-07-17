@@ -9,9 +9,10 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM public.time_logs ORDER BY started_at DESC'
-    );
+    const query = req.query.active === 'true'
+      ? 'SELECT * FROM public.time_logs WHERE ended_at IS NULL ORDER BY started_at DESC'
+      : 'SELECT * FROM public.time_logs ORDER BY started_at DESC';
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error: any) {
     console.error('Error fetching time logs:', error);
