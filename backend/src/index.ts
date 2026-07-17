@@ -26,8 +26,10 @@ import githubDataRoutes from './routes/githubData';
 import instagramAuthRoutes from './routes/instagramAuth';
 import youtubeAuthRoutes from './routes/youtubeAuth';
 import socialSyncRoutes from './routes/socialSync';
+import agencyMetricsRoutes from './routes/agencyMetrics';
+import pageAccessRoutes from './routes/pageAccess';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requirePageAccess } from './middleware/auth';
 
 dotenv.config();
 
@@ -274,10 +276,12 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
 app.use('/api/attendance', attendanceRoutes);
-app.use('/api/github', githubDataRoutes);
+app.use('/api/github', requireAuth, requirePageAccess('/development', ['admin', 'ops']), githubDataRoutes);
 app.use('/api/auth/instagram', instagramAuthRoutes);
 app.use('/api/auth/youtube', youtubeAuthRoutes);
-app.use('/api/social', socialSyncRoutes);
+app.use('/api/social', requireAuth, requirePageAccess('/social', ['admin', 'ops']), socialSyncRoutes);
+app.use('/api/agency-metrics', agencyMetricsRoutes);
+app.use('/api/page-access', pageAccessRoutes);
 
 // Public — no auth required (login page hero)
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {

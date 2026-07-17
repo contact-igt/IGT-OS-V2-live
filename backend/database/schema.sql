@@ -340,3 +340,33 @@ CREATE TABLE public.social_metric_snapshots (
   synced_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 18. Agency Metrics & Strategic Initiatives (CEO Overview, manually maintained by admins)
+CREATE TABLE public.agency_metrics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  monthly_arr NUMERIC,
+  agency_health_percent NUMERIC,
+  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE public.strategic_initiatives (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  owner_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  progress_percent INTEGER NOT NULL DEFAULT 0 CHECK (progress_percent BETWEEN 0 AND 100),
+  quarter_label TEXT,
+  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 19. Page Access Grants (admin-granted, additive access to pages beyond role defaults)
+CREATE TABLE public.page_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  page_path TEXT NOT NULL,
+  granted_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, page_path)
+);
+

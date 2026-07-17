@@ -24,6 +24,60 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// GET /me — the authenticated user's own row, including fields not exposed on the
+// roster endpoint above (e.g. github_username, used to attribute GitHub commits).
+router.get('/me', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  const userId = (req as any).user.id;
+
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.github_username, u.must_change_password,
+              (SELECT COALESCE(array_agg(page_path), ARRAY[]::text[]) FROM public.page_access WHERE user_id = u.id) AS granted_pages
+       FROM public.users u WHERE u.id = $1`,
+      [userId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    console.error('Error fetching own user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /me — self-service update of the authenticated user's own GitHub username, so
+// future commit/PR webhook events can be attributed to them (see githubWebhook.ts).
+router.patch('/me', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  const userId = (req as any).user.id;
+  const { githubUsername } = req.body;
+
+  if (githubUsername !== null && typeof githubUsername !== 'string') {
+    return res.status(400).json({ error: 'githubUsername must be a string or null' });
+  }
+  const cleaned = githubUsername ? githubUsername.trim().replace(/^@/, '') : null;
+  if (cleaned && !/^[A-Za-z0-9-]{1,39}$/.test(cleaned)) {
+    return res.status(400).json({ error: 'That doesn\'t look like a valid GitHub username' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE public.users SET github_username = $1 WHERE id = $2
+       RETURNING id, name, email, role, department, avatar_url, github_username, must_change_password`,
+      [cleaned, userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    if (error.code === '23505') { // unique_violation
+      return res.status(409).json({ error: 'That GitHub username is already linked to another account' });
+    }
+    console.error('Error updating github_username:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let pass = '';
@@ -72,6 +126,37 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
       return res.status(409).json({ error: 'A user with that email already exists' });
     }
     console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /:id/admin-reset-password — admin-only: generates a fresh temp password for another
+// user, same one-time-plaintext-in-the-response pattern as account creation above. Forces
+// must_change_password so the temp value can't linger as their real password, and clears
+// any lockout state. Distinct from /forgot-password + /reset-password (the employee's own
+// self-service flow) — this is the admin doing it on someone else's behalf.
+router.post('/:id/admin-reset-password', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  const { id } = req.params;
+
+  try {
+    const userResult = await pool.query('SELECT id, name FROM public.users WHERE id = $1', [id]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    const tempPassword = generateTempPassword();
+    const hash = await bcrypt.hash(tempPassword, 12);
+
+    await pool.query(
+      `UPDATE public.users
+       SET password_hash = $1, must_change_password = true, failed_login_attempts = 0, locked_until = NULL
+       WHERE id = $2`,
+      [hash, id]
+    );
+
+    res.json({ tempPassword });
+  } catch (error: any) {
+    console.error('Error resetting user password:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
