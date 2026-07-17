@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '@/contexts/AppContext';
 
 import { Task, CLIENTS, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS } from '@/lib/data';
@@ -93,11 +94,35 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [isAssigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const assigneeTriggerRef = useRef<HTMLDivElement>(null);
+  const assigneePortalRef = useRef<HTMLDivElement>(null);
+  const [assigneeCoords, setAssigneeCoords] = useState({ top: 0, left: 0, width: 0 });
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [batchTitles, setBatchTitles] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!isAssigneeDropdownOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        assigneeTriggerRef.current && !assigneeTriggerRef.current.contains(event.target as Node) &&
+        (!assigneePortalRef.current || !assigneePortalRef.current.contains(event.target as Node))
+      ) {
+        setAssigneeDropdownOpen(false);
+      }
+    }
+    function handleScroll() {
+      setAssigneeDropdownOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [isAssigneeDropdownOpen]);
 
   if (!isOpen) return null;
 
@@ -110,6 +135,14 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     set('assignedTo', form.assignedTo.includes(id)
       ? form.assignedTo.filter(x => x !== id)
       : [...form.assignedTo, id]);
+  };
+
+  const handleAssigneeToggleOpen = () => {
+    if (!isAssigneeDropdownOpen && assigneeTriggerRef.current) {
+      const rect = assigneeTriggerRef.current.getBoundingClientRect();
+      setAssigneeCoords({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width });
+    }
+    setAssigneeDropdownOpen(!isAssigneeDropdownOpen);
   };
 
   const validate = () => {
@@ -547,8 +580,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               </div>
             ) : (
               <div
+                ref={assigneeTriggerRef}
                 className="input-base min-h-[42px] flex items-center flex-wrap gap-1.5 cursor-pointer"
-                onClick={() => setAssigneeDropdownOpen(!isAssigneeDropdownOpen)}
+                onClick={handleAssigneeToggleOpen}
               >
                 {form.assignedTo.length === 0 && (
                   <span className="text-text-3 text-[13px]">Select team members...</span>
@@ -572,11 +606,13 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             )}
             {errors.assignedTo && <p className="text-[11px] mt-1 text-red-500">{errors.assignedTo}</p>}
 
-            {scope.mode === 'open' && isAssigneeDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setAssigneeDropdownOpen(false)} />
-                <div className="absolute z-20 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-[220px] overflow-y-auto custom-scrollbar">
-                  {scope.options.map(m => {
+            {scope.mode === 'open' && isAssigneeDropdownOpen && typeof document !== 'undefined' && createPortal(
+              <div
+                ref={assigneePortalRef}
+                className="fixed z-[130] mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-[220px] overflow-y-auto custom-scrollbar"
+                style={{ top: assigneeCoords.top, left: assigneeCoords.left, width: assigneeCoords.width }}
+              >
+                {scope.options.map(m => {
                     const selected = form.assignedTo.includes(m.id);
                     return (
                       <div
@@ -597,8 +633,8 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                   {scope.options.length === 0 && (
                     <div className="px-3 py-2.5 text-[12px] text-text-3">No team members available.</div>
                   )}
-                </div>
-              </>
+              </div>,
+              document.body
             )}
           </div>
           

@@ -11,12 +11,14 @@ export interface User {
   department: string;
   mustChangePassword?: boolean;
   destination?: string;
+  grantedPages?: string[];
 }
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
+  grantedPagesReady: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
 }
@@ -25,6 +27,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   token: null,
   loading: true,
+  grantedPagesReady: false,
   login: () => {},
   logout: () => {},
 });
@@ -33,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [grantedPagesReady, setGrantedPagesReady] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -64,6 +68,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    if (!token) {
+      setGrantedPagesReady(false);
+      return;
+    }
+    setGrantedPagesReady(false);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${baseUrl}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => {
+        setUser(prev => prev ? { ...prev, grantedPages: data.granted_pages || [] } : prev);
+      })
+      .catch(err => console.error('Failed to load granted pages:', err))
+      .finally(() => setGrantedPagesReady(true));
+  }, [token]);
 
   const getDashboardRoute = (user: User | null) => {
     if (!user) return '/login';
@@ -113,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, grantedPagesReady, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -15,7 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { state, setCurrentUser } = useApp();
-  const { user } = useAuth();
+  const { user, grantedPagesReady } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   
   useEffect(() => {
@@ -35,21 +35,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return;
+    // Wait for the granted-pages fetch to finish before deciding to redirect — otherwise
+    // a user with a real grant gets bounced away for the split second before it loads.
+    if (!grantedPagesReady) return;
+
+    const grantedPages = user.grantedPages || [];
+    const isGranted = grantedPages.some(p => pathname === p || pathname.startsWith(`${p}/`));
 
     if (user.role === 'team' || user.role === 'viewer') {
       const allowedPaths = ['/my-workspace', '/tasks', '/my-profile', '/calendar'];
-      const isAllowed = allowedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`));
+      const isAllowed = allowedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`)) || isGranted;
       if (!isAllowed && pathname !== '/') {
         router.push('/my-workspace');
       }
     } else if (user.role === 'ops') {
       const blockedPaths = ['/admin', '/credentials', '/audit', '/ai', '/finance', '/sales', '/ad-budget'];
-      const isBlocked = blockedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`));
+      const isBlocked = blockedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`)) && !isGranted;
       if (isBlocked) {
         router.push('/dashboard');
       }
     }
-  }, [pathname, user, router]);
+  }, [pathname, user, router, grantedPagesReady]);
 
   return (
     <div className="h-screen overflow-hidden" style={{ background: 'var(--c-bg)' }}>
