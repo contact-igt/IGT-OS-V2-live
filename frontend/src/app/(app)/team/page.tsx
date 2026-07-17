@@ -50,7 +50,7 @@ export default function TeamPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 flex-shrink-0 overflow-y-auto pb-8 custom-scrollbar">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 min-h-0 overflow-y-auto pb-8 custom-scrollbar">
         {memberStats.map(({ member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime, efficiency, effColor }) => (
             <div 
               key={member.id} 

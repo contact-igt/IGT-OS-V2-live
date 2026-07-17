@@ -292,7 +292,7 @@ export default function TeamMemberPage({ params }: { params: Promise<{ id: strin
         <h2 className="text-3xl font-bold text-text font-syne">Team Member Profile</h2>
       </div>
 
-      <div className="flex flex-col h-full bg-app-surface border border-app-border rounded-xl shadow-sm overflow-hidden z-10 relative">
+      <div className="flex flex-col flex-1 min-h-0 bg-app-surface border border-app-border rounded-xl shadow-sm overflow-hidden z-10 relative">
         {/* Profile Header */}
         <div className="flex items-start gap-6 p-8 border-b border-app-border bg-surface-2">
           <div

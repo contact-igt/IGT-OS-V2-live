@@ -5,18 +5,20 @@ import TaskDrawer from '@/components/tasks/TaskDrawer';
 import { PRIORITY_CONFIG } from '@/lib/data';
 import { AlignLeft, ChevronLeft, ChevronRight, GripVertical, ChevronDown } from 'lucide-react';
 
-export default function GanttView({ 
-  selectedTaskId, 
-  setSelectedTaskId, 
-  clientFilter, 
+export default function GanttView({
+  selectedTaskId,
+  setSelectedTaskId,
+  clientFilter,
   memberFilter,
-  priorityFilter 
-}: { 
-  selectedTaskId: string | null; 
+  priorityFilter,
+  initialDate,
+}: {
+  selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   clientFilter: string;
   memberFilter: string;
   priorityFilter: string;
+  initialDate?: Date;
 }) {
   const { state, updateTask } = useApp();
   const [zoomLevel, setZoomLevel] = useState<'day' | 'week' | 'month'>('day');
@@ -53,9 +55,9 @@ export default function GanttView({
   });
   
   const [startDate, setStartDate] = useState(() => {
-    const d = getISTDate();
+    const d = initialDate ? getISTDate(initialDate) : getISTDate();
     d.setHours(0,0,0,0);
-    d.setDate(d.getDate() - 1); // For 'day' view, start yesterday so 48 hrs covers yesterday & today
+    d.setDate(d.getDate() - 1); // For 'day' view, start a day before so 48 hrs covers the day before & the target day
     return d;
   });
 
@@ -75,17 +77,22 @@ export default function GanttView({
     setStartDate(d);
   };
 
-  const scrollToToday = () => {
-    const d = getISTDate();
-    d.setHours(0,0,0,0);
+  const scrollToDate = (target: Date) => {
+    const todayIST = getISTDate();
+    todayIST.setHours(0,0,0,0);
+    const targetIST = getISTDate(target);
+    targetIST.setHours(0,0,0,0);
+    const isTargetToday = targetIST.getTime() === todayIST.getTime();
+
+    const d = new Date(targetIST);
     d.setDate(d.getDate() - (zoomLevel === 'day' ? 1 : 5));
     setStartDate(d);
-    
+
     setTimeout(() => {
       if (timelineRef.current) {
         if (zoomLevel === 'day') {
-           const currentHour = getISTDate().getHours();
-           const targetIndex = 24 + currentHour;
+           const hour = isTargetToday ? getISTDate().getHours() : 12;
+           const targetIndex = 24 + hour;
            timelineRef.current.scrollLeft = (targetIndex * UNIT_WIDTH) - (timelineRef.current.clientWidth / 2) + (UNIT_WIDTH / 2);
         } else {
            timelineRef.current.scrollLeft = (5 * UNIT_WIDTH) - (timelineRef.current.clientWidth / 2) + (UNIT_WIDTH / 2);
@@ -93,6 +100,15 @@ export default function GanttView({
       }
     }, 50);
   };
+
+  const scrollToToday = () => scrollToDate(getISTDate());
+
+  useEffect(() => {
+    if (initialDate) {
+      scrollToDate(initialDate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const units = Array.from({ length: numUnits }).map((_, i) => {
     const d = new Date(startDate);
