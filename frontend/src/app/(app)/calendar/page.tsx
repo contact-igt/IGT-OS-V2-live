@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Video, AlignLeft, Sparkles, X, Link as LinkIcon } from 'lucide-react';
 import { Task } from '@/lib/data';
+import GanttView from '@/components/tasks/GanttView';
+import TaskDrawer from '@/components/tasks/TaskDrawer';
 
 type ViewMode = 'day' | 'week' | 'month' | 'year';
 
@@ -17,6 +19,9 @@ export default function CalendarPage() {
   
   const [selectedEvent, setSelectedEvent] = useState<GoogleEvent | null>(null);
   const [isPrepPanelOpen, setIsPrepPanelOpen] = useState(false);
+
+  const [ganttModalDate, setGanttModalDate] = useState<Date | null>(null);
+  const [ganttSelectedTaskId, setGanttSelectedTaskId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +87,14 @@ export default function CalendarPage() {
     setSelectedEvent(evt);
     setIsPrepPanelOpen(true);
   };
+
+  // Close the day-gantt modal on Escape
+  useEffect(() => {
+    if (!ganttModalDate) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setGanttModalDate(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [ganttModalDate]);
 
   // Helpers for grid
   const getDaysInView = () => {
@@ -310,7 +323,11 @@ export default function CalendarPage() {
                 const isCurrentMonth = d.getMonth() === currentDate.getMonth();
 
                 return (
-                  <div key={i} className={`border-r border-b border-app-border p-2 min-h-[120px] overflow-hidden hover:overflow-y-auto custom-scrollbar flex flex-col ${isCurrentMonth ? 'bg-app-bg' : 'bg-app-surface2 opacity-50'}`}>
+                  <div
+                    key={i}
+                    onClick={() => setGanttModalDate(d)}
+                    className={`border-r border-b border-app-border p-2 min-h-[120px] overflow-hidden hover:overflow-y-auto custom-scrollbar flex flex-col cursor-pointer ${isCurrentMonth ? 'bg-app-bg hover:bg-app-surface2' : 'bg-app-surface2 opacity-50'}`}
+                  >
                     <div className="flex justify-between items-start mb-2 shrink-0">
                       <span className={`text-sm font-bold font-syne w-7 h-7 flex items-center justify-center rounded-full ${isToday(d) ? 'bg-primary text-white' : 'text-app-text2'}`}>
                         {d.getDate()}
@@ -490,6 +507,44 @@ export default function CalendarPage() {
           )}
         </div>
       </div>
+
+      {/* Day-click Gantt popup */}
+      {ganttModalDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setGanttModalDate(null)}
+        >
+          <div
+            className="bg-surface-2 border border-border rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border bg-surface flex-shrink-0">
+              <h3 className="font-bold text-[16px] text-text flex items-center gap-2">
+                <CalendarIcon className="w-5 h-5 text-primary" />
+                {ganttModalDate.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              </h3>
+              <button
+                onClick={() => setGanttModalDate(null)}
+                className="text-text-3 hover:text-text transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-4 overflow-hidden">
+              <GanttView
+                selectedTaskId={ganttSelectedTaskId}
+                setSelectedTaskId={setGanttSelectedTaskId}
+                clientFilter=""
+                memberFilter=""
+                priorityFilter=""
+                initialDate={ganttModalDate}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <TaskDrawer taskId={ganttSelectedTaskId} onClose={() => setGanttSelectedTaskId(null)} />
     </div>
   );
 }
