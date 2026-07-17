@@ -997,7 +997,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes] = await Promise.all([
+      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, { headers }),
         fetch(`${baseUrl}/api/clients`, { headers }),
         fetch(`${baseUrl}/api/tasks`, { headers }),
@@ -1005,9 +1005,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetch(`${baseUrl}/api/attendance`, { headers }),
         fetch(`${baseUrl}/api/github/live`, { headers }),
         fetch(`${baseUrl}/api/social/accounts`, { headers }),
+        fetch(`${baseUrl}/api/time-logs?active=true`, { headers }),
       ]);
 
-      if (usersRes.status === 401 || tasksRes.status === 401) {
+      // A 401 from ANY endpoint means the session has expired — log out consistently
+      // instead of only checking users/tasks, which used to leave the other endpoints
+      // (attendance, github, social, timers) failing silently with no explanation.
+      const allResponses = [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes];
+      if (allResponses.some(res => res.status === 401)) {
         logout();
         return;
       }
@@ -1019,6 +1024,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
       const dbGithub = githubRes.ok ? await githubRes.json() : { repos: [], commits: [], pullRequests: [] };
       const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
+      const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
 
       // Build the mock-id <-> real-id maps (see refs above for why these exist).
       const toDbUser: Record<string, string> = {};
@@ -1119,8 +1125,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clientId: toMockClient[a.clientId] || null,
       }));
 
+      // userId intentionally left as the real backend UUID, not translated through
+      // toMockUser — matches the local START_TIMER dispatch (uses state.currentUserId,
+      // the real uuid) and the same convention already used for attendanceLogs.
+      const activeTimers = dbActiveTimers.map((t: any) => ({
+        taskId: t.task_id,
+        userId: t.user_id,
+        startedAt: new Date(t.started_at).getTime(),
+        accumulated: 0,
+      }));
+
       dispatch({ type: 'HYDRATE_STATE', payload: {
         tasks: translatedTasks,
+        activeTimers,
         notifications: translatedNotifications,
         attendanceLogs: translatedAttendance,
         githubCommits,
@@ -1304,11 +1321,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const startTimer = useCallback((taskId: string) => {
     dispatch({ type: 'START_TIMER', payload: { taskId, userId: state.currentUserId } });
-  }, [state.currentUserId]);
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/tasks/${taskId}/timer/start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(err => console.error('Error syncing timer start:', err));
+    }
+  }, [state.currentUserId, token]);
 
   const stopTimer = useCallback((taskId: string) => {
     dispatch({ type: 'STOP_TIMER', payload: { taskId, userId: state.currentUserId } });
-  }, [state.currentUserId]);
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/tasks/${taskId}/timer/stop`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(err => console.error('Error syncing timer stop:', err));
+    }
+  }, [state.currentUserId, token]);
 
   const requestStopTimer = useCallback((taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => {
     setStoppingTaskId(taskId);

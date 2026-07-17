@@ -11,10 +11,11 @@ export default function AuditPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [toast, setToast] = useState('');
-  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'time_entries'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'campaigns' | 'time_entries' | 'attendance'>('users');
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [timeEntries, setTimeEntries] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
@@ -22,16 +23,18 @@ export default function AuditPage() {
     try {
       const token = localStorage.getItem('invictus_jwt');
       const headers = { 'Authorization': `Bearer ${token}` };
-      
-      const [campRes, teRes, usersRes] = await Promise.all([
+
+      const [campRes, teRes, usersRes, attRes] = await Promise.all([
         fetch('http://localhost:4000/api/campaigns', { headers }),
         fetch('http://localhost:4000/api/time-logs', { headers }),
-        fetch('http://localhost:4000/api/users', { headers })
+        fetch('http://localhost:4000/api/users', { headers }),
+        fetch('http://localhost:4000/api/attendance', { headers })
       ]);
-      
+
       if (campRes.ok) setCampaigns(await campRes.json());
       if (teRes.ok) setTimeEntries(await teRes.json());
       if (usersRes.ok) setUsers(await usersRes.json());
+      if (attRes.ok) setAttendance(await attRes.json());
     } catch (e) {
       console.error('Error fetching audit data', e);
     }
@@ -92,7 +95,7 @@ export default function AuditPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-[var(--c-border)] mb-4 pb-2">
-        {(['users', 'campaigns', 'time_entries'] as const).map(tab => (
+        {(['users', 'campaigns', 'time_entries', 'attendance'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -135,6 +138,15 @@ export default function AuditPage() {
                   <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Logged At</th>
                 </>
               )}
+              {activeTab === 'attendance' && (
+                <>
+                  <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Employee</th>
+                  <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Date</th>
+                  <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Clock In</th>
+                  <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Clock Out</th>
+                  <th className="p-3 font-bold text-[var(--c-text-3)] uppercase tracking-wider text-xs">Status</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -168,6 +180,20 @@ export default function AuditPage() {
                 <td className="p-3 text-[var(--c-text-3)]">{new Date(t.started_at).toLocaleString()}</td>
               </tr>
             ))}
+            {activeTab === 'attendance' && attendance.map(a => {
+              const emp = users.find(u => u.id === a.userId);
+              return (
+                <tr key={a.id} className="border-b border-[var(--c-border)] last:border-0 hover:bg-[var(--c-surface-2)]">
+                  <td className="p-3 font-bold text-[var(--c-text)]">{emp?.name || a.userId}</td>
+                  <td className="p-3 text-[var(--c-text-2)]">{a.date}</td>
+                  <td className="p-3 text-[var(--c-text-2)]">{a.clockIn ? new Date(a.clockIn).toLocaleTimeString() : '—'}</td>
+                  <td className="p-3 text-[var(--c-text-2)]">{a.clockOut ? new Date(a.clockOut).toLocaleTimeString() : '—'}</td>
+                  <td className="p-3">
+                    <span className={`text-xs px-2 py-0.5 rounded font-bold ${a.status === 'late' ? 'bg-amber-500/10 text-amber-500' : 'bg-[var(--c-primary)]/10 text-[var(--c-primary)]'}`}>{a.status}</span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

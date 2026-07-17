@@ -13,6 +13,25 @@ const ROLE_LABELS = {
   member: 'Team Member',
 };
 
+// The real backend user_role / user_department enums (Postgres) — distinct from the
+// cosmetic-only ROLE_LABELS/roleTag above, which only drive the local mock display and
+// aren't accepted by POST /api/users.
+const REAL_ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  ops: 'Operations',
+  team: 'Team',
+  viewer: 'Viewer',
+};
+const REAL_DEPARTMENT_LABELS: Record<string, string> = {
+  bd: 'Business Development',
+  operations: 'Operations',
+  design: 'Design',
+  development: 'Development',
+  video: 'Video',
+  performance_marketing: 'Performance Marketing',
+  sales: 'Sales',
+};
+
 const FEATURE_PERMISSIONS = [
   { id: 'clients', label: 'Manage Clients' },
   { id: 'budget', label: 'Approve Budgets' },
@@ -39,7 +58,7 @@ function generatePassword() {
 }
 
 export default function AdminPage() {
-  const { state, updateTeamMember, addTeamMember } = useApp();
+  const { state, updateTeamMember, addTeamMember, reloadData } = useApp();
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
@@ -58,10 +77,12 @@ export default function AdminPage() {
   // Add User Form State
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState<TeamMember['role']>('member');
-  const [newDepartment, setNewDepartment] = useState('Design');
+  const [newRole, setNewRole] = useState('team'); // real backend user_role
+  const [newDepartment, setNewDepartment] = useState('development'); // real backend user_department
   const [newRoleTag, setNewRoleTag] = useState<RoleTag>('designer');
   const [newColor, setNewColor] = useState('#3B82F6');
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [addUserError, setAddUserError] = useState('');
 
   const router = useRouter();
 
@@ -104,32 +125,57 @@ export default function AdminPage() {
     updateTeamMember(member.id, { permissions: updated });
   };
 
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newEmail) return;
 
-    const initials = newName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
-    const password = generatePassword();
-    
-    addTeamMember({
-      name: newName,
-      email: newEmail,
-      role: newRole,
-      department: newDepartment,
-      initials,
-      color: newColor,
-      hoursThisWeek: 0,
-      weeklyTarget: 40,
-      permissions: [],
-      monthlySalaryINR: 50000,
-      roleTag: newRoleTag,
-      password,
-    });
+    setIsCreatingUser(true);
+    setAddUserError('');
 
-    alert(`User created! Temporary Password: ${password}`);
-    setIsAddUserModalOpen(false);
-    setNewName('');
-    setNewEmail('');
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const res = await fetch(`${baseUrl}/api/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newName, email: newEmail, role: newRole, department: newDepartment }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAddUserError(data.error || 'Failed to create user');
+        return;
+      }
+
+      // Local mock roster gets the same person for this admin's own immediate view —
+      // state.teamMembers is a static mock array other sessions won't see this in until
+      // it's refetched from the backend for real (a separate, pre-existing limitation).
+      const initials = newName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+      addTeamMember({
+        name: newName,
+        email: newEmail,
+        role: newRole as TeamMember['role'],
+        department: newDepartment,
+        initials,
+        color: newColor,
+        hoursThisWeek: 0,
+        weeklyTarget: 40,
+        permissions: [],
+        monthlySalaryINR: 50000,
+        roleTag: newRoleTag,
+        password: data.tempPassword,
+      });
+
+      alert(`User created! Temporary Password: ${data.tempPassword}\n\nThis is the real login for ${newEmail} — share it securely.`);
+      reloadData();
+      setIsAddUserModalOpen(false);
+      setNewName('');
+      setNewEmail('');
+    } catch (err) {
+      setAddUserError('Could not connect to the server.');
+    } finally {
+      setIsCreatingUser(false);
+    }
   };
 
   const togglePasswordVisibility = (id: string) => {
@@ -419,36 +465,56 @@ export default function AdminPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">Designation</label>
-                  <select 
+                  <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">Role</label>
+                  <select
                     className="input-base"
                     value={newRole}
-                    onChange={e => setNewRole(e.target.value as TeamMember['role'])}
+                    onChange={e => setNewRole(e.target.value)}
                   >
-                    {Object.entries(ROLE_LABELS).map(([val, label]) => (
+                    {Object.entries(REAL_ROLE_LABELS).map(([val, label]) => (
                       <option key={val} value={val}>{label}</option>
                     ))}
                   </select>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">System Role Tag</label>
-                  <select 
+                  <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">Department</label>
+                  <select
                     className="input-base"
-                    value={newRoleTag}
-                    onChange={e => setNewRoleTag(e.target.value as RoleTag)}
+                    value={newDepartment}
+                    onChange={e => setNewDepartment(e.target.value)}
                   >
-                    <option value="editor">Editor</option>
-                    <option value="designer">Designer</option>
-                    <option value="performance_marketer">Perf. Marketer</option>
-                    <option value="web_developer">Web Developer</option>
-                    <option value="videographer">Videographer</option>
-                    <option value="ai_developer">AI Developer</option>
-                    <option value="developer">Developer</option>
-                    <option value="pm">Project Manager</option>
+                    {Object.entries(REAL_DEPARTMENT_LABELS).map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">System Role Tag <span className="normal-case font-normal text-text-3">(cosmetic only)</span></label>
+                <select
+                  className="input-base"
+                  value={newRoleTag}
+                  onChange={e => setNewRoleTag(e.target.value as RoleTag)}
+                >
+                  <option value="editor">Editor</option>
+                  <option value="designer">Designer</option>
+                  <option value="performance_marketer">Perf. Marketer</option>
+                  <option value="web_developer">Web Developer</option>
+                  <option value="videographer">Videographer</option>
+                  <option value="ai_developer">AI Developer</option>
+                  <option value="developer">Developer</option>
+                  <option value="pm">Project Manager</option>
+                </select>
+              </div>
+
+              {addUserError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
+                  <span className="material-symbols-outlined text-red-500 text-[18px]">error</span>
+                  <p className="text-[12px] text-text-2 leading-relaxed">{addUserError}</p>
+                </div>
+              )}
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-[12px] font-bold uppercase tracking-wider text-text-3">Theme Color</label>
@@ -478,8 +544,8 @@ export default function AdminPage() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary">
-                  Create User
+                <button type="submit" className="btn-primary disabled:opacity-60" disabled={isCreatingUser}>
+                  {isCreatingUser ? 'Creating...' : 'Create User'}
                 </button>
               </div>
             </form>

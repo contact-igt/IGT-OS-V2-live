@@ -96,6 +96,16 @@ function SocialHubPageInner() {
           <span className="material-symbols-outlined text-primary" style={{ fontSize: 32 }}>trending_up</span> Social Hub
         </h1>
         <div className="flex items-center gap-3">
+          <div className="relative w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
+            <input
+              type="text"
+              placeholder="Search by client, account, or platform..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 border border-border rounded-lg bg-surface-2 text-sm outline-none focus:border-primary transition-colors"
+            />
+          </div>
           <a
             href={`${apiBaseUrl}/api/auth/instagram/connect`}
             className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg bg-surface-2 hover:bg-surface-3 transition-colors text-text"
@@ -116,19 +126,6 @@ function SocialHubPageInner() {
             <span className={`material-symbols-outlined ${isSyncing ? 'animate-spin' : ''}`} style={{ fontSize: 18 }}>sync</span>
             {isSyncing ? 'Syncing...' : 'Sync All Accounts'}
           </button>
-        </div>
-      </div>
-
-      <div className="mb-6 flex gap-4 flex-shrink-0">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-          <input
-            type="text"
-            placeholder="Search by client, account, or platform..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-border rounded-lg bg-surface-2 text-sm outline-none focus:border-primary transition-colors"
-          />
         </div>
       </div>
 

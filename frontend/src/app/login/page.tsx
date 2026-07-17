@@ -11,7 +11,7 @@ export default function LoginPreviewPage() {
   const router = useRouter();
   const { login } = useAuth();
   
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [typedName, setTypedName] = useState('');
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [identifiedPerson, setIdentifiedPerson] = useState<any>(null);
@@ -22,6 +22,16 @@ export default function LoginPreviewPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+
+  // Forgot password (steps 4-5)
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSuccess, setResetSuccess] = useState(false);
   
   const nameInputRef = useRef<HTMLInputElement>(null);
   
@@ -95,6 +105,75 @@ export default function LoginPreviewPage() {
       setLoginError('Could not connect to the server.');
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleCheckEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+
+    setIsCheckingEmail(true);
+    setForgotError('');
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        setStep(5);
+      } else {
+        setForgotError(data.error || 'No account found with that email.');
+      }
+    } catch (err) {
+      setForgotError('Could not connect to the server.');
+    } finally {
+      setIsCheckingEmail(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      setResetError('Password must be at least 6 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setResetError('Passwords do not match.');
+      return;
+    }
+
+    setIsResetting(true);
+    setResetError('');
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, newPassword }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        setResetSuccess(true);
+        setEmail(forgotEmail);
+        setPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => {
+          setResetSuccess(false);
+          setStep(3);
+        }, 1800);
+      } else {
+        setResetError(data.error || 'Failed to reset password.');
+      }
+    } catch (err) {
+      setResetError('Could not connect to the server.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -282,7 +361,13 @@ export default function LoginPreviewPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider">Password</label>
-                  <button type="button" className="text-xs text-[#2AB182] hover:text-white transition-colors">Forgot password?</button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotEmail(email); setForgotError(''); setStep(4); }}
+                    className="text-xs text-[#2AB182] hover:text-white transition-colors"
+                  >
+                    Forgot password?
+                  </button>
                 </div>
                 <div className="relative">
                   <input
@@ -341,6 +426,131 @@ export default function LoginPreviewPage() {
               By signing in you agree to the <a href="#" className="text-[#2AB182] hover:underline">Terms of Service</a> and <a href="#" className="text-[#2AB182] hover:underline">Privacy Policy</a>
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* SCREEN 4: FORGOT PASSWORD — EMAIL */}
+      <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700 ${step === 4 ? 'opacity-100 z-10 translate-y-0' : 'opacity-0 -z-10 translate-y-8 pointer-events-none'}`}
+           style={{ background: 'linear-gradient(135deg, #0A0A18 0%, #0D1A14 100%)' }}>
+
+        <button
+          onClick={() => setStep(3)}
+          className="absolute top-8 left-8 text-white/50 hover:text-white flex items-center gap-2 transition-colors"
+        >
+          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+          <span className="text-sm font-medium">Back</span>
+        </button>
+
+        <div className="w-full max-w-md px-6 flex flex-col">
+          <div className="mb-10 self-center">
+            <Logo />
+          </div>
+
+          <h2 className="text-3xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Reset your password</h2>
+          <p className="text-white/60 mb-8">Enter your account email and we'll let you set a new password.</p>
+
+          <form onSubmit={handleCheckEmail} className="flex flex-col">
+            <input
+              type="email"
+              placeholder="name@invictusglobaltech.com"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-lg text-white outline-none focus:border-[#2AB182] focus:bg-white/10 transition-all placeholder:text-white/20"
+              disabled={isCheckingEmail}
+              required
+            />
+
+            {forgotError && (
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
+                <span className="material-symbols-outlined text-red-400 text-[18px] mt-0.5">error</span>
+                <p className="text-sm text-red-200 leading-tight">{forgotError}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={!forgotEmail || isCheckingEmail}
+              className="mt-8 w-full py-4 bg-[#2AB182] hover:bg-[#1A8F68] disabled:bg-white/5 disabled:text-white/30 text-white rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              {isCheckingEmail ? (
+                <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              ) : (
+                <>Continue <span className="material-symbols-outlined">arrow_forward</span></>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* SCREEN 5: FORGOT PASSWORD — SET NEW PASSWORD */}
+      <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700 ${step === 5 ? 'opacity-100 z-10 translate-y-0' : 'opacity-0 -z-10 translate-y-8 pointer-events-none'}`}
+           style={{ background: 'linear-gradient(135deg, #0A0A18 0%, #0D1A14 100%)' }}>
+
+        <button
+          onClick={() => setStep(4)}
+          className="absolute top-8 left-8 text-white/50 hover:text-white flex items-center gap-2 transition-colors"
+        >
+          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+          <span className="text-sm font-medium">Back</span>
+        </button>
+
+        <div className="w-full max-w-md px-6 flex flex-col">
+          <div className="mb-10 self-center">
+            <Logo />
+          </div>
+
+          {resetSuccess ? (
+            <div className="text-center">
+              <span className="material-symbols-outlined text-[#2AB182] text-[48px] mb-4">check_circle</span>
+              <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Password updated</h2>
+              <p className="text-white/60">Taking you back to sign in...</p>
+            </div>
+          ) : (
+            <>
+              <h2 className="text-3xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Set a new password</h2>
+              <p className="text-white/60 mb-8">Choose a new password for {forgotEmail}.</p>
+
+              <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white outline-none focus:border-[#2AB182] focus:bg-white/10 transition-all placeholder:text-white/20"
+                  disabled={isResetting}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white outline-none focus:border-[#2AB182] focus:bg-white/10 transition-all placeholder:text-white/20"
+                  disabled={isResetting}
+                  required
+                />
+
+                {resetError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
+                    <span className="material-symbols-outlined text-red-400 text-[18px] mt-0.5">error</span>
+                    <p className="text-sm text-red-200 leading-tight">{resetError}</p>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={!newPassword || !confirmPassword || isResetting}
+                  className="mt-4 w-full py-4 bg-[#2AB182] hover:bg-[#1A8F68] disabled:bg-white/5 disabled:text-white/30 text-white rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  {isResetting ? (
+                    <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                  ) : (
+                    'Update password'
+                  )}
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
 
