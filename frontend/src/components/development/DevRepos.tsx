@@ -17,7 +17,7 @@ export default function DevRepos({ search = '' }: { search?: string }) {
 
   const query = search.trim().toLowerCase();
   const visibleProjects = query
-    ? scopedProjects.filter(p => p.name.toLowerCase().includes(query) || p.repoName.toLowerCase().includes(query))
+    ? scopedProjects.filter(p => p.name.toLowerCase().includes(query))
     : scopedProjects;
 
   const internalProjects = visibleProjects.filter(p => p.isInternal);
