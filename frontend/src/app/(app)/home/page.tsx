@@ -9,7 +9,7 @@ export default function HomePage() {
   const router = useRouter();
   
   const getRouteForRole = (role: string, department: string) => {
-    if (role === 'admin' || role === 'super_admin') return '/dashboard/ceo';
+    if (role === 'admin' || role === 'super_admin') return '/dashboard';
     if (role === 'ops') return '/dashboard';
     // For team members (like video editor, design, etc), we only want them to go to their workspace
     // as per the new RBAC rules.

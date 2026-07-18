@@ -335,7 +335,7 @@ export default function AdminPage() {
                       className="input-base text-[12px] py-1.5 w-[140px]"
                       value={member.role}
                       onChange={(e) => handleRoleChange(member.id, e.target.value as TeamMember['role'])}
-                      disabled={member.id === 'u1'} // Prevent changing super admin
+                      disabled={member.role === 'super_admin'} // Prevent changing super admin
                     >
                       {Object.entries(ROLE_LABELS).map(([val, label]) => (
                         <option key={val} value={val}>{label}</option>

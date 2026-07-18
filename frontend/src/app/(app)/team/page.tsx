@@ -6,7 +6,7 @@ import { Mail, Briefcase, Target, Clock, AlertCircle } from 'lucide-react';
 import TaskDrawer from '@/components/tasks/TaskDrawer';
 
 export default function TeamPage() {
-  const { state } = useApp();
+  const { state, getRealUserId } = useApp();
   const router = useRouter();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -22,8 +22,21 @@ export default function TeamPage() {
       const timeLeft = activeTasks.reduce((acc, t) => acc + Math.max(0, (t.estimatedHours || 0) - (t.loggedMinutes / 60)), 0);
       const avgWorkTime = doneTasks.length > 0 ? (doneTasks.reduce((acc, t) => acc + (t.loggedMinutes / 60), 0) / doneTasks.length).toFixed(1) : '0';
 
-      const todayAttendance = state.attendanceLogs?.find(a => a.userId === member.id && a.date === todayStr) || state.attendanceLogs?.find(a => a.userId === member.id);
-      const clockInTime = todayAttendance?.clockIn || 'Not in yet';
+      // Attendance rows are keyed by the real backend user id, not member.id (the mock id).
+      // Break/return-lateness is tracked server-side (attendance_logs.late_return) for audit
+      // purposes only — deliberately not surfaced here, just the overall hours worked today.
+      const realUserId = getRealUserId(member.id);
+      const todaysSessions = (state.attendanceLogs || [])
+        .filter(a => a.userId === realUserId && a.date === todayStr)
+        .sort((a, b) => new Date(a.clockIn!).getTime() - new Date(b.clockIn!).getTime());
+      const firstClockIn = todaysSessions[0]?.clockIn;
+      const clockInTime = firstClockIn
+        ? new Date(firstClockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        : 'Not in yet';
+      const totalWorkedMinutesToday = todaysSessions.reduce((acc, s) => {
+        const end = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+        return acc + Math.max(0, (end - new Date(s.clockIn!).getTime()) / 60000);
+      }, 0);
 
       const doneEst = doneTasks.reduce((acc, t) => acc + (t.estimatedHours || 0), 0);
       const doneActual = doneTasks.reduce((acc, t) => acc + (t.loggedMinutes / 60), 0);
@@ -32,9 +45,16 @@ export default function TeamPage() {
       if (efficiency < 80) effColor = 'text-amber-500';
       if (efficiency < 60) effColor = 'text-red-500';
 
-      return { member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime, efficiency, effColor };
+      const inProgressTask = activeTasks.find(t => t.status === 'in_progress');
+      const activeTimer = inProgressTask ? state.activeTimers.find(t => t.taskId === inProgressTask.id && t.userId === realUserId) : undefined;
+
+      return {
+        member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime,
+        efficiency, effColor, totalWorkedMinutesToday,
+        inProgressTask, activeTimerStartedAt: activeTimer?.startedAt,
+      };
     })
-  , [state.teamMembers, state.tasks, state.attendanceLogs, todayStr]);
+  , [state.teamMembers, state.tasks, state.attendanceLogs, state.activeTimers, todayStr, getRealUserId]);
 
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const isAdmin = currentUser?.role === 'admin' || state.currentUserId === 'u1';
@@ -51,7 +71,7 @@ export default function TeamPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 flex-1 min-h-0 overflow-y-auto pb-8 custom-scrollbar">
-        {memberStats.map(({ member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime, efficiency, effColor }) => (
+        {memberStats.map(({ member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime, efficiency, effColor, totalWorkedMinutesToday, inProgressTask, activeTimerStartedAt }) => (
             <div 
               key={member.id} 
               onClick={() => router.push(`/team/${member.id}`)}
@@ -74,6 +94,10 @@ export default function TeamPage() {
                 <div className="flex flex-col gap-1 p-2 rounded bg-surface border border-border">
                   <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Clock In</span>
                   <span className={`text-[14px] font-bold ${clockInTime === 'Not in yet' ? 'text-amber-500' : 'text-text'}`}>{clockInTime}</span>
+                </div>
+                <div className="flex flex-col gap-1 p-2 rounded bg-surface border border-border">
+                  <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Hours Today</span>
+                  <span className="text-[14px] font-bold text-text">{(totalWorkedMinutesToday / 60).toFixed(1)}h</span>
                 </div>
                 <div className="flex flex-col gap-1 p-2 rounded bg-surface border border-border">
                   <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Efficiency</span>
@@ -104,14 +128,14 @@ export default function TeamPage() {
                       Working On
                     </span>
                     <span className="text-[12px] text-text font-semibold truncate max-w-[150px]">
-                      {activeTasks.find(t => t.status === 'in_progress')?.title || 'None'}
+                      {inProgressTask?.title || 'None'}
                     </span>
                   </div>
-                  {activeTasks.find(t => t.status === 'in_progress') && (
+                  {inProgressTask && (
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-[10px] text-text-3 font-bold tracking-wider">STARTED</span>
                       <span className="text-[11px] text-text-2 font-medium">
-                        {activeTasks.find(t => t.status === 'in_progress')?.startTime ? new Date(activeTasks.find(t => t.status === 'in_progress')!.startTime!).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}
+                        {activeTimerStartedAt ? new Date(activeTimerStartedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}
                       </span>
                     </div>
                   )}

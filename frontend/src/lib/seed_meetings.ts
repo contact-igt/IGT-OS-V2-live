@@ -8,12 +8,14 @@
 // ── INTERFACES ──────────────────────────────────────────────
 
 export interface AttendanceLog {
+  id?: string;
   userId: string;
   date: string;          // YYYY-MM-DD
   clockIn: string | null; // HH:MM IST
   clockOut: string | null;
   totalMinutes: number;
   status?: 'present' | 'absent' | 'half_day' | 'late' | 'leave' | 'holiday' | 'weekend';
+  lateReturn?: boolean;   // true if this session's clock-in came >60min after the previous session's clock-out
 }
 
 export interface AdAccountBalance {

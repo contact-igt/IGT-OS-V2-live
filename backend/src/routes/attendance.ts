@@ -5,6 +5,8 @@ import { postAttendanceAlert } from '../lib/googleChat';
 
 const router = Router();
 
+const BREAK_BUFFER_MINUTES = 60;
+
 function serializeAttendance(row: any) {
   return {
     id: row.id,
@@ -13,31 +15,48 @@ function serializeAttendance(row: any) {
     clockIn: row.clock_in,
     clockOut: row.clock_out,
     status: row.status,
+    lateReturn: row.late_return,
   };
 }
 
-// POST /clock-in — idempotent per (user, day) via the UNIQUE(user_id, date) constraint
+// POST /clock-in — starts a new session for today. If the user is already clocked in
+// (an open session exists), this is a no-op that just returns that open session. Otherwise
+// a new session is created; if a previous session today was closed more than
+// BREAK_BUFFER_MINUTES ago, this new session is flagged lateReturn so it shows up in attendance.
 router.post('/clock-in', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
   try {
-    const status = new Date().getHours() >= 10 ? 'late' : 'present';
-    const result = await pool.query(
-      `INSERT INTO public.attendance_logs (user_id, date, clock_in, status)
-       VALUES ($1, CURRENT_DATE, NOW(), $2)
-       ON CONFLICT (user_id, date) DO NOTHING
-       RETURNING *`,
-      [req.user.id, status]
+    const openSession = await pool.query(
+      `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE AND clock_out IS NULL`,
+      [req.user.id]
+    );
+    if (openSession.rows.length > 0) {
+      return res.json(serializeAttendance(openSession.rows[0]));
+    }
+
+    const lastSession = await pool.query(
+      `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE
+       ORDER BY clock_in DESC LIMIT 1`,
+      [req.user.id]
     );
 
-    if (result.rows.length === 0) {
-      const existing = await pool.query(
-        `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE`,
-        [req.user.id]
-      );
-      return res.json(serializeAttendance(existing.rows[0]));
+    const isFirstSessionToday = lastSession.rows.length === 0;
+    const status = isFirstSessionToday && new Date().getHours() >= 10 ? 'late' : 'present';
+
+    let lateReturn = false;
+    if (!isFirstSessionToday && lastSession.rows[0].clock_out) {
+      const minutesSinceClockOut = (Date.now() - new Date(lastSession.rows[0].clock_out).getTime()) / 60000;
+      lateReturn = minutesSinceClockOut > BREAK_BUFFER_MINUTES;
     }
+
+    const result = await pool.query(
+      `INSERT INTO public.attendance_logs (user_id, date, clock_in, status, late_return)
+       VALUES ($1, CURRENT_DATE, NOW(), $2, $3)
+       RETURNING *`,
+      [req.user.id, status, lateReturn]
+    );
 
     res.status(201).json(serializeAttendance(result.rows[0]));
   } catch (error: any) {
@@ -97,7 +116,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT * FROM public.attendance_logs
        WHERE user_id = $1 AND date >= CURRENT_DATE - $2::int
-       ORDER BY date DESC`,
+       ORDER BY date DESC, clock_in DESC`,
       [req.user.id, days]
     );
     res.json(result.rows.map(serializeAttendance));
@@ -120,10 +139,10 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let params: any[] = [];
 
     if (role === 'admin' || role === 'ops') {
-      query = `SELECT * FROM public.attendance_logs WHERE date >= CURRENT_DATE - $1::int ORDER BY date DESC`;
+      query = `SELECT * FROM public.attendance_logs WHERE date >= CURRENT_DATE - $1::int ORDER BY date DESC, clock_in DESC`;
       params = [days];
     } else {
-      query = `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date >= CURRENT_DATE - $2::int ORDER BY date DESC`;
+      query = `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date >= CURRENT_DATE - $2::int ORDER BY date DESC, clock_in DESC`;
       params = [id, days];
     }
 

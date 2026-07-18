@@ -32,6 +32,9 @@ function serializeTask(row: any) {
     tags: row.tags || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // Total minutes actually logged across all completed time_logs sessions for this task —
+    // defaults to 0 for a task with no sessions yet, never undefined/NaN.
+    loggedMinutes: row.logged_minutes != null ? Number(row.logged_minutes) : 0,
   };
 }
 
@@ -52,10 +55,19 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let query = '';
     let params: any[] = [];
 
+    const loggedMinutesJoin = `
+      LEFT JOIN (
+        SELECT task_id, SUM(duration_minutes) AS logged_minutes
+        FROM public.time_logs
+        WHERE ended_at IS NOT NULL
+        GROUP BY task_id
+      ) tl ON tl.task_id = t.id
+    `;
+
     if (role === 'admin' || role === 'ops') {
-      query = 'SELECT * FROM public.tasks ORDER BY created_at DESC';
+      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
     } else {
-      query = 'SELECT * FROM public.tasks WHERE $1 = ANY(assigned_to) ORDER BY created_at DESC';
+      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) ORDER BY t.created_at DESC`;
       params = [id];
     }
 
@@ -162,7 +174,12 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
-    res.json(serializeTask(result.rows[0]));
+
+    const loggedResult = await pool.query(
+      `SELECT COALESCE(SUM(duration_minutes), 0) AS logged_minutes FROM public.time_logs WHERE task_id = $1 AND ended_at IS NOT NULL`,
+      [id]
+    );
+    res.json(serializeTask({ ...result.rows[0], logged_minutes: loggedResult.rows[0].logged_minutes }));
   } catch (error: any) {
     console.error('Error updating task:', error);
     res.status(500).json({ error: 'Internal server error' });

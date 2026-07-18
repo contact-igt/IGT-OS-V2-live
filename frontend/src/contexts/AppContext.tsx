@@ -332,9 +332,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (['paused', 'blocked', 'in_review', 'done'].includes(action.payload.status) && prevStatus !== action.payload.status) {
         const targets = new Set<string>();
         if (task.createdBy !== action.payload.actorId) targets.add(task.createdBy);
-        if ('u1' !== action.payload.actorId) targets.add('u1');
+        const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+        if (ceoId && ceoId !== action.payload.actorId) targets.add(ceoId);
         state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== action.payload.actorId).forEach(m => targets.add(m.id));
-        
+
         // Extract mentions
         if (action.payload.note) {
           state.teamMembers.forEach(m => {
@@ -677,7 +678,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       // Extract mentions
       const targets = new Set<string>();
       if (task.createdBy !== authorId) targets.add(task.createdBy);
-      if ('u1' !== authorId) targets.add('u1');
+      const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+      if (ceoId && ceoId !== authorId) targets.add(ceoId);
       state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== authorId).forEach(m => targets.add(m.id));
       
       state.teamMembers.forEach(m => {
@@ -817,9 +819,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const { userId, date, time, isLate } = action.payload;
       const actor = getActorName(state, userId);
       const newAttendanceLogs = [...state.attendanceLogs];
-      const existing = newAttendanceLogs.find(l => l.userId === userId && l.date === date);
-      if (!existing) {
-        newAttendanceLogs.push({ userId, date, clockIn: time, clockOut: null, totalMinutes: 0, status: isLate ? 'late' : 'present' });
+      const todaysLogs = newAttendanceLogs.filter(l => l.userId === userId && l.date === date);
+      const openSession = todaysLogs.find(l => !l.clockOut);
+      if (!openSession) {
+        // Most recent closed session today (if any) — used to flag a late return from a break.
+        const lastClosed = [...todaysLogs].sort((a, b) => new Date(b.clockIn!).getTime() - new Date(a.clockIn!).getTime())[0];
+        const lateReturn = !!lastClosed?.clockOut && (new Date(time).getTime() - new Date(lastClosed.clockOut).getTime()) / 60000 > 60;
+        newAttendanceLogs.push({ userId, date, clockIn: time, clockOut: null, totalMinutes: 0, status: isLate ? 'late' : 'present', lateReturn });
       }
       return {
         ...state,
@@ -831,8 +837,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'CLOCK_OUT': {
       const { userId, date, time } = action.payload;
       const actor = getActorName(state, userId);
-      const newAttendanceLogs = state.attendanceLogs.map(l => (l.userId === userId && l.date === date) ? { ...l, clockOut: time } : l);
-      
+      const newAttendanceLogs = state.attendanceLogs.map(l => (l.userId === userId && l.date === date && !l.clockOut) ? { ...l, clockOut: time } : l);
+
       const h = new Date(time).getHours();
       let newNotifications = [...state.notifications];
       if (h >= 9 && h < 18) {
@@ -887,6 +893,9 @@ interface AppContextValue {
   reloadData: () => void;
   clockIn: (userId: string, date: string, time: string, isLate?: boolean) => void;
   clockOut: (userId: string, date: string, time: string) => void;
+  // Attendance rows are keyed by the real backend user id, not the mock id most components
+  // use everywhere else — this looks up a mock team member's real id for matching against them.
+  getRealUserId: (mockId: string) => string | undefined;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -943,7 +952,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (user?.id && jwt) {
         const today = new Date().toISOString().split('T')[0];
         const nowStr = new Date().toISOString();
-        const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today);
+        const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today && !a.clockOut);
 
         if (currentLog && !currentLog.clockOut) {
           // keepalive lets the browser finish this request after the page starts unloading —
@@ -958,8 +967,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let updatedState = { ...stateRef.current };
 
           // 1. Clock out
-          updatedState.attendanceLogs = updatedState.attendanceLogs.map(a => 
-            a.id === currentLog.id ? { ...a, clockOut: nowStr } : a
+          updatedState.attendanceLogs = updatedState.attendanceLogs.map(a =>
+            (a.userId === user.id && a.date === today && !a.clockOut) ? { ...a, clockOut: nowStr } : a
           );
           
           // 2. Stop any active timers
@@ -1058,6 +1067,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdBy: toMockUser[t.createdBy] || t.createdBy,
         clientId: toMockClient[t.clientId] || t.clientId,
         tags: t.tags || [],
+        loggedMinutes: t.loggedMinutes || 0,
       }));
 
       const translatedNotifications = dbNotifications.map((n: any) => ({
@@ -1201,8 +1211,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Notifications are always re-fetched fresh from the backend (see fetchData below) —
+        // never restore them from this local cache, or a just-cleared notification can flash
+        // back on reload before fetchData's authoritative HYDRATE_STATE overwrites it.
+        delete parsed.notifications;
         dispatch({ type: 'HYDRATE_STATE', payload: parsed });
-        prevNotifsLength.current = parsed.notifications?.length || 0;
       } catch (e) {}
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1268,13 +1281,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Only persist essential slices — never serialize the full state (3-8MB)
     const timer = setTimeout(() => {
+      // Notifications are deliberately excluded — they're always re-fetched fresh from the
+      // backend on load, and persisting them here is exactly what let a cleared notification
+      // flash back on the next reload before the fresh fetch overwrote it.
       const essentialState = {
         tasks:             state.tasks,
         clients:           state.clients,
         teamMembers:       state.teamMembers,
         attendanceLogs:    state.attendanceLogs,
         activeTimers:      state.activeTimers,
-        notifications:     state.notifications,
         currentUserId:     state.currentUserId,
         leaveRequests:     state.leaveRequests,
         googleEvents:      state.googleEvents,
@@ -1300,7 +1315,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state.teamMembers,
     state.attendanceLogs,
     state.activeTimers,
-    state.notifications,
     state.currentUserId,
     state.leaveRequests,
     state.googleEvents,
@@ -1375,7 +1389,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (task && ['paused', 'blocked', 'in_review', 'done'].includes(status) && prevStatus !== status) {
         const targets = new Set<string>();
         if (task.createdBy !== state.currentUserId) targets.add(task.createdBy);
-        if ('u1' !== state.currentUserId) targets.add('u1');
+        const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+        if (ceoId && ceoId !== state.currentUserId) targets.add(ceoId);
         state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== state.currentUserId).forEach(m => targets.add(m.id));
         if (note) {
           state.teamMembers.forEach(m => {
@@ -1560,6 +1575,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token]);
 
+  const getRealUserId = useCallback((mockId: string) => userIdMapRef.current.toDb[mockId], []);
+
   const contextValue = React.useMemo(() => ({
     reloadData: fetchData,
     state,
@@ -1591,6 +1608,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setScreenShareMode,
     clockIn,
     clockOut,
+    getRealUserId,
   }), [
     state, fetchData, activeTasks, overdueTasks, todayTasks,
     getTimerElapsed, getTaskLoggedMinutes, isTimerRunning,
@@ -1598,7 +1616,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createTask, updateTask, deleteTask, addTeamMember, updateTeamMember,
     setCurrentUser, requestApproval, notifyUser, resolveApproval, decideApproval,
     updateDealStage, createDeal, saveMeetingNote, addReviewComment,
-    setScreenShareMode, clockIn, clockOut,
+    setScreenShareMode, clockIn, clockOut, getRealUserId,
   ]);
 
   return (

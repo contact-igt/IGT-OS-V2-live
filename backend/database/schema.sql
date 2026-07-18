@@ -232,6 +232,8 @@ CREATE TABLE public.leave_requests (
 );
 
 -- 15. Attendance Logs
+-- One row per clock-in/out session — a user can have multiple rows per day (e.g. clocking
+-- back in after a break), so this is intentionally NOT unique on (user_id, date).
 CREATE TABLE public.attendance_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
@@ -239,8 +241,8 @@ CREATE TABLE public.attendance_logs (
   clock_in TIMESTAMPTZ NOT NULL,
   clock_out TIMESTAMPTZ,
   status TEXT DEFAULT 'present', -- 'present' | 'late'
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (user_id, date)
+  late_return BOOLEAN DEFAULT false, -- true if this session's clock-in came >60min after the previous session's clock-out
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- 16. GitHub App Integration
