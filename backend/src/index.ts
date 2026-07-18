@@ -129,7 +129,7 @@ if (process.env.DATABASE_URL) {
       // 5. Determine Canonical Destination
       let destination = '/my-workspace';
       if (user.role === 'admin') {
-        destination = '/dashboard/ceo';
+        destination = '/dashboard';
       } else if (user.role === 'ops') {
         if (user.department?.toLowerCase() === 'finance') {
           destination = '/dashboard/finance';

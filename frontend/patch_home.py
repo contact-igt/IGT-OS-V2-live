@@ -16,7 +16,7 @@ new_home_page = """export default function HomePage() {
   
   const getRouteForRole = (role: string) => {
     switch (role) {
-      case 'ceo': return '/dashboard/ceo';
+      case 'ceo': return '/dashboard';
       case 'ops': return '/dashboard/ops';
       case 'designer': return '/dashboard/designer';
       case 'developer': return '/dashboard/developer';
