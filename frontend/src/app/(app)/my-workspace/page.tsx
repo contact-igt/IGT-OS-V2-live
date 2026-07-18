@@ -14,7 +14,7 @@ export default function MyWorkspacePage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   
-  const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === authUser.id) || authUser : null;
+  const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === authUser.id) || { ...authUser, title: '' } : null;
   const firstName = currentUser?.name?.split(' ')[0] || 'Team Member';
   
   // Date and greeting

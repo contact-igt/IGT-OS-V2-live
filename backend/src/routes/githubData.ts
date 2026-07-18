@@ -74,8 +74,14 @@ router.get('/live', requireAuth, async (req: Request, res: Response) => {
     await syncGithubRepos(pool);
 
     const reposResult = await pool.query('SELECT * FROM public.github_repos');
+    // Resolve the author against users.github_username at read time rather than trusting the
+    // author_user_id captured when the commit was first ingested — a developer who sets their
+    // GitHub username in My Profile after the fact should still get credit for past commits.
     const commitsResult = await pool.query(
-      'SELECT * FROM public.github_commits ORDER BY committed_at DESC LIMIT 200'
+      `SELECT gc.*, COALESCE(gc.author_user_id, u.id) AS resolved_author_user_id
+       FROM public.github_commits gc
+       LEFT JOIN public.users u ON u.github_username = gc.author_github_username
+       ORDER BY gc.committed_at DESC LIMIT 200`
     );
     const prsResult = await pool.query(
       'SELECT * FROM public.github_pull_requests ORDER BY opened_at DESC LIMIT 200'
@@ -95,7 +101,7 @@ router.get('/live', requireAuth, async (req: Request, res: Response) => {
         id: c.sha,
         repo: name,
         authorName: c.author_github_username,
-        authorUserId: c.author_user_id,
+        authorUserId: c.resolved_author_user_id,
         message: c.message,
         timestamp: c.committed_at.toISOString(),
         additions: c.additions,

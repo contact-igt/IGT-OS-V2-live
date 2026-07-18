@@ -94,13 +94,14 @@ type AppAction =
   | { type: 'LOG_TIME_MANUAL'; payload: { taskId: string; minutes: number; note: string; actorId: string; date?: string } }
   | { type: 'ADD_TEAM_MEMBER'; payload: Omit<TeamMember, 'id'> }
   | { type: 'UPDATE_TEAM_MEMBER'; payload: { id: string; updates: Partial<TeamMember> } }
-  | { type: 'REQUEST_APPROVAL'; payload: { taskId: string; approver: string; approvalType: 'budget' | 'task_completion' | 'self_assignment'; requestMessage?: string; requestedBy: string; } }
+  | { type: 'REQUEST_APPROVAL'; payload: { taskId: string; approver: string; approvalType: 'budget' | 'task_completion' | 'self_assignment' | 'time_log'; requestMessage?: string; requestedBy: string; meta?: any; } }
   | { type: 'RESOLVE_APPROVAL'; payload: { taskId: string; approvalId: string; status: 'approved' | 'rejected'; responseMessage?: string; } }
   | { type: 'ADD_REVIEW_COMMENT'; payload: { taskId: string; text: string; authorId: string } }
   | { type: 'HYDRATE_STATE'; payload: AppState }
   | { type: 'CREATE_NOTIFICATION'; payload: Omit<Notification, 'id' | 'createdAt' | 'read'> }
   | { type: 'MARK_ALL_NOTIFICATIONS_READ'; payload: { userId: string } }
   | { type: 'MARK_NOTIFICATION_READ'; payload: { id: string } }
+  | { type: 'CLEAR_ALL_NOTIFICATIONS'; payload: { userId: string } }
   | { type: 'SET_CURRENT_USER'; payload: { userId: string } }
   | { type: 'UPDATE_LEAD'; payload: Lead }
   | { type: 'ADD_LEAD'; payload: Lead }
@@ -565,7 +566,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'REQUEST_APPROVAL': {
-      const { taskId, approver, approvalType, requestMessage, requestedBy } = action.payload;
+      const { taskId, approver, approvalType, requestMessage, requestedBy, meta } = action.payload;
       return {
         ...state,
         tasks: state.tasks.map(t => {
@@ -576,7 +577,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
               approver,
               type: approvalType,
               status: 'pending',
-              requestMessage
+              requestMessage,
+              meta
             };
             return { ...t, approvals: [...(t.approvals || []), newApproval], updatedAt: new Date().toISOString() };
           }
@@ -734,6 +736,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
         notifications: state.notifications.map(n => n.userId === action.payload.userId ? { ...n, read: true } : n)
       };
 
+    case 'CLEAR_ALL_NOTIFICATIONS':
+      return {
+        ...state,
+        notifications: state.notifications.filter(n => n.userId !== action.payload.userId)
+      };
+
     case 'HYDRATE_STATE': {
       const payloadTasks = Array.isArray(action.payload.tasks) ? action.payload.tasks.map((t: any) => ({ ...t, assignedTo: t.assignedTo || [] })) : undefined;
       const payloadToMerge: any = { ...action.payload };
@@ -871,7 +879,7 @@ interface AppContextValue {
   addTeamMember: (data: Omit<TeamMember, 'id'>) => void;
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
   setCurrentUser: (userId: string) => void;
-  requestApproval: (taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => void;
+  requestApproval: (taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment' | 'time_log', requestMessage?: string, meta?: any) => void;
   notifyUser: (userId: string, message: string, taskId?: string, type?: string) => void;
   resolveApproval: (taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => void;
   addReviewComment: (taskId: string, text: string) => void;
@@ -1349,6 +1357,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   const setTaskStatus = useCallback((taskId: string, status: Task['status'], note?: string) => {
+    const task = state.tasks.find(t => t.id === taskId);
+    const prevStatus = task?.status;
     dispatch({ type: 'SET_TASK_STATUS', payload: { id: taskId, status, actorId: state.currentUserId, note } });
 
     if (token) {
@@ -1358,8 +1368,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ status }),
       }).catch(err => console.error('Failed to sync status change to backend:', err));
+
+      // Mirror the local status-change notification (see SET_TASK_STATUS reducer case) to the
+      // backend so the task creator/admin/dept heads actually see it in their own session —
+      // without this, the notification only ever existed in this tab's local state.
+      if (task && ['paused', 'blocked', 'in_review', 'done'].includes(status) && prevStatus !== status) {
+        const targets = new Set<string>();
+        if (task.createdBy !== state.currentUserId) targets.add(task.createdBy);
+        if ('u1' !== state.currentUserId) targets.add('u1');
+        state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== state.currentUserId).forEach(m => targets.add(m.id));
+        if (note) {
+          state.teamMembers.forEach(m => {
+            if (note.includes(`@${m.name}`) || note.includes(`@${m.name.split(' ')[0]}`)) targets.add(m.id);
+          });
+        }
+        const message = `Task moved to ${status}${note ? `: ${note}` : ''}`;
+        targets.forEach(mockUserId => {
+          const dbUserId = userIdMapRef.current.toDb[mockUserId];
+          if (!dbUserId) return;
+          fetch(`${apiBaseUrl}/api/notifications`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ userId: dbUserId, type: 'status_change', taskId: dbTaskId, message }),
+          }).catch(err => console.error('Failed to sync status-change notification:', err));
+        });
+      }
     }
-  }, [state.currentUserId, token]);
+  }, [state.currentUserId, state.tasks, state.teamMembers, token]);
 
   const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => {
     dispatch({ type: 'CREATE_TASK', payload: data });
@@ -1447,8 +1482,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateTeamMember = useCallback((id: string, updates: Partial<TeamMember>) => dispatch({ type: 'UPDATE_TEAM_MEMBER', payload: { id, updates } }), []);
   const setCurrentUser = useCallback((userId: string) => dispatch({ type: 'SET_CURRENT_USER', payload: { userId } }), []);
 
-  const requestApproval = useCallback((taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment', requestMessage?: string) => {
-    dispatch({ type: 'REQUEST_APPROVAL', payload: { taskId, approver, approvalType, requestMessage, requestedBy: state.currentUserId } });
+  const requestApproval = useCallback((taskId: string, approver: string, approvalType: 'budget' | 'task_completion' | 'self_assignment' | 'time_log', requestMessage?: string, meta?: any) => {
+    dispatch({ type: 'REQUEST_APPROVAL', payload: { taskId, approver, approvalType, requestMessage, requestedBy: state.currentUserId, meta } });
   }, [state.currentUserId]);
 
   // Notify an arbitrary user (mock id) of something (e.g. Thariq assigning within Development

@@ -89,4 +89,18 @@ router.patch('/read-all', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/notifications — clear all of the logged-in user's notifications
+router.delete('/', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  try {
+    await pool.query('DELETE FROM public.notifications WHERE user_id = $1', [req.user.id]);
+    res.status(204).send();
+  } catch (error: any) {
+    console.error('Error clearing notifications:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

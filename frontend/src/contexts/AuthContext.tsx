@@ -85,6 +85,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setGrantedPagesReady(true));
   }, [token]);
 
+  // Silently refresh granted pages on every navigation — an admin-granted page should show
+  // up the next time this user moves around the app, not only after a full re-login. This
+  // doesn't touch grantedPagesReady, so it never re-blocks the redirect guard below.
+  useEffect(() => {
+    if (!token) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${baseUrl}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => {
+        setUser(prev => prev ? { ...prev, grantedPages: data.granted_pages || [] } : prev);
+      })
+      .catch(err => console.error('Failed to refresh granted pages:', err));
+  }, [token, pathname]);
+
   const getDashboardRoute = (user: User | null) => {
     if (!user) return '/login';
     if (user.mustChangePassword) return '/set-password';

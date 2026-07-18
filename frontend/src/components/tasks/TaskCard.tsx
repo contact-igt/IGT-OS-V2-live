@@ -33,7 +33,8 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
     e.stopPropagation();
     const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
     const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
-    const isOwner = task.assignedTo.includes(state.currentUserId) || task.createdBy === state.currentUserId;
+    const isAssignee = task.assignedTo.includes(state.currentUserId);
+    const isOwner = isAssignee || task.createdBy === state.currentUserId;
     if (!isLeadership && !isOwner) {
       alert("You do not have permission to modify this task.");
       return;
@@ -42,6 +43,12 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
     if (timerRunning) {
       requestStopTimer(task.id);
     } else {
+      // The person who assigned this task to someone else shouldn't be able to start it
+      // on their behalf — only an actual assignee can, no exceptions (not even leadership).
+      if (!isAssignee) {
+        alert("Only an assignee can start this task.");
+        return;
+      }
       if (task.status === 'todo') {
         setTaskStatus(task.id, 'in_progress'); // This will automatically start the timer via AppContext
       } else {
@@ -54,8 +61,9 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
     e.stopPropagation();
     const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
     const isLeadership = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || currentUser?.roleTag === 'leadership';
-    const isOwner = task.assignedTo.includes(state.currentUserId) || task.createdBy === state.currentUserId;
-    
+    const isAssignee = task.assignedTo.includes(state.currentUserId);
+    const isOwner = isAssignee || task.createdBy === state.currentUserId;
+
     if (!isLeadership && !isOwner) {
       alert("You do not have permission to modify this task.");
       return;
@@ -64,14 +72,19 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
     const order: Task['status'][] = ['todo', 'in_progress', 'in_review', 'done'];
     const idx = order.indexOf(task.status);
     const nextStatus = order[(idx + 1) % order.length];
-    
+
+    if (nextStatus === 'in_progress' && task.status === 'todo' && !isAssignee) {
+      alert("Only an assignee can start this task.");
+      return;
+    }
+
     if (nextStatus === 'todo' && task.status !== 'todo') {
       if (task.createdBy !== state.currentUserId && !isLeadership) {
         alert("Only the task assigner or leadership can move a task back to Todo.");
         return;
       }
     }
-    
+
     setTaskStatus(task.id, nextStatus);
   }, [task, state.teamMembers, state.currentUserId, setTaskStatus]);
 
