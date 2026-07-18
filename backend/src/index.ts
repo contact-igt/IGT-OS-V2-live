@@ -178,11 +178,32 @@ if (process.env.DATABASE_URL) {
     }
 
     try {
-      // Fuzzy case-insensitive match on name or email prefix
-      const result = await pool.query(
-        'SELECT id, name, email, role, department FROM public.users WHERE name ILIKE $1 OR email ILIKE $2 LIMIT 1',
-        [`%${name}%`, `${name}%`]
-      );
+      const words = name.trim().split(/\s+/).filter(Boolean);
+      if (words.length === 0) {
+        return res.status(400).json({ error: 'Name is required' });
+      }
+
+      let query = 'SELECT id, name, email, role, department FROM public.users WHERE ';
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      words.forEach((word) => {
+        const lower = word.toLowerCase();
+        if (['mohammed', 'mohammad', 'muhammad', 'mohamed', 'mohamad'].includes(lower)) {
+          conditions.push("(name ILIKE '%mohammad%' OR name ILIKE '%mohammed%' OR name ILIKE '%muhammad%' OR name ILIKE '%mohamed%' OR name ILIKE '%mohamad%')");
+        } else {
+          params.push(`%${word}%`);
+          conditions.push(`name ILIKE $${params.length}`);
+        }
+      });
+
+      params.push(`${name.trim()}%`);
+      const emailParamIndex = params.length;
+
+      const nameConditionsStr = conditions.join(' AND ');
+      query += `(${nameConditionsStr}) OR email ILIKE $${emailParamIndex} LIMIT 1`;
+
+      const result = await pool.query(query, params);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });

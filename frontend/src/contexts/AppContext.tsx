@@ -1043,10 +1043,86 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
       const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
 
+      // Dynamically merge/load database users into state.teamMembers
+      const updatedTeamMembers = [...stateRef.current.teamMembers];
+      for (const dbUser of dbUsers) {
+        if (!dbUser.email) continue;
+        const emailLower = dbUser.email.toLowerCase();
+        const existingIdx = updatedTeamMembers.findIndex(m => m.email && m.email.toLowerCase() === emailLower);
+
+        const getInitials = (name: string) => {
+          return name.split(' ').map(n => n[0] || '').join('').toUpperCase().slice(0, 2);
+        };
+
+        const getRoleTag = (dept: string, role: string) => {
+          const d = dept?.toLowerCase() || '';
+          if (d.includes('develop')) return 'developer';
+          if (d.includes('design')) return 'designer';
+          if (d.includes('video')) return 'video_editor';
+          if (d.includes('marketing')) return 'performance_marketer';
+          if (d.includes('sales')) return 'sales';
+          if (d.includes('operations') || role === 'ops') return 'ops';
+          return 'team';
+        };
+
+        const getDeptName = (dept: string) => {
+          const d = dept?.toLowerCase() || '';
+          if (d === 'bd') return 'Business Development';
+          if (d === 'operations') return 'Operations';
+          if (d === 'design') return 'Design';
+          if (d === 'development') return 'Development';
+          if (d === 'video') return 'Video';
+          if (d === 'performance_marketing') return 'Performance Marketing';
+          if (d === 'sales') return 'Sales';
+          return dept || 'Other';
+        };
+
+        if (existingIdx !== -1) {
+          const current = updatedTeamMembers[existingIdx];
+          updatedTeamMembers[existingIdx] = {
+            ...current,
+            name: dbUser.name,
+            role: dbUser.role,
+            department: getDeptName(dbUser.department),
+            roleTag: getRoleTag(dbUser.department, dbUser.role),
+            initials: getInitials(dbUser.name),
+            avatarUrl: dbUser.avatar_url || current.avatarUrl,
+          };
+        } else {
+          const emailPrefix = dbUser.email.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '');
+          const mockId = `u-${emailPrefix}`;
+
+          const colors = [
+            'bg-blue-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-rose-500',
+            'bg-teal-500', 'bg-violet-500', 'bg-indigo-500', 'bg-cyan-500', 'bg-sky-500',
+            'bg-fuchsia-500', 'bg-amber-500', 'bg-lime-500', 'bg-slate-500'
+          ];
+          const hash = dbUser.email.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+          const color = colors[hash % colors.length];
+
+          updatedTeamMembers.push({
+            id: mockId,
+            name: dbUser.name,
+            email: dbUser.email,
+            role: dbUser.role,
+            department: getDeptName(dbUser.department),
+            initials: getInitials(dbUser.name),
+            hoursThisWeek: 0,
+            weeklyTarget: 40,
+            color,
+            permissions: dbUser.role === 'admin' ? ['all'] : dbUser.role === 'ops' ? ['manage_ops'] : [],
+            monthlySalaryINR: 0,
+            roleTag: getRoleTag(dbUser.department, dbUser.role),
+            mustChangePassword: dbUser.must_change_password,
+            avatarUrl: dbUser.avatar_url,
+          });
+        }
+      }
+
       // Build the mock-id <-> real-id maps (see refs above for why these exist).
       const toDbUser: Record<string, string> = {};
       const toMockUser: Record<string, string> = {};
-      for (const mock of stateRef.current.teamMembers) {
+      for (const mock of updatedTeamMembers) {
         const match = dbUsers.find((u: any) => u.email && mock.email && u.email.toLowerCase() === mock.email.toLowerCase());
         if (match) { toDbUser[mock.id] = match.id; toMockUser[match.id] = mock.id; }
       }
@@ -1162,6 +1238,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         githubRepos,
         devProjects,
         socialAccounts,
+        teamMembers: updatedTeamMembers,
         isGlobalLoading: false,
         globalError: null
       } as any });
