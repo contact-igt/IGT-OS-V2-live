@@ -14,7 +14,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
-  { title: 'Workspace',    items: ['/dashboard', '/dashboard/ceo', '/my-workspace', '/tasks', '/calendar', '/my-profile'] },
+  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/my-profile'] },
   { title: 'Agency Ops',  items: ['/team', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];

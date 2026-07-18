@@ -5,7 +5,6 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import TeamTaskCard from '@/components/tasks/TeamTaskCard';
 import TaskDrawer from '@/components/tasks/TaskDrawer';
-import RoleWidget from '@/components/team/RoleWidget';
 import { Play, Square, CheckCircle, Bell, User, Clock, ChevronRight } from 'lucide-react';
 
 export default function MyWorkspacePage() {
@@ -13,7 +12,7 @@ export default function MyWorkspacePage() {
   const { user: authUser } = useAuth();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
-  
+
   const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === authUser.id) || { ...authUser, title: '' } : null;
   const firstName = currentUser?.name?.split(' ')[0] || 'Team Member';
   
@@ -81,32 +80,33 @@ export default function MyWorkspacePage() {
           {(() => {
             if (!currentUser) return null;
             const todayStr = new Date().toISOString().split('T')[0];
-            const log = state.attendanceLogs.find(l => l.userId === currentUser.id && l.date === todayStr);
-            if (log && !log.clockOut) {
+            const todaysLogs = state.attendanceLogs
+              .filter(l => l.userId === currentUser.id && l.date === todayStr)
+              .sort((a, b) => new Date(b.clockIn!).getTime() - new Date(a.clockIn!).getTime());
+            const openLog = todaysLogs.find(l => !l.clockOut);
+
+            if (openLog) {
               return (
-                <button 
+                <button
                   onClick={() => clockOut(currentUser.id, todayStr, new Date().toISOString())}
                   className="hidden md:flex bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold text-sm px-4 py-2 rounded-lg border border-amber-500/20 transition items-center gap-2"
                 >
                   <Clock size={16} /> Clock out
                 </button>
               );
-            } else if (log && log.clockOut) {
-              return (
-                <button disabled className="hidden md:flex bg-[var(--c-surface-3)] text-[var(--c-text-3)] font-bold text-sm px-4 py-2 rounded-lg border border-[var(--c-border)] items-center gap-2 opacity-50 cursor-not-allowed">
-                  <Clock size={16} /> Done for today
-                </button>
-              );
-            } else {
-              return (
-                <button 
-                  onClick={() => clockIn(currentUser.id, todayStr, new Date().toISOString(), new Date().getHours() >= 10)}
-                  className="hidden md:flex bg-[var(--c-primary)]/10 hover:bg-[var(--c-primary)]/20 text-[var(--c-primary)] font-bold text-sm px-4 py-2 rounded-lg border border-[var(--c-primary)]/20 transition items-center gap-2"
-                >
-                  <Clock size={16} /> Clock in
-                </button>
-              );
             }
+
+            // No open session — always offer Clock In (whether it's the first session of the
+            // day, or resuming after a break). The 1h break buffer and any late return are
+            // still tracked server-side (attendance_logs.late_return) — just not surfaced here.
+            return (
+              <button
+                onClick={() => clockIn(currentUser.id, todayStr, new Date().toISOString(), new Date().getHours() >= 10)}
+                className="hidden md:flex bg-[var(--c-primary)]/10 hover:bg-[var(--c-primary)]/20 text-[var(--c-primary)] font-bold text-sm px-4 py-2 rounded-lg border border-[var(--c-primary)]/20 transition items-center gap-2"
+              >
+                <Clock size={16} /> Clock in
+              </button>
+            );
           })()}
 
         </div>
@@ -116,8 +116,6 @@ export default function MyWorkspacePage() {
         
         {/* Left Col: Today's Focus */}
         <div className="lg:col-span-2 flex flex-col gap-6">
-          
-          <RoleWidget />
 
           <div>
             <h3 className="font-syne font-bold text-lg text-[var(--c-text)] mb-4 flex items-center gap-2">

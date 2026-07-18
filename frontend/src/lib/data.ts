@@ -523,7 +523,6 @@ export const CATEGORY_COLORS: Record<TaskCategory, string> = {
 
 export const NAV_SECTIONS = [
   { href: '/dashboard',             label: 'Agency Overview',     icon: 'insights',              color: 'var(--c-primary)', section: 'dashboard' },
-  { href: '/dashboard/ceo',         label: 'CEO Dashboard',       icon: 'stars',                 color: 'var(--c-primary)', section: 'dashboard' },
   { href: '/dashboard/coo',         label: 'COO Dashboard',       icon: 'admin_panel_settings',  color: 'var(--c-primary)', section: 'dashboard' },
   { href: '/dashboard/ops',         label: 'Ops Dashboard',       icon: 'grid_view',             color: 'var(--c-primary)', section: 'dashboard' },
   { href: '/dashboard/developer',   label: 'Dev Dashboard',       icon: 'terminal',              color: 'var(--c-primary)', section: 'dashboard' },
