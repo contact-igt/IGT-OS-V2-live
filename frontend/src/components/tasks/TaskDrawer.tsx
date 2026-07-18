@@ -439,6 +439,14 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                     if (timerRunning) {
                       requestStopTimer(task.id);
                     } else {
+                      // The person who assigned this task to someone else shouldn't be able
+                      // to start it on their behalf — only an actual assignee can, no
+                      // exceptions (not even leadership/admin, even if they're the creator).
+                      const isGenuineAssignee = task.assignedTo.includes(state.currentUserId);
+                      if (!isGenuineAssignee) {
+                        alert("Only an assignee can start this task.");
+                        return;
+                      }
                       startTimer(task.id);
                       if (task.status === 'todo') setTaskStatus(task.id, 'in_progress');
                     }

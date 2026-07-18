@@ -138,7 +138,10 @@ export default function AIPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const currentUser = authUser
-    ? (state.teamMembers || []).find((m: any) => m.id === authUser.id) || authUser
+    ? (state.teamMembers || []).find((m: any) => m.id === authUser.id) || {
+        ...authUser,
+        initials: authUser.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'U',
+      }
     : null;
 
   const isLeader = currentUser ? isLeadership(currentUser.id, currentUser.role) : false;

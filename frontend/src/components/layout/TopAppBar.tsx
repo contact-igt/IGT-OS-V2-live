@@ -30,6 +30,18 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
     [myNotifications, systemAlerts]
   );
 
+  const handleClearNotifications = () => {
+    dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS', payload: { userId: state.currentUserId } });
+    const token = localStorage.getItem('invictus_jwt');
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/notifications`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(err => console.error('Failed to clear notifications on backend:', err));
+    }
+  };
+
   useEffect(() => {
     const handleOpenModal = (e: Event) => {
       const evt = e as CustomEvent;
@@ -203,9 +215,12 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
           <div className="fixed top-0 right-0 h-full w-[360px] bg-surface z-[100] border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             <div className="p-4 border-b border-border flex justify-between items-center bg-surface-2">
               <h2 className="font-bold text-lg text-text">Notifications</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 {unreadCount > 0 && (
                   <button onClick={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { userId: state.currentUserId } })} className="text-[11px] font-bold text-primary hover:underline px-2">Mark all read</button>
+                )}
+                {myNotifications.length > 0 && (
+                  <button onClick={handleClearNotifications} className="text-[11px] font-bold text-text-3 hover:text-red-500 hover:underline px-2">Clear</button>
                 )}
                 <button onClick={() => setNotificationsOpen(false)} className="p-1 hover:bg-hover rounded text-text-3 hover:text-text">
                   <X className="w-5 h-5" />

@@ -20,8 +20,10 @@ const isLeadershipMember = (m?: { role?: string; roleTag?: string } | null) =>
 
 // Assignment hierarchy: leadership and the CTO can assign to anyone (Thariq's cross-department
 // assignments are gated by an approval/notify side-effect in handleSubmit, not by hiding options);
-// Abhilash (Operations Manager) can assign to anyone except leadership/the CTO; other department
-// heads are scoped to their own department; everyone else is locked to self-assignment.
+// Abhilash (Operations Manager) can assign to anyone except leadership/the CTO; everyone else
+// (department heads included) can assign within their own department, so teammates can hand
+// tasks to one another, not just top-down from the head; anyone without a department is locked
+// to self-assignment.
 function getAssignmentScope(currentUser: any, teamMembers: any[]): { mode: 'open' | 'locked'; options: any[] } {
   if (!currentUser) return { mode: 'locked', options: [] };
   if (isLeadershipMember(currentUser) || currentUser.id === 'u-thariq') {
@@ -30,7 +32,7 @@ function getAssignmentScope(currentUser: any, teamMembers: any[]): { mode: 'open
   if (currentUser.id === 'u-abhilash') {
     return { mode: 'open', options: teamMembers.filter(m => !isLeadershipMember(m) && m.id !== 'u-thariq') };
   }
-  if (currentUser.isHeadOfDepartment) {
+  if (currentUser.department) {
     return { mode: 'open', options: teamMembers.filter(m => m.department === currentUser.department && !isLeadershipMember(m)) };
   }
   return { mode: 'locked', options: [] };
@@ -94,8 +96,10 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [isAssigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState('');
   const assigneeTriggerRef = useRef<HTMLDivElement>(null);
   const assigneePortalRef = useRef<HTMLDivElement>(null);
+  const assigneeSearchRef = useRef<HTMLInputElement>(null);
   const [assigneeCoords, setAssigneeCoords] = useState({ top: 0, left: 0, width: 0 });
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isBatchMode, setIsBatchMode] = useState(false);
@@ -113,7 +117,12 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         setAssigneeDropdownOpen(false);
       }
     }
-    function handleScroll() {
+    function handleScroll(event: Event) {
+      // Scrolling inside the dropdown's own list (or its search box) shouldn't close it —
+      // only scrolling of an ancestor (e.g. the modal body moving the trigger) should.
+      if (assigneePortalRef.current && event.target instanceof Node && assigneePortalRef.current.contains(event.target)) {
+        return;
+      }
       setAssigneeDropdownOpen(false);
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -141,6 +150,8 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (!isAssigneeDropdownOpen && assigneeTriggerRef.current) {
       const rect = assigneeTriggerRef.current.getBoundingClientRect();
       setAssigneeCoords({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width });
+      setAssigneeSearch('');
+      setTimeout(() => assigneeSearchRef.current?.focus(), 0);
     }
     setAssigneeDropdownOpen(!isAssigneeDropdownOpen);
   };
@@ -174,9 +185,11 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
 
     const isThariq = currentUser?.id === 'u-thariq';
     const ceo = state.teamMembers.find(m => m.role === 'super_admin');
-    // Anyone with an "open" assignment scope (leadership, Thariq, Abhilash, other dept heads)
-    // manages their own assignments without a CEO self-assignment approval request.
-    const needsSelfAssignApproval = scope.mode === 'locked';
+    // Leadership, Thariq, Abhilash, and department heads manage their own assignments without
+    // a CEO self-assignment approval request. Regular team members still need approval to
+    // self-assign even though department scoping now also lets them assign to teammates.
+    const needsSelfAssignApproval = !isLeadershipMember(currentUser) && currentUser?.id !== 'u-thariq'
+      && currentUser?.id !== 'u-abhilash' && !currentUser?.isHeadOfDepartment;
 
     const applyThariqSideEffect = (taskId: string, taskTitle: string) => {
       if (!isThariq || !ceo) return;
@@ -609,10 +622,24 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             {scope.mode === 'open' && isAssigneeDropdownOpen && typeof document !== 'undefined' && createPortal(
               <div
                 ref={assigneePortalRef}
-                className="fixed z-[130] mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-[220px] overflow-y-auto custom-scrollbar"
-                style={{ top: assigneeCoords.top, left: assigneeCoords.left, width: assigneeCoords.width }}
+                className="fixed z-[130] mt-1 bg-surface border border-border rounded-lg shadow-lg flex flex-col"
+                style={{ top: assigneeCoords.top, left: assigneeCoords.left, width: assigneeCoords.width, maxHeight: 260 }}
               >
-                {scope.options.map(m => {
+                <div className="p-2 border-b border-border flex-shrink-0">
+                  <input
+                    ref={assigneeSearchRef}
+                    type="text"
+                    value={assigneeSearch}
+                    onChange={e => setAssigneeSearch(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    placeholder="Search team members..."
+                    className="input-base text-[12px] py-1.5"
+                  />
+                </div>
+                <div className="overflow-y-auto custom-scrollbar" style={{ maxHeight: 212 }}>
+                  {scope.options
+                    .filter(m => m.name.toLowerCase().includes(assigneeSearch.trim().toLowerCase()))
+                    .map(m => {
                     const selected = form.assignedTo.includes(m.id);
                     return (
                       <div
@@ -633,6 +660,10 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                   {scope.options.length === 0 && (
                     <div className="px-3 py-2.5 text-[12px] text-text-3">No team members available.</div>
                   )}
+                  {scope.options.length > 0 && scope.options.filter(m => m.name.toLowerCase().includes(assigneeSearch.trim().toLowerCase())).length === 0 && (
+                    <div className="px-3 py-2.5 text-[12px] text-text-3">No matches for &quot;{assigneeSearch}&quot;.</div>
+                  )}
+                </div>
               </div>,
               document.body
             )}
