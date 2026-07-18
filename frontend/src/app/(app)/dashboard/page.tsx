@@ -35,7 +35,7 @@ const DEFAULT_LAYOUT = {
 };
 
 export default function DashboardPage() {
-  const { state } = useApp();
+  const { state, getRealUserId } = useApp();
   const router = useRouter();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [compactMode, setCompactMode] = useState(false);
@@ -75,9 +75,13 @@ export default function DashboardPage() {
   const teamMembers = state.teamMembers || [];
 
   // Computed data
+  // todayStr must match Postgres's CURRENT_DATE (UTC), so it's derived from the current
+  // moment directly — NOT from `today` below, which is deliberately shifted to local midnight
+  // for calendar-day deadline comparisons and would otherwise roll back a day in any
+  // timezone ahead of UTC (e.g. IST) once .toISOString() re-serializes it.
+  const todayStr = new Date().toISOString().split('T')[0];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
 
   // 1. Tasks
   const tasks = state.tasks || [];
@@ -99,17 +103,22 @@ export default function DashboardPage() {
   // 2. Team Snapshot — only count unique users clocked in today, capped at team size
   const totalTeam = teamMembers.length;
   const attendanceLogs = state.attendanceLogs || [];
-  // Filter: only today's logs, and only for actual team members
-  const teamMemberIdSet = new Set(teamMembers.map((m: any) => m.id));
+  // attendanceLogs[].userId is the real backend UUID, not the mock id members are keyed by
+  // elsewhere — translate before matching (see AppContext.tsx's getRealUserId for why).
+  const realIdToMockId: Record<string, string> = {};
+  teamMembers.forEach((m: any) => {
+    const realId = getRealUserId(m.id);
+    if (realId) realIdToMockId[realId] = m.id;
+  });
   const presentToday = attendanceLogs.filter((log: any) => {
     const logDate = log.date || log.timestamp?.split('T')[0];
-    return logDate === todayStr && teamMemberIdSet.has(log.userId);
+    return logDate === todayStr && !!realIdToMockId[log.userId];
   });
   // Deduplicate: one entry per userId (in case of duplicate logs)
-  const presentUserIdSet = new Set(presentToday.map((log: any) => log.userId));
-  const presentUserIds = Array.from(presentUserIdSet) as string[];
+  const presentMockIdSet = new Set(presentToday.map((log: any) => realIdToMockId[log.userId]));
+  const presentUserIds = Array.from(presentMockIdSet) as string[];
   const presentCount = Math.min(presentUserIds.length, totalTeam); // can never exceed total
-  const notClockedIn = teamMembers.filter((m: any) => !presentUserIdSet.has(m.id));
+  const notClockedIn = teamMembers.filter((m: any) => !presentMockIdSet.has(m.id));
 
   // 3. Meetings Today
   const meetings = state.meetings || [];

@@ -332,9 +332,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (['paused', 'blocked', 'in_review', 'done'].includes(action.payload.status) && prevStatus !== action.payload.status) {
         const targets = new Set<string>();
         if (task.createdBy !== action.payload.actorId) targets.add(task.createdBy);
-        if ('u1' !== action.payload.actorId) targets.add('u1');
+        const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+        if (ceoId && ceoId !== action.payload.actorId) targets.add(ceoId);
         state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== action.payload.actorId).forEach(m => targets.add(m.id));
-        
+
         // Extract mentions
         if (action.payload.note) {
           state.teamMembers.forEach(m => {
@@ -677,7 +678,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       // Extract mentions
       const targets = new Set<string>();
       if (task.createdBy !== authorId) targets.add(task.createdBy);
-      if ('u1' !== authorId) targets.add('u1');
+      const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+      if (ceoId && ceoId !== authorId) targets.add(ceoId);
       state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== authorId).forEach(m => targets.add(m.id));
       
       state.teamMembers.forEach(m => {
@@ -1065,6 +1067,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdBy: toMockUser[t.createdBy] || t.createdBy,
         clientId: toMockClient[t.clientId] || t.clientId,
         tags: t.tags || [],
+        loggedMinutes: t.loggedMinutes || 0,
       }));
 
       const translatedNotifications = dbNotifications.map((n: any) => ({
@@ -1386,7 +1389,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (task && ['paused', 'blocked', 'in_review', 'done'].includes(status) && prevStatus !== status) {
         const targets = new Set<string>();
         if (task.createdBy !== state.currentUserId) targets.add(task.createdBy);
-        if ('u1' !== state.currentUserId) targets.add('u1');
+        const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
+        if (ceoId && ceoId !== state.currentUserId) targets.add(ceoId);
         state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== state.currentUserId).forEach(m => targets.add(m.id));
         if (note) {
           state.teamMembers.forEach(m => {
