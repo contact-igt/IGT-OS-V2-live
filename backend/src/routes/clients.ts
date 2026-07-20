@@ -26,6 +26,38 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// Quick-add: name + short code only. Everything else (retainer, contact, etc.) is
+// filled in later from the Clients page — this exists so a client can be created
+// inline from the New Task modal without leaving the flow.
+router.post('/', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  const name = (req.body.name || '').trim();
+  const shortCode = (req.body.shortCode || '').trim().toUpperCase();
+
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  if (shortCode.length < 3 || shortCode.length > 4) {
+    return res.status(400).json({ error: 'shortCode must be 3-4 characters' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.clients (name, short_code, category)
+       VALUES ($1, $2, 'other')
+       RETURNING *`,
+      [name, shortCode]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error: any) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: `A client with code "${shortCode}" already exists` });
+    }
+    console.error('Error creating client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });

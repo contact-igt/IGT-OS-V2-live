@@ -16,7 +16,7 @@ const STATUSES: Task['status'][] = ['todo', 'in_progress', 'rework', 'in_review'
 
 
 export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
-  const { state, setTaskStatus, updateTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval } = useApp();
+  const { state, setTaskStatus, updateTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser } = useApp();
   const [tab, setTab] = useState<'details' | 'timelog' | 'audit'>('details');
   const [manualHours, setManualHours] = useState('');
   const [manualMins, setManualMins] = useState('');
@@ -24,6 +24,8 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const [comment, setComment] = useState('');
   const [newAssetUrl, setNewAssetUrl] = useState('');
   const [newAssetName, setNewAssetName] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState('');
 
   const task = taskId ? state.tasks.find(t => t.id === taskId) : null;
   const client = task ? state.clients.find(c => c.id === task.clientId) : null;
@@ -32,7 +34,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const timer = task ? state.activeTimers.find(t => t.taskId === task.id) : null;
   const timerRunning = !!timer;
   const taskAudit = task
-    ? state.auditLog.filter(a => a.entityRef.toLowerCase().includes(task.title.slice(0, 15).toLowerCase()))
+    ? state.auditLog.filter(a => a.entity === 'Task' && a.entityRef === task.title)
     : [];
 
   // Close on Escape
@@ -255,6 +257,56 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                     </div>
                   ))}
                 </div>
+
+                {/* Reassign — only once paused, and only the assignee themselves or an
+                    admin can hand it off. Replaces the assignee outright (not additive):
+                    past logged hours stay correctly attributed to whoever logged them,
+                    since time_logs tracks that independently of assignedTo. */}
+                {task.status === 'paused' && (task.assignedTo.includes(state.currentUserId) || isLeadership) && (
+                  <div className="mt-3">
+                    {!reassigning ? (
+                      <button
+                        onClick={() => setReassigning(true)}
+                        className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-app-border text-app-text2 hover:text-primary hover:border-primary transition-colors"
+                      >
+                        Reassign to another developer
+                      </button>
+                    ) : (
+                      <div className="flex flex-col gap-2 p-3 rounded-lg border border-app-border">
+                        <select
+                          className="input-base text-[12px]"
+                          value={reassignTarget}
+                          onChange={e => setReassignTarget(e.target.value)}
+                        >
+                          <option value="">Select developer…</option>
+                          {state.teamMembers.filter(m => !task.assignedTo.includes(m.id)).map(m => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => { setReassigning(false); setReassignTarget(''); }}
+                            className="text-[12px] px-3 py-1.5 text-app-text2"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            disabled={!reassignTarget}
+                            onClick={() => {
+                              updateTask(task.id, { assignedTo: [reassignTarget] });
+                              notifyUser(reassignTarget, `${task.title} has been reassigned to you`, task.id);
+                              setReassigning(false);
+                              setReassignTarget('');
+                            }}
+                            className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-40"
+                          >
+                            Confirm Reassign
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Description */}

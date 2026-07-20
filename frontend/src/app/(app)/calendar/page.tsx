@@ -297,21 +297,31 @@ export default function CalendarPage() {
                           );
                         })}
 
-                        {/* Render Task Deadlines (Diamonds/Lines) */}
+                        {/* Render Task Deadlines as compact clickable chips, priority-colored */}
                         {dayTasks.map(task => {
                           const deadline = new Date(task.deadline!);
                           const top = deadline.getHours() * 60 + deadline.getMinutes();
+                          const priorityColor = task.priority === 'critical' ? '#EF4444'
+                            : task.priority === 'high' ? '#F59E0B'
+                            : task.priority === 'medium' ? '#EAB308'
+                            : '#6B7280';
                           return (
-                            <div 
+                            <div
                               key={`task-${task.id}`}
-                              className="absolute left-0 right-0 h-[2px] bg-[#EF4444] opacity-50 z-20 flex items-center justify-center cursor-pointer group"
-                              style={{ top: `${top}px` }}
-                              title={`Deadline: ${task.title}`}
+                              onClick={() => setGanttSelectedTaskId(task.id)}
+                              className="absolute left-1 right-1 rounded-md px-2 py-1 cursor-pointer shadow-sm border overflow-hidden group hover:z-30 transition-all flex items-center gap-1"
+                              style={{
+                                top: `${top}px`,
+                                height: '22px',
+                                background: `${priorityColor}20`,
+                                borderColor: `${priorityColor}50`,
+                                zIndex: 15,
+                              }}
+                              title={`Deadline: ${task.title} — ${deadline.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                             >
-                              <div className="w-3 h-3 bg-[#EF4444] rotate-45 transform border-2 border-app-bg shadow-sm"></div>
-                              <div className="absolute left-full ml-2 w-max bg-app-surface border border-app-border rounded px-2 py-1 text-[10px] font-bold shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none text-app-text transition-opacity z-50">
-                                🎯 Due: {task.title}
-                              </div>
+                              <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: priorityColor }}></div>
+                              <span className="text-[10px]">🎯</span>
+                              <p className="text-[10px] font-bold truncate" style={{ color: priorityColor }}>{task.title}</p>
                             </div>
                           );
                         })}
