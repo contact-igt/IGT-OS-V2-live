@@ -5,6 +5,7 @@ import { X, PlayCircle, StopCircle, PlusCircle } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress } from '@/lib/data';
 import LiveTimer from '@/components/ui/LiveTimer';
+import EditTaskModal from '@/components/tasks/EditTaskModal';
 
 interface Props {
   taskId: string | null;
@@ -16,7 +17,7 @@ const STATUSES: Task['status'][] = ['todo', 'in_progress', 'rework', 'in_review'
 
 
 export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
-  const { state, setTaskStatus, updateTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser } = useApp();
+  const { state, setTaskStatus, updateTask, deleteTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser } = useApp();
   const [tab, setTab] = useState<'details' | 'timelog' | 'audit'>('details');
   const [manualHours, setManualHours] = useState('');
   const [manualMins, setManualMins] = useState('');
@@ -26,6 +27,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const [newAssetName, setNewAssetName] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [reassignTarget, setReassignTarget] = useState('');
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   const task = taskId ? state.tasks.find(t => t.id === taskId) : null;
   const client = task ? state.clients.find(c => c.id === task.clientId) : null;
@@ -51,6 +53,10 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const isLeadership = currentUser?.role === "super_admin" || currentUser?.role === "admin" || currentUser?.roleTag === "leadership";
   const isAssigned = task?.assignedTo.includes(state.currentUserId) || task?.createdBy === state.currentUserId;
   const isReadOnly = !isLeadership && !isAssigned;
+  // Edit permission: task creator (assigner) OR leadership/admin
+  const canEdit = task?.createdBy === state.currentUserId || isLeadership;
+  // Delete permission: only admin or ops role
+  const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'ops';
 
   const pc = PRIORITY_CONFIG[task.priority];
   const pct = task ? calculateTaskProgress(task, state.tasks) : 0;
@@ -119,6 +125,44 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
             {client && (
               <p className="text-[12px] mt-1 font-semibold text-primary">{client.name}</p>
             )}
+            {/* Action buttons: Edit (creator/leadership) + Delete (admin/ops only) */}
+            <div className="flex items-center gap-2 mt-3">
+              {canEdit && (
+                <button
+                  onClick={() => setEditModalOpen(true)}
+                  className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
+                  style={{
+                    background: 'rgba(37,99,235,0.08)',
+                    color: '#2563EB',
+                    borderColor: 'rgba(37,99,235,0.25)',
+                  }}
+                  title="Edit task details"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span>
+                  Edit Task
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete "${task.title}"? This cannot be undone.`)) {
+                      dispatch({ type: 'DELETE_TASK', payload: { id: task.id } });
+                      onClose();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
+                  style={{
+                    background: 'rgba(239,68,68,0.08)',
+                    color: '#EF4444',
+                    borderColor: 'rgba(239,68,68,0.25)',
+                  }}
+                  title="Delete task (Admin / Ops only)"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 transition-colors flex-shrink-0 text-app-text2 bg-app-hover hover:opacity-80">
             <X className="w-5 h-5" />
@@ -625,6 +669,13 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
           )}
         </div>
       </div>
+
+      {/* Edit Task Modal */}
+      <EditTaskModal
+        task={task}
+        isOpen={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+      />
     </>
   );
 }
