@@ -93,6 +93,7 @@ type AppAction =
   | { type: 'ADD_AUDIT'; payload: AuditEntry }
   | { type: 'LOG_TIME_MANUAL'; payload: { taskId: string; minutes: number; note: string; actorId: string; date?: string } }
   | { type: 'ADD_TEAM_MEMBER'; payload: Omit<TeamMember, 'id'> }
+  | { type: 'ADD_CLIENT'; payload: Client }
   | { type: 'UPDATE_TEAM_MEMBER'; payload: { id: string; updates: Partial<TeamMember> } }
   | { type: 'REQUEST_APPROVAL'; payload: { taskId: string; approver: string; approvalType: 'budget' | 'task_completion' | 'self_assignment' | 'time_log'; requestMessage?: string; requestedBy: string; meta?: any; } }
   | { type: 'RESOLVE_APPROVAL'; payload: { taskId: string; approvalId: string; status: 'approved' | 'rejected'; responseMessage?: string; } }
@@ -183,6 +184,20 @@ function getActorName(state: AppState, actorId: string): string {
 
 function getClientName(state: AppState, clientId: string): string {
   return state.clients.find(c => c.id === clientId)?.name ?? '—';
+}
+
+// Only the head(s) of the departments a task's own assignees belong to — not every
+// department head company-wide. A Design task's status change/comment should reach the
+// Design head, not the Video/Dev/Sales/Ops heads too.
+function getTaskDepartmentHeadIds(state: AppState, task: Task): string[] {
+  const assigneeDepts = new Set(
+    task.assignedTo
+      .map(id => state.teamMembers.find(m => m.id === id)?.department)
+      .filter((d): d is string => !!d)
+  );
+  return state.teamMembers
+    .filter(m => m.isHeadOfDepartment && m.department && assigneeDepts.has(m.department))
+    .map(m => m.id);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -334,7 +349,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         if (task.createdBy !== action.payload.actorId) targets.add(task.createdBy);
         const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
         if (ceoId && ceoId !== action.payload.actorId) targets.add(ceoId);
-        state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== action.payload.actorId).forEach(m => targets.add(m.id));
+        getTaskDepartmentHeadIds(state, task).filter(id => id !== action.payload.actorId).forEach(id => targets.add(id));
 
         // Extract mentions
         if (action.payload.note) {
@@ -533,6 +548,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, auditLog: [action.payload, ...state.auditLog] };
     }
 
+    case 'ADD_CLIENT': {
+      return { ...state, clients: [...state.clients, action.payload] };
+    }
+
     case 'ADD_TEAM_MEMBER': {
       const newMember: TeamMember = {
         ...action.payload,
@@ -680,7 +699,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (task.createdBy !== authorId) targets.add(task.createdBy);
       const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
       if (ceoId && ceoId !== authorId) targets.add(ceoId);
-      state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== authorId).forEach(m => targets.add(m.id));
+      getTaskDepartmentHeadIds(state, task).filter(id => id !== authorId).forEach(id => targets.add(id));
       
       state.teamMembers.forEach(m => {
         if (text.includes(`@${m.name}`) || text.includes(`@${m.name.split(' ')[0]}`)) {
@@ -882,6 +901,7 @@ interface AppContextValue {
   createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
+  createClient: (name: string, shortCode: string) => Promise<{ id: string } | { error: string }>;
   addTeamMember: (data: Omit<TeamMember, 'id'>) => void;
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
   setCurrentUser: (userId: string) => void;
@@ -921,7 +941,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Maps a freshly-created task's local id to the real id Postgres assigned it, until
   // the next fetchData() makes the real id the task's id everywhere.
   const taskIdMapRef = useRef<Record<string, string>>({});
-  
+  // Tracks the newest audit entry id already persisted to the backend, so the sync effect
+  // below only POSTs genuinely new entries (not ones just hydrated from the server).
+  const lastSyncedAuditIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const nowStr = new Date().toISOString();
@@ -1014,7 +1037,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes] = await Promise.all([
+      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, { headers }),
         fetch(`${baseUrl}/api/clients`, { headers }),
         fetch(`${baseUrl}/api/tasks`, { headers }),
@@ -1023,12 +1046,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetch(`${baseUrl}/api/github/live`, { headers }),
         fetch(`${baseUrl}/api/social/accounts`, { headers }),
         fetch(`${baseUrl}/api/time-logs?active=true`, { headers }),
+        fetch(`${baseUrl}/api/audit-log`, { headers }),
       ]);
 
       // A 401 from ANY endpoint means the session has expired — log out consistently
       // instead of only checking users/tasks, which used to leave the other endpoints
       // (attendance, github, social, timers) failing silently with no explanation.
-      const allResponses = [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes];
+      const allResponses = [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes];
       if (allResponses.some(res => res.status === 401)) {
         logout();
         return;
@@ -1041,6 +1065,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
       const dbGithub = githubRes.ok ? await githubRes.json() : { repos: [], commits: [], pullRequests: [] };
       const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
+      const dbAuditLog: AuditEntry[] = auditLogRes.ok ? await auditLogRes.json() : [];
+      // Anchor the "already synced" watermark before hydrating, so the sync effect below
+      // doesn't immediately re-POST every entry we just loaded back to the server.
+      lastSyncedAuditIdRef.current = dbAuditLog[0]?.id ?? null;
       const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
 
       // Dynamically merge/load database users into state.teamMembers. Rebuilt from the
@@ -1243,6 +1271,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         devProjects,
         socialAccounts,
         teamMembers: updatedTeamMembers,
+        auditLog: dbAuditLog,
         isGlobalLoading: false,
         globalError: null
       } as any });
@@ -1260,6 +1289,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, [token, fetchData]);
+
+  // Persist newly-added audit entries to the backend as they're created. addAudit()
+  // always prepends new entries to the front of the array, so anything newer than
+  // lastSyncedAuditIdRef hasn't been synced yet — this fires for every code path that
+  // adds an entry (task changes, timer events, clock in/out, etc.) without needing a
+  // matching backend-sync call threaded through each of those individually.
+  useEffect(() => {
+    if (!token || state.auditLog.length === 0) return;
+    const newest = state.auditLog[0];
+    if (newest.id === lastSyncedAuditIdRef.current) return;
+
+    const boundaryIdx = lastSyncedAuditIdRef.current
+      ? state.auditLog.findIndex(a => a.id === lastSyncedAuditIdRef.current)
+      : -1;
+    // If the watermark isn't found (first run, or it scrolled out of the fetched window),
+    // sync only the newest entry rather than re-posting the whole list.
+    const toSync = boundaryIdx === -1 ? state.auditLog.slice(0, 1) : state.auditLog.slice(0, boundaryIdx);
+
+    lastSyncedAuditIdRef.current = newest.id;
+    for (const entry of [...toSync].reverse()) {
+      fetch(`${apiBaseUrl}/api/audit-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          actorName: entry.actor,
+          action: entry.action,
+          entity: entry.entity,
+          entityRef: entry.entityRef,
+          clientName: entry.clientName,
+          meta: entry.meta,
+        }),
+      }).catch(err => console.error('Failed to sync audit entry to backend:', err));
+    }
+  }, [state.auditLog, token]);
 
 
   const [isMounted, setIsMounted] = React.useState(false);
@@ -1472,7 +1535,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (task.createdBy !== state.currentUserId) targets.add(task.createdBy);
         const ceoId = state.teamMembers.find(m => m.role === 'super_admin')?.id;
         if (ceoId && ceoId !== state.currentUserId) targets.add(ceoId);
-        state.teamMembers.filter(m => m.isHeadOfDepartment && m.id !== state.currentUserId).forEach(m => targets.add(m.id));
+        getTaskDepartmentHeadIds(state, task).filter(id => id !== state.currentUserId).forEach(id => targets.add(id));
         if (note) {
           state.teamMembers.forEach(m => {
             if (note.includes(`@${m.name}`) || note.includes(`@${m.name.split(' ')[0]}`)) targets.add(m.id);
@@ -1538,6 +1601,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed to sync new task to backend:', err);
         }
       })();
+    }
+  }, [token]);
+
+  // Quick-add client (name + short code only — see backend POST /api/clients). Registers
+  // the new client into both state.clients and clientIdMapRef so createTask's mock->real
+  // id translation works immediately, without waiting for the next full fetchData() pass.
+  const createClient = useCallback(async (name: string, shortCode: string): Promise<{ id: string } | { error: string }> => {
+    if (!token) return { error: 'Not authenticated' };
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/clients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name, shortCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: data.error || 'Failed to create client' };
+
+      const mockId = `c-${shortCode.toLowerCase()}`;
+      const newClient: Client = {
+        id: mockId,
+        code: shortCode.toUpperCase(),
+        name,
+        category: 'other',
+        monthlyRetainerINR: 0,
+        agencyFeeINR: 0,
+        contractStatus: 'active',
+        primaryContact: '',
+        notes: '',
+      };
+      dispatch({ type: 'ADD_CLIENT', payload: newClient });
+      clientIdMapRef.current.toDb[mockId] = data.id;
+      clientIdMapRef.current.toMock[data.id] = mockId;
+      return { id: mockId };
+    } catch (err) {
+      return { error: 'Could not connect to the server' };
     }
   }, [token]);
 
@@ -1675,6 +1773,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createTask,
     updateTask,
     deleteTask,
+    createClient,
     addTeamMember,
     updateTeamMember,
     setCurrentUser,
@@ -1694,7 +1793,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state, fetchData, activeTasks, overdueTasks, todayTasks,
     getTimerElapsed, getTaskLoggedMinutes, isTimerRunning,
     startTimer, stopTimer, requestStopTimer, setTaskStatus,
-    createTask, updateTask, deleteTask, addTeamMember, updateTeamMember,
+    createTask, updateTask, deleteTask, createClient, addTeamMember, updateTeamMember,
     setCurrentUser, requestApproval, notifyUser, resolveApproval, decideApproval,
     updateDealStage, createDeal, saveMeetingNote, addReviewComment,
     setScreenShareMode, clockIn, clockOut, getRealUserId,

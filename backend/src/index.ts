@@ -29,6 +29,7 @@ import socialSyncRoutes from './routes/socialSync';
 import agencyMetricsRoutes from './routes/agencyMetrics';
 import pageAccessRoutes from './routes/pageAccess';
 import architectureDocsRoutes from './routes/architectureDocs';
+import auditLogRoutes from './routes/auditLog';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import { requireAuth, requirePageAccess } from './middleware/auth';
 
@@ -306,6 +307,7 @@ app.use('/api/social', requireAuth, requirePageAccess('/social', ['admin', 'ops'
 app.use('/api/agency-metrics', agencyMetricsRoutes);
 app.use('/api/page-access', pageAccessRoutes);
 app.use('/api/architecture-docs', architectureDocsRoutes);
+app.use('/api/audit-log', auditLogRoutes);
 
 // Public — no auth required (login page hero)
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {

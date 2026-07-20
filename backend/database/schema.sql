@@ -382,3 +382,18 @@ CREATE TABLE public.architecture_docs (
   uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+
+-- 21. Audit Log (task/attendance action history — previously an in-memory-only frontend
+-- concept that never survived a reload; now persisted so it's a real audit trail)
+CREATE TABLE public.audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  actor_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_ref TEXT NOT NULL,
+  client_name TEXT,
+  meta TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);

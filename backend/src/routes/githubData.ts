@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { getInstallationAccessToken } from '../lib/githubApp';
+import { backfillAllRepos } from '../lib/githubBackfill';
 
 const router = Router();
 
@@ -77,14 +78,27 @@ router.get('/live', requireAuth, async (req: Request, res: Response) => {
     // Resolve the author against users.github_username at read time rather than trusting the
     // author_user_id captured when the commit was first ingested — a developer who sets their
     // GitHub username in My Profile after the fact should still get credit for past commits.
+    //
+    // Windowed per repo (not a single global LIMIT) — a flat "last 200 across all repos"
+    // let one actively-developed repo (this one) push every other repo's commits out of the
+    // window entirely, so quieter repos always looked empty regardless of their real history.
     const commitsResult = await pool.query(
-      `SELECT gc.*, COALESCE(gc.author_user_id, u.id) AS resolved_author_user_id
-       FROM public.github_commits gc
-       LEFT JOIN public.users u ON u.github_username = gc.author_github_username
-       ORDER BY gc.committed_at DESC LIMIT 200`
+      `SELECT * FROM (
+         SELECT gc.*, COALESCE(gc.author_user_id, u.id) AS resolved_author_user_id,
+                ROW_NUMBER() OVER (PARTITION BY gc.repo_id ORDER BY gc.committed_at DESC) AS rn
+         FROM public.github_commits gc
+         LEFT JOIN public.users u ON u.github_username = gc.author_github_username
+       ) sub
+       WHERE rn <= 30
+       ORDER BY committed_at DESC`
     );
     const prsResult = await pool.query(
-      'SELECT * FROM public.github_pull_requests ORDER BY opened_at DESC LIMIT 200'
+      `SELECT * FROM (
+         SELECT pr.*, ROW_NUMBER() OVER (PARTITION BY pr.repo_id ORDER BY pr.opened_at DESC) AS rn
+         FROM public.github_pull_requests pr
+       ) sub
+       WHERE rn <= 30
+       ORDER BY opened_at DESC`
     );
 
     const repos = reposResult.rows.map((repo: any) => {
@@ -130,6 +144,21 @@ router.get('/live', requireAuth, async (req: Request, res: Response) => {
     console.error('Error fetching GitHub live data:', err);
     res.status(500).json({ error: 'Failed to fetch GitHub data' });
   }
+});
+
+// POST /api/github/backfill — admin-only, one-time historical catch-up (see githubBackfill.ts).
+// Runs in the background and returns immediately: pulling full commit/PR history across every
+// tracked repo can take minutes, well past a normal request timeout, and there's no need to
+// hold the connection open for it — the next GET /live simply reflects whatever landed.
+router.post('/backfill', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  res.status(202).json({ message: 'Backfill started — this can take a few minutes across all repos.' });
+
+  backfillAllRepos(pool)
+    .then(summary => console.log('GitHub backfill complete:', JSON.stringify(summary)))
+    .catch(err => console.error('GitHub backfill failed:', err));
 });
 
 export default router;

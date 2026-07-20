@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/contexts/AppContext';
 
-import { Task, CLIENTS, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS } from '@/lib/data';
+import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS } from '@/lib/data';
 
 interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; }
 
@@ -36,6 +36,59 @@ function getAssignmentScope(currentUser: any, teamMembers: any[]): { mode: 'open
     return { mode: 'open', options: teamMembers.filter(m => m.department === currentUser.department && !isLeadershipMember(m)) };
   }
   return { mode: 'locked', options: [] };
+}
+
+// Client dropdown with an inline "+ New Client" quick-add (name + short code only —
+// full details like retainer/contact get filled in later from the Clients page).
+function ClientPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { state, createClient } = useApp();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [addError, setAddError] = useState('');
+
+  const handleCreate = async () => {
+    if (!newName.trim()) { setAddError('Client name is required'); return; }
+    if (newCode.trim().length < 3 || newCode.trim().length > 4) { setAddError('Code must be 3-4 characters'); return; }
+    setSaving(true);
+    setAddError('');
+    const result = await createClient(newName.trim(), newCode.trim());
+    setSaving(false);
+    if ('error' in result) { setAddError(result.error); return; }
+    onChange(result.id);
+    setAdding(false);
+    setNewName('');
+    setNewCode('');
+  };
+
+  if (adding) {
+    return (
+      <div className="flex flex-col gap-2 p-3 rounded-lg border" style={{ borderColor: 'var(--c-border)' }}>
+        <div className="flex gap-2">
+          <input className="input-base flex-1" placeholder="Client name" value={newName} onChange={e => setNewName(e.target.value)} autoFocus />
+          <input className="input-base w-20" placeholder="Code" maxLength={4} value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} />
+        </div>
+        {addError && <p className="text-[11px] text-red-500">{addError}</p>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="text-[12px] px-3 py-1.5" style={{ color: 'var(--c-text-2)' }} onClick={() => { setAdding(false); setAddError(''); setNewName(''); setNewCode(''); }}>Cancel</button>
+          <button type="button" className="btn-primary text-[12px] px-3 py-1.5" disabled={saving} onClick={handleCreate}>{saving ? 'Adding…' : 'Add Client'}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      className="input-base"
+      value={value}
+      onChange={e => { if (e.target.value === '__new__') setAdding(true); else onChange(e.target.value); }}
+    >
+      <option value="">Select client…</option>
+      {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      <option value="__new__">+ New Client…</option>
+    </select>
+  );
 }
 
 export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
@@ -308,7 +361,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: aiPrompt,
-          clients: CLIENTS,
+          clients: state.clients,
           teamMembers: state.teamMembers,
           categories: CATEGORIES
         })
@@ -487,10 +540,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                 <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>
                   Client <span className="text-red-500">*</span>
                 </label>
-                <select className="input-base" value={form.clientId} onChange={e => set('clientId', e.target.value)}>
-                  <option value="">Select client…</option>
-                  {CLIENTS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <ClientPicker value={form.clientId} onChange={v => set('clientId', v)} />
                 {errors.clientId && <p className="text-[11px] mt-1 text-red-500">{errors.clientId}</p>}
               </div>
             )}
@@ -502,10 +552,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                 <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>
                   Client <span className="text-red-500">*</span>
                 </label>
-                <select className="input-base" value={form.clientId} onChange={e => set('clientId', e.target.value)}>
-                  <option value="">Select client…</option>
-                  {CLIENTS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <ClientPicker value={form.clientId} onChange={v => set('clientId', v)} />
                 {errors.clientId && <p className="text-[11px] mt-1 text-red-500">{errors.clientId}</p>}
               </div>
             )}
