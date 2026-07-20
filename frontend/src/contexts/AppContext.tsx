@@ -1043,8 +1043,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
       const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
 
-      // Dynamically merge/load database users into state.teamMembers
-      const updatedTeamMembers = [...stateRef.current.teamMembers];
+      // Dynamically merge/load database users into state.teamMembers. Rebuilt from the
+      // static TEAM_MEMBERS seed every time (not stateRef.current.teamMembers) so a browser
+      // with an old localStorage snapshot can't carry forward a stale mock entry (e.g. an
+      // outdated email) that no longer matches any live dbUser — that used to silently
+      // produce a duplicate "ghost" team member alongside the freshly-merged real one.
+      const updatedTeamMembers = [...TEAM_MEMBERS];
       for (const dbUser of dbUsers) {
         if (!dbUser.email) continue;
         const emailLower = dbUser.email.toLowerCase();

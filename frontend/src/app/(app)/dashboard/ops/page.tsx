@@ -13,8 +13,14 @@ export default function OpsDashboard() {
   const { state } = useApp();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   
-  // Ops User Info
-  const opsUser = state.teamMembers.find(m => m.roleTag === 'ops') || { name: 'Anitha / Abhilash', initials: 'AY' };
+  // Ops User Info — prefer whoever is actually logged in if they themselves are Ops
+  // (there are two: Anitha Yogan and Abhilash B Nair), so an Ops employee viewing their
+  // own dashboard doesn't get told to "log in as" the other Ops person. Only falls back
+  // to a canonical name when someone outside Ops (e.g. admin/CEO) is previewing the page.
+  const currentMember = state.teamMembers.find(m => m.id === state.currentUserId);
+  const opsUser = (currentMember?.roleTag === 'ops' ? currentMember : null)
+    || state.teamMembers.find(m => m.roleTag === 'ops')
+    || { name: 'Anitha / Abhilash', initials: 'AY' };
 
   const activeTasks = state.tasks.filter(t => t.status !== 'done');
   const overdueTasks = activeTasks.filter(t => isOverdue(t));

@@ -123,8 +123,7 @@ function SideNavBarInner() {
               if (role === 'ops') {
                 const allowedForOps = [
                   '/dashboard/coo', '/dashboard/ops',
-                  '/my-workspace', '/tasks', '/my-profile',
-                  '/clients'
+                  '/my-workspace', '/tasks', '/my-profile'
                 ];
                 if (!allowedForOps.includes(item.href) && !isGranted) return false;
                 return true;
