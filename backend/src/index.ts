@@ -28,6 +28,7 @@ import youtubeAuthRoutes from './routes/youtubeAuth';
 import socialSyncRoutes from './routes/socialSync';
 import agencyMetricsRoutes from './routes/agencyMetrics';
 import pageAccessRoutes from './routes/pageAccess';
+import architectureDocsRoutes from './routes/architectureDocs';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import { requireAuth, requirePageAccess } from './middleware/auth';
 
@@ -42,7 +43,8 @@ app.use(cors());
 // body (as Express received it) to verify GitHub's HMAC signature; once express.json()
 // has parsed it, the original bytes are gone.
 app.use('/api/webhooks/github', express.raw({ type: 'application/json' }), githubWebhookRoutes);
-app.use(express.json());
+// Default 100kb is too small for a pasted-in markdown architecture doc.
+app.use(express.json({ limit: '2mb' }));
 
 // Initialize PG Pool if DATABASE_URL is available
 let pool: Pool | null = null;
@@ -303,6 +305,7 @@ app.use('/api/auth/youtube', youtubeAuthRoutes);
 app.use('/api/social', requireAuth, requirePageAccess('/social', ['admin', 'ops']), socialSyncRoutes);
 app.use('/api/agency-metrics', agencyMetricsRoutes);
 app.use('/api/page-access', pageAccessRoutes);
+app.use('/api/architecture-docs', architectureDocsRoutes);
 
 // Public — no auth required (login page hero)
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {

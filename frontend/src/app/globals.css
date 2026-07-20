@@ -178,6 +178,12 @@
 }
 
 /* Buttons */
+/* Tailwind v4's preflight doesn't set cursor:pointer on <button> (only on Safari's number-input
+   spinners) — browsers' own default stylesheet gives buttons a plain arrow cursor otherwise. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 .btn-primary {
   background-color: var(--c-primary);
   color: var(--c-bg); /* will be black in dark, white in light */

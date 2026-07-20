@@ -5,6 +5,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import TeamTaskCard from '@/components/tasks/TeamTaskCard';
 import TaskDrawer from '@/components/tasks/TaskDrawer';
+import { getDailyQuote } from '@/lib/motivationalQuotes';
 import { Play, Square, CheckCircle, Bell, User, Clock, ChevronRight } from 'lucide-react';
 
 export default function MyWorkspacePage() {
@@ -20,6 +21,7 @@ export default function MyWorkspacePage() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const dailyQuote = getDailyQuote();
 
   // Filter Tasks
   const myTasks = (state.tasks || []).filter(t => t.assignedTo?.includes(state.currentUserId) && t.status !== 'done');
@@ -72,6 +74,7 @@ export default function MyWorkspacePage() {
               </span>
             )}
           </h2>
+          <p className="text-[var(--c-primary)] text-sm mt-1 italic">&ldquo;{dailyQuote}&rdquo;</p>
           <p className="text-[var(--c-text-2)] text-sm mt-1 flex items-center gap-2">
             {dateStr} &middot; <span className="font-semibold text-[var(--c-text)]">{todaysFocus.length} due today</span> &middot; <span className="font-semibold text-red-500">{overdueCount} overdue</span>
           </p>
