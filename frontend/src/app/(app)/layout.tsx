@@ -49,7 +49,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         router.push('/my-workspace');
       }
     } else if (user.role === 'ops') {
-      const blockedPaths = ['/admin', '/credentials', '/audit', '/ai', '/finance', '/sales', '/ad-budget'];
+      const blockedPaths = ['/admin', '/credentials', '/audit', '/ai', '/finance', '/sales', '/ad-budget', '/clients'];
       const isBlocked = blockedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`)) && !isGranted;
       if (isBlocked) {
         router.push('/dashboard');
