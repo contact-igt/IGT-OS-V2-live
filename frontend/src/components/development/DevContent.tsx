@@ -4,9 +4,10 @@ import React, { useState } from 'react';
 import DevActivityFeed from './DevActivityFeed';
 import DevRepos from './DevRepos';
 import DevMetrics from './DevMetrics';
-import { Activity, FolderGit2, BarChart2, Search } from 'lucide-react';
+import DevArchitecture from './DevArchitecture';
+import { Activity, FolderGit2, BarChart2, Search, Blocks } from 'lucide-react';
 
-type Tab = 'Activity' | 'Repos & Projects' | 'Metrics';
+type Tab = 'Activity' | 'Repos & Projects' | 'Metrics' | 'Architecture';
 
 export default function DevContent() {
   const [activeTab, setActiveTab] = useState<Tab>('Repos & Projects');
@@ -16,6 +17,7 @@ export default function DevContent() {
     { id: 'Repos & Projects', label: 'Repos & Projects', icon: FolderGit2 },
     { id: 'Activity', label: 'Activity Feed', icon: Activity },
     { id: 'Metrics', label: 'Metrics', icon: BarChart2 },
+    { id: 'Architecture', label: 'Architecture', icon: Blocks },
   ];
 
   return (
@@ -44,16 +46,18 @@ export default function DevContent() {
               );
             })}
           </div>
-          <div className="relative w-56 flex-shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-            <input
-              type="text"
-              placeholder="Search repos or projects..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-border rounded-lg bg-surface-2 text-sm outline-none focus:border-primary transition-colors"
-            />
-          </div>
+          {activeTab !== 'Architecture' && (
+            <div className="relative w-56 flex-shrink-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
+              <input
+                type="text"
+                placeholder="Search repos or projects..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 border border-border rounded-lg bg-surface-2 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -62,6 +66,7 @@ export default function DevContent() {
         {activeTab === 'Repos & Projects' && <DevRepos search={search} />}
         {activeTab === 'Activity' && <DevActivityFeed />}
         {activeTab === 'Metrics' && <DevMetrics />}
+        {activeTab === 'Architecture' && <DevArchitecture />}
       </div>
     </div>
   );

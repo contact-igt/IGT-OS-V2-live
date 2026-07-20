@@ -372,3 +372,13 @@ CREATE TABLE public.page_access (
   UNIQUE(user_id, page_path)
 );
 
+
+-- 20. Architecture Docs (admin-uploaded frontend.md / backend.md, read-only for everyone else)
+CREATE TABLE public.architecture_docs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  doc_type TEXT NOT NULL CHECK (doc_type IN ('frontend', 'backend')) UNIQUE,
+  filename TEXT NOT NULL,
+  content TEXT NOT NULL,
+  uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);

@@ -14,7 +14,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
-  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/my-profile'] },
+  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/clients', '/my-profile'] },
   { title: 'Agency Ops',  items: ['/team', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];
@@ -162,7 +162,9 @@ function SideNavBarInner() {
                 )}
                 <div className={`transition-all duration-200 overflow-hidden ${!collapsed && !expandedGroups[group.title] ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100'}`}>
                 {groupItems.map((item) => {
-                  const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                  const isActive = pathname === item.href
+                    || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                    || (item.href === '/team' && pathname.startsWith('/people/attendance'));
                   
                   const IconComponent = ICON_MAP[item.icon] ?? LayoutDashboard;
                   return (
@@ -220,10 +222,11 @@ function SideNavBarInner() {
                       )}
 
                       {/* SUB NAVIGATION FOR TEAM */}
-                      {item.href === '/team' && pathname.startsWith('/team') && !collapsed && (
+                      {item.href === '/team' && (pathname.startsWith('/team') || pathname.startsWith('/people/attendance')) && !collapsed && (
                         <div className="flex flex-col gap-1 mx-3 mb-4 pl-10 pr-3 border-l border-app-border/30 ml-7 mt-1">
                           <Link href="/team" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Team Overview</Link>
                           <Link href="/team/workload" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Workload</Link>
+                          <Link href="/people/attendance" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Attendance</Link>
                         </div>
                       )}
                     </div>

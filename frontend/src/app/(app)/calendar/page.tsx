@@ -202,15 +202,31 @@ export default function CalendarPage() {
           {(view === 'day' || view === 'week') && (
             <div className="flex-1 overflow-y-auto relative bg-app-bg" ref={timeGridRef}>
               
-              {/* NOW Line Indicator */}
-              <div 
-                className="absolute left-[60px] right-0 z-20 pointer-events-none flex items-center" 
-                style={{ 
-                  top: `${new Date().getHours() * 60 + new Date().getMinutes()}px`,
-                }}
-              >
-                <div className="w-2 h-2 rounded-full bg-red-500 -ml-1"></div>
-                <div className="h-[2px] bg-red-500 opacity-70 w-full shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
+              {/* NOW Line Indicator — bright on today's column, thin/dim on past days, hidden on future days */}
+              <div className="absolute top-0 left-[60px] right-0 bottom-0 z-20 pointer-events-none flex">
+                {daysInView.map((d, i) => {
+                  const dCopy = new Date(d); dCopy.setHours(0, 0, 0, 0);
+                  const todayCopy = new Date(); todayCopy.setHours(0, 0, 0, 0);
+                  if (dCopy.getTime() > todayCopy.getTime()) return <div key={i} className="flex-1" />;
+                  const today = isToday(d);
+                  return (
+                    <div key={i} className="flex-1 relative">
+                      <div
+                        className="absolute left-0 right-0 flex items-center"
+                        style={{ top: `${new Date().getHours() * 60 + new Date().getMinutes()}px` }}
+                      >
+                        {today && <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 flex-shrink-0"></div>}
+                        <div
+                          className={
+                            today
+                              ? 'h-[2px] bg-red-500 opacity-70 w-full shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                              : 'h-px bg-red-500 opacity-25 w-full'
+                          }
+                        ></div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Grid Lines */}

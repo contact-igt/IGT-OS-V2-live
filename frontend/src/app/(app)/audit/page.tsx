@@ -5,6 +5,39 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
+// Raw UUIDs are unusable at full length in a dense table — show a short prefix with a
+// one-click copy button so the exact value is still just a click away when actually needed.
+function IdCell({ value }: { value: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <td className="p-3 font-mono text-xs text-[var(--c-text-3)]">—</td>;
+
+  // These are seeded UUIDs that are all identical zeros except the tail (e.g.
+  // 00000000-0000-0000-0000-000000000003) — the prefix is useless for telling rows apart,
+  // so show the last few characters instead, which is where the actual variation lives.
+  const short = value.length > 3 ? `…${value.slice(-3)}` : value;
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <td className="p-3 font-mono text-xs text-[var(--c-text-3)]">
+      <button
+        onClick={handleCopy}
+        title={value}
+        className="flex items-center gap-1.5 hover:text-[var(--c-primary)] transition-colors"
+      >
+        {short}
+        <span className="material-symbols-outlined text-[13px]">
+          {copied ? 'check' : 'content_copy'}
+        </span>
+      </button>
+    </td>
+  );
+}
+
 export default function AuditPage() {
   const { state } = useApp();
   const { user } = useAuth();
@@ -74,7 +107,7 @@ export default function AuditPage() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--c-text)] font-syne flex items-center gap-2">
             <span className="material-symbols-outlined text-[var(--c-error)] text-3xl">admin_panel_settings</span>
-            Financial & System Audit
+            System Audit
           </h1>
           <p className="text-[var(--c-text-2)] mt-1 text-sm font-grotesk">Raw database views and system controls. Confidential.</p>
         </div>
@@ -152,7 +185,7 @@ export default function AuditPage() {
           <tbody>
             {activeTab === 'users' && users.map(u => (
               <tr key={u.id} className="border-b border-[var(--c-border)] last:border-0 hover:bg-[var(--c-surface-2)]">
-                <td className="p-3 font-mono text-xs text-[var(--c-text-3)]">{u.id}</td>
+                <IdCell value={u.id} />
                 <td className="p-3 font-bold text-[var(--c-text)]">{u.name}</td>
                 <td className="p-3 text-[var(--c-text-2)]">{u.email}</td>
                 <td className="p-3 text-[var(--c-text-2)]">{u.role}</td>
@@ -161,8 +194,8 @@ export default function AuditPage() {
             ))}
             {activeTab === 'campaigns' && campaigns.map(c => (
               <tr key={c.id} className="border-b border-[var(--c-border)] last:border-0 hover:bg-[var(--c-surface-2)]">
-                <td className="p-3 font-mono text-xs text-[var(--c-text-3)]">{c.id}</td>
-                <td className="p-3 font-mono text-[var(--c-text-2)]">{c.client_id}</td>
+                <IdCell value={c.id} />
+                <IdCell value={c.client_id} />
                 <td className="p-3 font-bold text-[var(--c-text)]">{c.campaign_name}</td>
                 <td className="p-3">
                   <span className={`text-xs px-2 py-0.5 rounded font-bold ${c.status === 'running' ? 'bg-[var(--c-primary)]/10 text-[var(--c-primary)]' : 'bg-[var(--c-surface-3)] text-[var(--c-text-2)]'}`}>{c.status}</span>
@@ -173,9 +206,9 @@ export default function AuditPage() {
             ))}
             {activeTab === 'time_entries' && timeEntries.map(t => (
               <tr key={t.id} className="border-b border-[var(--c-border)] last:border-0 hover:bg-[var(--c-surface-2)]">
-                <td className="p-3 font-mono text-xs text-[var(--c-text-3)]">{t.id}</td>
-                <td className="p-3 font-mono text-[var(--c-text-2)]">{t.user_id}</td>
-                <td className="p-3 font-mono text-[var(--c-text-2)]">{t.task_id}</td>
+                <IdCell value={t.id} />
+                <IdCell value={t.user_id} />
+                <IdCell value={t.task_id} />
                 <td className="p-3 font-bold text-[var(--c-text)]">{t.duration_minutes}</td>
                 <td className="p-3 text-[var(--c-text-3)]">{new Date(t.started_at).toLocaleString()}</td>
               </tr>
