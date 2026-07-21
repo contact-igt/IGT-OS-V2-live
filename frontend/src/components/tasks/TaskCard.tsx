@@ -5,6 +5,7 @@ import { Calendar, PlayCircle, StopCircle } from 'lucide-react';
 import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import LiveTimer from '@/components/ui/LiveTimer';
+import { useTick } from '@/lib/hooks';
 
 interface TaskCardProps {
   task: Task;
@@ -14,7 +15,7 @@ interface TaskCardProps {
 }
 
 export default memo(function TaskCard({ task, onClick, showClient = true, compact = false }: TaskCardProps) {
-  const { state, setTaskStatus, isTimerRunning, startTimer, requestStopTimer } = useApp();
+  const { state, setTaskStatus, isTimerRunning, startTimer, requestStopTimer, getTaskLoggedMinutes } = useApp();
   const client = useMemo(() => state.clients.find(c => c.id === task.clientId), [state.clients, task.clientId]);
   const assignees = useMemo(
     () => task.assignedTo.map(id => state.teamMembers.find(m => m.id === id)).filter(Boolean),
@@ -27,7 +28,11 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
   const pc = PRIORITY_CONFIG[task.priority];
   const sc = STATUS_CONFIG[task.status];
 
-  const pct = calculateTaskProgress(task, state.tasks);
+  // Recompute every second while the timer runs so the bar fills in real time
+  // instead of jumping only when the timer is stopped.
+  useTick(timerRunning);
+  const liveLoggedMinutes = timerRunning ? getTaskLoggedMinutes(task.id) : task.loggedMinutes;
+  const pct = calculateTaskProgress({ ...task, loggedMinutes: liveLoggedMinutes }, state.tasks);
 
   const handleTimer = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

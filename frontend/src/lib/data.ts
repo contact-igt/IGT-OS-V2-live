@@ -234,6 +234,7 @@ export interface AuditEntry {
   action: string;
   entity: string;
   entityRef: string;
+  entityId?: string; // stable id (e.g. task.id) — falls back to entityRef title match if absent
   clientName: string;
   meta: string;
 }

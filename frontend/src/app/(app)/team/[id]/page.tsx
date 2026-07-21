@@ -14,7 +14,12 @@ function computeMemberAnalytics(member: TeamMember, tasks: Task[], clients: Clie
   const memberTasks = tasks.filter(t => t.assignedTo.includes(member.id));
   const totalLogged = memberTasks.reduce((acc, t) => acc + (t.loggedMinutes || 0), 0);
   const totalEstimated = memberTasks.reduce((acc, t) => acc + (t.estimatedHours || 0) * 60, 0);
-  const efficiency = totalEstimated > 0 ? Math.round((totalLogged / totalEstimated) * 100) : 0;
+  // Only tasks with a real estimate are comparable — mixing in unestimated tasks would
+  // inflate totalLogged without a matching totalEstimated contribution and skew the ratio.
+  const estimatedTasks = memberTasks.filter(t => (t.estimatedHours || 0) > 0);
+  const estimatedLogged = estimatedTasks.reduce((acc, t) => acc + (t.loggedMinutes || 0), 0);
+  const estimatedTotal = estimatedTasks.reduce((acc, t) => acc + (t.estimatedHours || 0) * 60, 0);
+  const efficiency = estimatedTotal > 0 ? Math.round((estimatedLogged / estimatedTotal) * 100) : null;
 
   // By category
   const byCategory: Record<string, { count: number; minutes: number; estimatedMins: number }> = {};
@@ -83,11 +88,14 @@ function generateAIResponse(
 
   // Efficiency / overview
   if (q.includes('efficient') || q.includes('efficiency') || q.includes('how is') || q.includes('overview') || q.includes('summary')) {
-    const emoji = a.efficiency <= 85 ? '🟢' : a.efficiency <= 110 ? '🟡' : '🔴';
+    const emoji = a.efficiency === null ? '⚪' : a.efficiency <= 85 ? '🟢' : a.efficiency <= 110 ? '🟡' : '🔴';
+    const efficiencyLine = a.efficiency === null
+      ? `• **Efficiency:** — (no estimated tasks logged yet)\n`
+      : `• **Efficiency:** ${a.efficiency}% ${a.efficiency <= 100 ? '(on track ✅)' : '(over estimated ⚠️)'}\n`;
     return `${emoji} **${name}'s Efficiency Report**\n\n` +
       `• **Total tasks:** ${a.memberTasks.length} (${a.doneTasks.length} done)\n` +
       `• **Hours logged:** ${hrs}h vs ${estHrs}h estimated\n` +
-      `• **Efficiency:** ${a.efficiency}% ${a.efficiency <= 100 ? '(on track ✅)' : '(over estimated ⚠️)'}\n` +
+      efficiencyLine +
       `• **Last 7 days:** ${a.done7.length} tasks done\n` +
       `• **Last 30 days:** ${a.done30.length} tasks done\n\n` +
       (a.overrunTasks.length > 0
@@ -370,8 +378,8 @@ export default function TeamMemberPage({ params }: { params: Promise<{ id: strin
 
                 <div className="card-surface2 p-5 flex flex-col gap-2">
                   <span className="text-[11px] font-bold text-text-3 uppercase tracking-wider">Efficiency</span>
-                  <div className={`text-[28px] font-bold num ${efficiency > 110 ? 'text-red-500' : efficiency > 90 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    {efficiency}%
+                  <div className={`text-[28px] font-bold num ${efficiency === null ? 'text-text-3' : efficiency > 110 ? 'text-red-500' : efficiency > 90 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {efficiency === null ? '—' : `${efficiency}%`}
                   </div>
                   <span className="text-[11px] text-text-3">{totalHrs}h logged vs {Math.round(analytics.totalEstimated / 60)}h est.</span>
                 </div>

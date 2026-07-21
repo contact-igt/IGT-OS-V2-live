@@ -35,8 +35,10 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const overdue = task ? isOverdue(task) : false;
   const timer = task ? state.activeTimers.find(t => t.taskId === task.id) : null;
   const timerRunning = !!timer;
+  // Match by stable id when present (new entries); fall back to title match for legacy
+  // entries recorded before entityId existed, so their history doesn't disappear.
   const taskAudit = task
-    ? state.auditLog.filter(a => a.entity === 'Task' && a.entityRef === task.title)
+    ? state.auditLog.filter(a => a.entity === 'Task' && (a.entityId ? a.entityId === task.id : a.entityRef === task.title))
     : [];
 
   // Close on Escape

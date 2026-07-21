@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useRouter } from 'next/navigation';
+import { isOverdue } from '@/lib/data';
 
 import { Responsive, WidthProvider } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
@@ -85,20 +86,15 @@ export default function DashboardPage() {
 
   // 1. Tasks
   const tasks = state.tasks || [];
-  const activeTasks = tasks.filter((t: any) => t.status !== 'Done');
+  const activeTasks = tasks.filter((t: any) => t.status !== 'done' && t.status !== 'cancelled');
   const tasksDueToday = activeTasks.filter((t: any) => {
     if (!t.deadline) return false;
     const deadlineDate = new Date(t.deadline);
     deadlineDate.setHours(0, 0, 0, 0);
     return deadlineDate.getTime() === today.getTime();
   });
-  const tasksOverdue = activeTasks.filter((t: any) => {
-    if (!t.deadline) return false;
-    const deadlineDate = new Date(t.deadline);
-    deadlineDate.setHours(0, 0, 0, 0);
-    return deadlineDate.getTime() < today.getTime();
-  });
-  const tasksInReview = tasks.filter((t: any) => t.status === 'Review');
+  const tasksOverdue = tasks.filter((t: any) => isOverdue(t));
+  const tasksInReview = tasks.filter((t: any) => t.status === 'in_review');
 
   // 2. Team Snapshot — only count unique users clocked in today, capped at team size
   const totalTeam = teamMembers.length;

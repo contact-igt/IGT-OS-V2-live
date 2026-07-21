@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Task } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import SubtaskModal from '@/components/tasks/SubtaskModal';
+import { useTick } from '@/lib/hooks';
 
 interface TeamTaskCardProps {
   task: Task;
@@ -11,19 +12,23 @@ interface TeamTaskCardProps {
 }
 
 export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
-  const { state, setTaskStatus } = useApp();
+  const { state, setTaskStatus, getTaskLoggedMinutes } = useApp();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSubtaskModal, setShowSubtaskModal] = useState(false);
-  
+
   // Find subtasks
   const subtasks = state.tasks.filter(t => t.parentId === task.id);
   const isGoal = task.type === 'goal' || subtasks.length > 0;
-  
+
   // Find client
   const client = state.clients.find(c => c.id === task.clientId);
   const clientColor = client?.color || '#94A3B8';
-  // Progress calc
-  const logged = Math.round((task.loggedMinutes || 0) / 60);
+  // Progress calc — recompute every second while a real timer is running on this task
+  // so the bar fills live instead of only jumping when the timer is stopped.
+  const hasActiveTimer = state.activeTimers.some(t => t.taskId === task.id);
+  useTick(hasActiveTimer);
+  const loggedMinutesLive = hasActiveTimer ? getTaskLoggedMinutes(task.id) : (task.loggedMinutes || 0);
+  const logged = Math.round(loggedMinutesLive / 60);
   const est = task.estimatedHours || 0;
   const pct = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : 0;
   // Overdue check

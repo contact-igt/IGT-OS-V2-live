@@ -38,12 +38,18 @@ export default function TeamPage() {
         return acc + Math.max(0, (end - new Date(s.clockIn!).getTime()) / 60000);
       }, 0);
 
-      const doneEst = doneTasks.reduce((acc, t) => acc + (t.estimatedHours || 0), 0);
-      const doneActual = doneTasks.reduce((acc, t) => acc + (t.loggedMinutes / 60), 0);
-      const efficiency = doneActual > 0 ? Math.round((doneEst / doneActual) * 100) : 100;
-      let effColor = 'text-green-500';
-      if (efficiency < 80) effColor = 'text-amber-500';
-      if (efficiency < 60) effColor = 'text-red-500';
+      // Only count done tasks that actually have an estimate — a done task with logged
+      // time but no estimatedHours would otherwise zero out doneEst and show a misleading 0%.
+      const estimatedDoneTasks = doneTasks.filter(t => (t.estimatedHours || 0) > 0);
+      const doneEst = estimatedDoneTasks.reduce((acc, t) => acc + (t.estimatedHours || 0), 0);
+      const doneActual = estimatedDoneTasks.reduce((acc, t) => acc + (t.loggedMinutes / 60), 0);
+      const efficiency = doneActual > 0 ? Math.round((doneEst / doneActual) * 100) : null;
+      let effColor = 'text-text-3';
+      if (efficiency !== null) {
+        effColor = 'text-green-500';
+        if (efficiency < 80) effColor = 'text-amber-500';
+        if (efficiency < 60) effColor = 'text-red-500';
+      }
 
       const inProgressTask = activeTasks.find(t => t.status === 'in_progress');
       const activeTimer = inProgressTask ? state.activeTimers.find(t => t.taskId === inProgressTask.id && t.userId === realUserId) : undefined;
@@ -101,7 +107,7 @@ export default function TeamPage() {
                 </div>
                 <div className="flex flex-col gap-1 p-2 rounded bg-surface border border-border">
                   <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Efficiency</span>
-                  <span className={`text-[14px] font-bold ${effColor}`}>{efficiency}%</span>
+                  <span className={`text-[14px] font-bold ${effColor}`}>{efficiency === null ? '—' : `${efficiency}%`}</span>
                 </div>
                 <div className="flex flex-col gap-1 p-2 rounded bg-surface border border-border">
                   <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Active Tasks</span>

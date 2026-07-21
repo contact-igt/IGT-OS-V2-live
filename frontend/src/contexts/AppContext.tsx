@@ -246,6 +246,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           action: 'task_create',
           entity: 'Task',
           entityRef: action.payload.title,
+          entityId: newTask.id,
           clientName,
           meta: `Priority: ${action.payload.priority}`,
         }),
@@ -262,10 +263,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const updates = action.payload.updates;
 
       if (updates.priority && updates.priority !== task.priority) {
-        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_priority_change', entity: 'Task', entityRef: task.title, clientName, meta: `${task.priority} → ${updates.priority}` });
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_priority_change', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: `${task.priority} → ${updates.priority}` });
       }
       if (updates.deadline !== undefined && updates.deadline !== task.deadline) {
-        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_deadline_change', entity: 'Task', entityRef: task.title, clientName, meta: `Deadline updated` });
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_deadline_change', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: `Deadline updated` });
       }
       
       const prevAssignees = task.assignedTo || [];
@@ -287,7 +288,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       });
 
       if (updates.assignedTo !== undefined && JSON.stringify(updates.assignedTo) !== JSON.stringify(task.assignedTo)) {
-        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_assign_change', entity: 'Task', entityRef: task.title, clientName, meta: `Assignees updated` });
+        newAuditLog = addAudit(newAuditLog, { actor, actorId: state.currentUserId, action: 'task_assign_change', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: `Assignees updated` });
       }
 
       return {
@@ -309,7 +310,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const actor = getActorName(state, state.currentUserId);
       const clientName = getClientName(state, taskToDelete.clientId);
       const newAuditLog = addAudit(state.auditLog, {
-        actor, actorId: state.currentUserId, action: 'task_deleted', entity: 'Task', entityRef: taskToDelete.title, clientName, meta: `Task permanently deleted`
+        actor, actorId: state.currentUserId, action: 'task_deleted', entity: 'Task', entityRef: taskToDelete.title, entityId: taskToDelete.id, clientName, meta: `Task permanently deleted`
       });
 
       return {
@@ -380,7 +381,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         if (!timers.find(t => t.taskId === task.id)) {
           timers.push({ taskId: task.id, userId: action.payload.actorId, startedAt: now, accumulated: task.loggedMinutes });
           auditEntries = addAudit(auditEntries, {
-            actor, actorId: action.payload.actorId, action: 'timer_start', entity: 'Task', entityRef: task.title, clientName, meta: 'Timer auto-started'
+            actor, actorId: action.payload.actorId, action: 'timer_start', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: 'Timer auto-started'
           });
         }
       } else if (action.payload.status !== 'in_progress' && prevStatus === 'in_progress') {
@@ -402,7 +403,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
             note: action.payload.note
           });
           auditEntries = addAudit(auditEntries, {
-            actor, actorId: action.payload.actorId, action: 'timer_stop', entity: 'Task', entityRef: task.title, clientName, meta: `Auto-stopped: ${formatMinutes(elapsed)}`
+            actor, actorId: action.payload.actorId, action: 'timer_stop', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: `Auto-stopped: ${formatMinutes(elapsed)}`
           });
         }
       }
@@ -414,6 +415,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         action: 'task_status_change',
         entity: 'Task',
         entityRef: task.title,
+        entityId: task.id,
         clientName,
         meta: `${prevStatus} → ${action.payload.status}`,
       });
@@ -462,6 +464,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           action: 'timer_start',
           entity: 'Task',
           entityRef: task.title,
+          entityId: task.id,
           clientName,
           meta: 'Timer started',
         }),
@@ -501,6 +504,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           action: 'timer_stop',
           entity: 'Task',
           entityRef: task?.title ?? taskId,
+          entityId: taskId,
           clientName,
           meta: `Duration: ${formatMinutes(elapsedMinutes)}`,
         }),
@@ -538,6 +542,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           action: 'time_logged',
           entity: 'Task',
           entityRef: task.title,
+          entityId: task.id,
           clientName,
           meta: `Manual: ${formatMinutes(minutes)}`,
         }),
@@ -652,6 +657,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         action: `approval_${status}`,
         entity: 'Task',
         entityRef: task?.title || 'Unknown Task',
+        entityId: taskId,
         clientName,
         meta: `Approval ${status}${responseMessage ? `: ${responseMessage}` : ''}`,
       });
@@ -730,6 +736,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
           action: 'commented',
           entity: 'Task',
           entityRef: task.title,
+          entityId: task.id,
           clientName,
           meta: text,
         })
@@ -1317,6 +1324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           action: entry.action,
           entity: entry.entity,
           entityRef: entry.entityRef,
+          entityId: entry.entityId,
           clientName: entry.clientName,
           meta: entry.meta,
         }),

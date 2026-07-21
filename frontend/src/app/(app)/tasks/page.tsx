@@ -15,7 +15,7 @@ const GanttView = dynamic(() => import('@/components/tasks/GanttView'), {
   ),
   ssr: false,
 });
-import { Task, STATUS_CONFIG, PRIORITY_CONFIG, getClientById } from '@/lib/data';
+import { Task, STATUS_CONFIG, PRIORITY_CONFIG, getClientById, isOverdue } from '@/lib/data';
 
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -43,6 +43,12 @@ function TasksPageInner() {
   const [clientFilter, setClientFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
+  // Drill-down from the dashboard's Tasks Overview tiles (?status=active|due-today|overdue|in-review)
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || '');
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s) setStatusFilter(s);
+  }, [searchParams]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [revertTaskId, setRevertTaskId] = useState<string | null>(null);
@@ -67,7 +73,19 @@ function TasksPageInner() {
     if (clientFilter && t.clientId !== clientFilter) return false;
     if (priorityFilter && t.priority !== priorityFilter) return false;
     if (memberFilter && !t.assignedTo.includes(memberFilter)) return false;
-    
+
+    if (statusFilter === 'active' && (t.status === 'done' || t.status === 'cancelled')) return false;
+    if (statusFilter === 'overdue' && !isOverdue(t)) return false;
+    if (statusFilter === 'in-review' && t.status !== 'in_review') return false;
+    if (statusFilter === 'due-today') {
+      if (!t.deadline) return false;
+      const deadlineDate = new Date(t.deadline);
+      deadlineDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (deadlineDate.getTime() !== today.getTime()) return false;
+    }
+
     // Role-based visibility
     const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
     if (currentUser) {
@@ -88,7 +106,7 @@ function TasksPageInner() {
     }
     
     return true;
-  }), [state.tasks, view, clientFilter, priorityFilter, memberFilter, state.currentUserId, state.teamMembers]);
+  }), [state.tasks, view, clientFilter, priorityFilter, memberFilter, statusFilter, state.currentUserId, state.teamMembers]);
 
   const sortedTasks = useMemo(() => [...tasks].sort((a, b) => {
     let cmp = 0;
@@ -211,6 +229,14 @@ function TasksPageInner() {
           <option value="">All Team Members</option>
           {state.teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
+        {statusFilter && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
+            {{ active: 'Active', 'due-today': 'Due Today', overdue: 'Overdue', 'in-review': 'In Review' }[statusFilter] || statusFilter}
+            <button onClick={() => setStatusFilter('')} className="hover:opacity-70" aria-label="Clear status filter">
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+            </button>
+          </span>
+        )}
       </div>
 
       {/* Board View */}

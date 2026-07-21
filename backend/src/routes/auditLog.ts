@@ -13,6 +13,7 @@ function serializeEntry(row: any) {
     action: row.action,
     entity: row.entity,
     entityRef: row.entity_ref,
+    entityId: row.entity_id,
     clientName: row.client_name,
     meta: row.meta,
   };
@@ -41,17 +42,17 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
-  const { actorName, action, entity, entityRef, clientName, meta } = req.body;
+  const { actorName, action, entity, entityRef, entityId, clientName, meta } = req.body;
   if (!actorName || !action || !entity || !entityRef) {
     return res.status(400).json({ error: 'actorName, action, entity, and entityRef are required' });
   }
 
   try {
     const result = await pool.query(
-      `INSERT INTO public.audit_log (actor_id, actor_name, action, entity, entity_ref, client_name, meta)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO public.audit_log (actor_id, actor_name, action, entity, entity_ref, entity_id, client_name, meta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [req.user.id, actorName, action, entity, entityRef, clientName || null, meta || null]
+      [req.user.id, actorName, action, entity, entityRef, entityId || null, clientName || null, meta || null]
     );
     res.status(201).json(serializeEntry(result.rows[0]));
   } catch (error) {

@@ -14,14 +14,16 @@ export default function MyWorkspacePage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
-  const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === authUser.id) || { ...authUser, title: '' } : null;
+  // state.currentUserId is the mock team-member id (resolved from authUser via email match
+  // in the app layout) — authUser.id is the real backend UUID and never matches teamMembers.
+  const currentUser = authUser ? (state.teamMembers || []).find(m => m.id === state.currentUserId) || { ...authUser, title: '' } : null;
   const firstName = currentUser?.name?.split(' ')[0] || 'Team Member';
   
   // Date and greeting
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const dailyQuote = getDailyQuote();
+  const dailyQuote = getDailyQuote((currentUser as any)?.roleTag);
 
   // Filter Tasks
   const myTasks = (state.tasks || []).filter(t => t.assignedTo?.includes(state.currentUserId) && t.status !== 'done');
