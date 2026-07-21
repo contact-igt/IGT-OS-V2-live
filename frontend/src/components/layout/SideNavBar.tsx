@@ -133,7 +133,7 @@ function SideNavBarInner() {
               if (item.section === 'dashboard') return false; // Hide completely
 
               // General Section Filtering for team
-              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/my-profile'];
+              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/my-profile', '/team'];
               if (!allowedForTeam.includes(item.href) && !isGranted) return false;
 
               return true;

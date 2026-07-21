@@ -393,6 +393,7 @@ CREATE TABLE public.audit_log (
   action TEXT NOT NULL,
   entity TEXT NOT NULL,
   entity_ref TEXT NOT NULL,
+  entity_id TEXT, -- stable id (e.g. task.id) so renaming the entity doesn't orphan its history
   client_name TEXT,
   meta TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
