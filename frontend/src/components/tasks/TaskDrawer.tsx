@@ -35,10 +35,14 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const overdue = task ? isOverdue(task) : false;
   const timer = task ? state.activeTimers.find(t => t.taskId === task.id) : null;
   const timerRunning = !!timer;
-  // Match by stable id when present (new entries); fall back to title match for legacy
-  // entries recorded before entityId existed, so their history doesn't disappear.
+  // Strictly by id — no title fallback. Two tasks can share an identical title, and
+  // falling back to a title match would silently blend their histories together in
+  // whichever one's drawer happens to be open. createTask now always logs the creation
+  // entry with the real backend id already resolved (no more temporary-id window), so
+  // this is safe going forward; older entries recorded before that fix (entityId null or
+  // stale) simply won't surface here rather than risk showing up on the wrong task.
   const taskAudit = task
-    ? state.auditLog.filter(a => a.entity === 'Task' && (a.entityId ? a.entityId === task.id : a.entityRef === task.title))
+    ? state.auditLog.filter(a => a.entity === 'Task' && a.entityId === task.id)
     : [];
 
   // Close on Escape
@@ -545,8 +549,12 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                         alert("Only an assignee can start this task.");
                         return;
                       }
+                      // Always advance to in_progress when starting, not just from 'todo' —
+                      // starting from paused/blocked left the timer running while the status
+                      // stayed stuck at 'paused' forever, since nothing ever told the backend
+                      // to move it back to in_progress.
+                      if (task.status !== 'in_progress') setTaskStatus(task.id, 'in_progress');
                       startTimer(task.id);
-                      if (task.status === 'todo') setTaskStatus(task.id, 'in_progress');
                     }
                   }}
                   className={`w-full py-3 rounded-xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all font-grotesk border ${timerRunning ? 'bg-red-500/10 text-red-500 border-red-500/30' : 'bg-primary/10 text-primary border-primary/30'}`}
@@ -660,7 +668,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                           {entry.actor} <span className="font-normal text-app-text2">— {entry.action.replace(/_/g, ' ')}</span>
                         </p>
                         <p className="text-[11px] text-app-text3">
-                          {entry.meta} · {new Date(entry.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          {entry.meta} · {new Date(entry.timestamp).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
                     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useMemo, useCallback } from 'react';
-import { Calendar, PlayCircle, StopCircle } from 'lucide-react';
+import { Calendar, PlayCircle, PauseCircle } from 'lucide-react';
 import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import LiveTimer from '@/components/ui/LiveTimer';
@@ -15,7 +15,7 @@ interface TaskCardProps {
 }
 
 export default memo(function TaskCard({ task, onClick, showClient = true, compact = false }: TaskCardProps) {
-  const { state, setTaskStatus, isTimerRunning, startTimer, requestStopTimer, getTaskLoggedMinutes } = useApp();
+  const { state, setTaskStatus, requestStopTimer, startTimer, getTaskLoggedMinutes } = useApp();
   const client = useMemo(() => state.clients.find(c => c.id === task.clientId), [state.clients, task.clientId]);
   const assignees = useMemo(
     () => task.assignedTo.map(id => state.teamMembers.find(m => m.id === id)).filter(Boolean),
@@ -45,8 +45,12 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
       return;
     }
 
-    if (timerRunning) {
-      requestStopTimer(task.id);
+    // Driven by status, not just timer presence — a task can end up 'in_progress' with no
+    // live timer (e.g. auto-stopped elsewhere), and it should still show/act as "Pause",
+    // not silently fall back to an unrelated "Start". requestStopTimer's modal stops the
+    // timer if one exists and sets status regardless, so this is safe either way.
+    if (task.status === 'in_progress') {
+      requestStopTimer(task.id, 'paused');
     } else {
       // The person who assigned this task to someone else shouldn't be able to start it
       // on their behalf — only an actual assignee can, no exceptions (not even leadership).
@@ -54,13 +58,14 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
         alert("Only an assignee can start this task.");
         return;
       }
-      if (task.status === 'todo') {
-        setTaskStatus(task.id, 'in_progress'); // This will automatically start the timer via AppContext
-      } else {
-        startTimer(task.id);
-      }
+      // Covers todo/paused/blocked alike — moves the card into In Progress. setTaskStatus
+      // only updates local/display state + the task's status column; startTimer is what
+      // actually opens the real time_logs row on the backend, so both are required or the
+      // logged time never gets durably persisted.
+      setTaskStatus(task.id, 'in_progress');
+      startTimer(task.id);
     }
-  }, [timerRunning, task.id, requestStopTimer, startTimer, task.status, setTaskStatus, state.teamMembers, state.currentUserId, task.assignedTo, task.createdBy]);
+  }, [task.status, task.id, requestStopTimer, setTaskStatus, startTimer, state.teamMembers, state.currentUserId, task.assignedTo, task.createdBy]);
 
   const handleStatus = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -90,8 +95,16 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
       }
     }
 
-    setTaskStatus(task.id, nextStatus);
-  }, [task, state.teamMembers, state.currentUserId, setTaskStatus]);
+    // Route through the same stop-timer flow TaskDrawer's status pills already use —
+    // advancing straight via setTaskStatus left a running timer ticking forever once the
+    // card moved on to In Review/Blocked/Paused (e.g. a task sitting in "In Review" with a
+    // 40+ hour timer still counting, because nothing ever told it to stop).
+    if (['paused', 'blocked', 'in_review'].includes(nextStatus) && task.status !== nextStatus) {
+      requestStopTimer(task.id, nextStatus as 'paused' | 'blocked' | 'in_review');
+    } else {
+      setTaskStatus(task.id, nextStatus);
+    }
+  }, [task, state.teamMembers, state.currentUserId, setTaskStatus, requestStopTimer]);
 
   if (compact) {
     return (
@@ -226,13 +239,13 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
             <button
               onClick={handleTimer}
               className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-semibold transition border ${
-                timerRunning 
-                  ? 'bg-red-500/10 text-red-600 border-red-500/30 hover:bg-red-500/20' 
+                task.status === 'in_progress'
+                  ? 'bg-amber-500/10 text-amber-600 border-amber-500/30 hover:bg-amber-500/20'
                   : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20'
               }`}
             >
-              {timerRunning ? <StopCircle className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
-              {timerRunning ? 'Stop' : 'Start'}
+              {task.status === 'in_progress' ? <PauseCircle className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
+              {task.status === 'in_progress' ? 'Pause' : 'Start'}
             </button>
           </div>
         )}

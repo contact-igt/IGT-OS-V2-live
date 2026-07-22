@@ -218,9 +218,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      const actor = getActorName(state, action.payload.createdBy);
-      const clientName = getClientName(state, action.payload.clientId);
-      
       const newNotifications = [...state.notifications];
       const assignees = action.payload.assignedTo || [];
       assignees.forEach((userId: string) => {
@@ -236,20 +233,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
         });
       });
 
+      // No audit entry here — see createTask's success handler, which logs it once the
+      // real backend id is known, instead of stamping it with newTask.id's temporary local
+      // id (which would persist wrong forever, since nothing could ever correct it reliably —
+      // the entry gets written to the backend before the id-swap has any chance to run).
       return {
         ...state,
         tasks: [newTask, ...state.tasks],
         notifications: newNotifications,
-        auditLog: addAudit(state.auditLog, {
-          actor,
-          actorId: action.payload.createdBy,
-          action: 'task_create',
-          entity: 'Task',
-          entityRef: action.payload.title,
-          entityId: newTask.id,
-          clientName,
-          meta: `Priority: ${action.payload.priority}`,
-        }),
       };
     }
 
@@ -552,6 +543,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'ADD_AUDIT': {
       return { ...state, auditLog: [action.payload, ...state.auditLog] };
     }
+
 
     case 'ADD_CLIENT': {
       return { ...state, clients: [...state.clients, action.payload] };
@@ -1595,6 +1587,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!res.ok) { console.error('Backend rejected task creation:', await res.text()); return; }
           const created = await res.json();
           if (data.id) taskIdMapRef.current[data.id] = created.id;
+
+          // Log the task-creation audit entry only now, stamped with the real backend id
+          // from the start — logging it earlier (before this response came back) would mean
+          // writing a temporary local id that nothing could reliably correct afterward, since
+          // the entry gets persisted to the backend before any correction has a chance to run.
+          dispatch({
+            type: 'ADD_AUDIT',
+            payload: {
+              id: makeAuditId(),
+              timestamp: new Date().toISOString(),
+              actor: getActorName(state, data.createdBy),
+              actorId: data.createdBy,
+              action: 'task_create',
+              entity: 'Task',
+              entityRef: data.title,
+              entityId: created.id,
+              clientName: getClientName(state, data.clientId),
+              meta: `Priority: ${data.priority}`,
+            },
+          });
 
           // Mirror the local assignment notification (see CREATE_TASK reducer case) to the
           // backend so it's visible to the assignee's account in a different session too.
