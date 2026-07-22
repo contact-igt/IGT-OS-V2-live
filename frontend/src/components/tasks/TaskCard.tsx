@@ -245,7 +245,7 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
               }`}
             >
               {task.status === 'in_progress' ? <PauseCircle className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
-              {task.status === 'in_progress' ? 'Pause' : 'Start'}
+              {task.status === 'in_progress' ? 'Pause' : (task.status === 'paused' || task.loggedMinutes > 0 ? 'Resume' : 'Start')}
             </button>
           </div>
         )}

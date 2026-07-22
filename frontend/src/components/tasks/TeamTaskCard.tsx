@@ -145,7 +145,7 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
             {isRunning ? (
               <><span className="material-symbols-outlined text-base animate-pulse">pause_circle</span> Pause</>
             ) : (
-              <><span className="material-symbols-outlined text-base">play_circle</span> Start</>
+              <><span className="material-symbols-outlined text-base">play_circle</span> {task.status === 'paused' || task.loggedMinutes > 0 ? 'Resume' : 'Start'}</>
             )}
           </button>
           
