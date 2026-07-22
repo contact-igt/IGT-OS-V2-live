@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   MeetingAnalysisResult,
@@ -32,15 +33,17 @@ interface GmailRecap {
 }
 
 function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect: (body: string) => void }) {
+  const { token } = useAuth();
   const [recaps, setRecaps] = useState<GmailRecap[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/gmail-meetings')
+    if (!token) { setLoading(false); return; }
+    fetch('/api/gmail-meetings', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(data => { setRecaps(data); setLoading(false); })
+      .then(data => { setRecaps(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -69,6 +72,9 @@ function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect
           ) : recaps.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-[14px]" style={{ color: 'var(--c-text-3)' }}>No Fathom or Gemini recaps found in the last 14 days.</p>
+              <p className="text-[12px] mt-2" style={{ color: 'var(--c-text-3)' }}>
+                Make sure your Google account is connected — head to Calendar → Connect Google.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -269,37 +275,15 @@ export default function MeetingNotesTab() {
   const pendingTasks    = proposedTasks.filter(t => t.status === 'pending');
   const rejectedTasks   = proposedTasks.filter(t => t.status === 'rejected');
 
-  const handleCreateTasks = useCallback(() => {
+  const handleCreateTasks = useCallback(async () => {
     const approved = proposedTasks.filter(t => t.status === 'approved' && t.ownerSide === 'invictus');
     if (approved.length === 0) return;
 
-    const createdIds: string[] = [];
-
-    approved.forEach(t => {
-      const clientId = resolveClientId(t.clientName, state.clients);
-      dispatch({
-        type: 'CREATE_TASK',
-        payload: {
-          title: t.title,
-          description: t.description || '',
-          clientId,
-          category: (t.category || 'operations') as any,
-          assignedTo: t.assigneeId ? [t.assigneeId] : [state.currentUserId],
-          createdBy: state.currentUserId,
-          priority: (t.priority || 'medium') as any,
-          status: 'todo',
-          deadline: t.deadline || null,
-          estimatedHours: 2,
-          tags: ['meeting-generated'],
-          sourceType: 'meeting',
-          sourceMeetingTitle: result?.meetingMeta?.title || 'Meeting',
-          sourceTranscriptQuote: t.sourceQuote || '',
-        } as any,
-      });
-      createdIds.push(`task-${Date.now()}-${Math.random()}`); // approximate
-    });
-
-    // Save the meeting note to state
+    // Save the meeting first (and wait for its real backend id) so every approved task can
+    // be tagged with meeting-<id> — that tag is what makes a re-analysis of the same
+    // meeting traceable back to the tasks it already created, instead of silently
+    // duplicating them.
+    let meetingId: string | null = null;
     if (result) {
       const matchedClient = state.clients.find(c => c.name.toLowerCase() === (result.meetingMeta?.clientName || '').toLowerCase());
       const note: MeetingNote = {
@@ -308,15 +292,36 @@ export default function MeetingNotesTab() {
         processedAt: new Date().toISOString(),
         transcriptSnippet: transcript.slice(0, 200),
         result,
-        tasksCreated: createdIds,
+        tasksCreated: [],
       };
-      saveMeetingNote(note);
+      meetingId = await saveMeetingNote(note);
     }
+    const tags = meetingId ? ['meeting-generated', `meeting-${meetingId}`] : ['meeting-generated'];
+
+    // createTask() (not a raw dispatch) so these actually sync to the backend — dispatching
+    // CREATE_TASK directly only updates local state, which used to make meeting-derived
+    // tasks vanish on refresh and stay invisible to everyone else.
+    approved.forEach(t => {
+      const clientId = resolveClientId(t.clientName, state.clients);
+      createTask({
+        title: t.title,
+        description: t.description || '',
+        clientId,
+        category: (t.category || 'operations') as any,
+        assignedTo: t.assigneeId ? [t.assigneeId] : [state.currentUserId],
+        createdBy: state.currentUserId,
+        priority: (t.priority || 'medium') as any,
+        status: 'todo',
+        deadline: t.deadline || null,
+        estimatedHours: 2,
+        tags,
+      } as any);
+    });
 
     setCreatedCount(approved.length);
     // Mark as approved so button shows success
     setTimeout(() => router.push('/tasks'), 1800);
-  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, dispatch, router]);
+  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, createTask, saveMeetingNote, router]);
 
   const handleSendClientMOM = useCallback(() => {
     if (!result) return;

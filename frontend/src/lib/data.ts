@@ -619,3 +619,50 @@ export interface Candidate {
 export interface Timesheet {
   id: string;
 }
+
+export function canApproveOrCompleteTask(state: any, task: Task | null | undefined, userId: string | null | undefined): boolean {
+  if (!task || !userId) return false;
+
+  // Find acting user in teamMembers (userId can be mock ID or DB UUID)
+  let currentUser = state.teamMembers?.find((m: any) =>
+    m.id === userId ||
+    (m.email && userId && m.email.toLowerCase() === userId.toLowerCase())
+  );
+
+  if (!currentUser && state.getRealUserId) {
+    currentUser = state.teamMembers?.find((m: any) => state.getRealUserId(m.id) === userId);
+  }
+
+  if (!currentUser) {
+    currentUser = state.teamMembers?.find((m: any) => m.id === state.currentUserId);
+  }
+
+  const currentId = currentUser?.id || userId;
+  const currentEmail = currentUser?.email?.toLowerCase();
+
+  // 1. Person Who Created / Assigned the Task
+  const isCreator =
+    task.createdBy === userId ||
+    task.createdBy === currentId ||
+    (state.teamMembers?.some((m: any) =>
+      m.id === task.createdBy &&
+      (m.id === currentId || (m.email && currentEmail && m.email.toLowerCase() === currentEmail))
+    ));
+
+  if (isCreator) return true;
+
+  // 2. CEO, COO, Super Admin, Admin, Operations Check
+  const isCEOorCOOorOps =
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'ops' ||
+    currentUser?.roleTag === 'ops' ||
+    (currentUser?.department && ['operations', 'ops', 'bd', 'management'].includes(currentUser.department.toLowerCase())) ||
+    (currentUser?.title && /ceo|coo|operation|ops|director|founder/i.test(currentUser.title));
+
+  if (isCEOorCOOorOps) return true;
+
+  // If user is just an assigned team member (or dept head who didn't create the task and isn't CEO/Ops), they CANNOT approve!
+  return false;
+}
+

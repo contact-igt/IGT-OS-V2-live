@@ -15,7 +15,7 @@ const GanttView = dynamic(() => import('@/components/tasks/GanttView'), {
   ),
   ssr: false,
 });
-import { Task, STATUS_CONFIG, PRIORITY_CONFIG, getClientById, isOverdue } from '@/lib/data';
+import { Task, STATUS_CONFIG, PRIORITY_CONFIG, getClientById, isOverdue, canApproveOrCompleteTask } from '@/lib/data';
 
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -154,6 +154,14 @@ function TasksPageInner() {
         alert("Only the task assigner can move a task back to Todo.");
       }
       return;
+    }
+
+    // Prevent dragging to Done from In Review unless task assigner, CEO, COO, or Operations
+    if (newStatus === 'done' && oldStatus === 'in_review') {
+      if (task && !canApproveOrCompleteTask(state, task, state.currentUserId)) {
+        alert("Only the person who assigned this task, CEO, COO, or Operations can mark a task in review as Done.");
+        return;
+      }
     }
     
     if (['paused', 'blocked', 'in_review'].includes(newStatus)) {

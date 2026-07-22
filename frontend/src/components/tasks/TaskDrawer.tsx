@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { X, PlayCircle, StopCircle, PlusCircle } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
-import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress } from '@/lib/data';
+import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress, canApproveOrCompleteTask } from '@/lib/data';
 import LiveTimer from '@/components/ui/LiveTimer';
 import EditTaskModal from '@/components/tasks/EditTaskModal';
 
@@ -42,7 +42,12 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   // this is safe going forward; older entries recorded before that fix (entityId null or
   // stale) simply won't surface here rather than risk showing up on the wrong task.
   const taskAudit = task
-    ? state.auditLog.filter(a => a.entity === 'Task' && a.entityId === task.id)
+    ? state.auditLog.filter(
+        a => a.entity === 'Task' && (
+          a.entityId === task.id ||
+          (a.entityRef && task.title && a.entityRef.trim().toLowerCase() === task.title.trim().toLowerCase())
+        )
+      )
     : [];
 
   // Close on Escape
@@ -199,6 +204,10 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                 <div className="flex flex-wrap gap-2">
                   {STATUSES.map(s => {
                     const sc = STATUS_CONFIG[s];
+                    if (s === 'done' && task.status === 'in_review' && !canApproveOrCompleteTask(state, task, state.currentUserId)) {
+                      return null;
+                    }
+
                     return (
                       <button
                         key={s}
@@ -509,26 +518,29 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                     </div>
                   )}
                   <div className="flex gap-2">
+                    {canApproveOrCompleteTask(state, task, state.currentUserId) && (
+                      <button 
+                        onClick={() => {
+                          setTaskStatus(task.id, 'done');
+                          if (timerRunning) requestStopTimer(task.id);
+                        }}
+                        className="flex-1 py-2 bg-emerald-500/20 text-emerald-600 border border-emerald-500/30 rounded-lg text-[12px] font-bold hover:bg-emerald-500/30 transition-colors"
+                      >
+                        Approve (Done)
+                      </button>
+                    )}
                     <button 
                       onClick={() => {
-                        setTaskStatus(task.id, 'done');
-                        if (timerRunning) requestStopTimer(task.id);
-                      }}
-                      className="flex-1 py-2 bg-emerald-500/20 text-emerald-600 border border-emerald-500/30 rounded-lg text-[12px] font-bold hover:bg-emerald-500/30 transition-colors"
-                    >
-                      Approve (Done)
-                    </button>
-                    <button 
-                      onClick={() => {
-                        const reason = window.prompt('Rework Reason:');
-                        if (reason) {
-                           addReviewComment(task.id, reason);
-                           setTaskStatus(task.id, 'rework');
+                        const reason = window.prompt('Rework Reason / Feedback:');
+                        if (reason !== null) {
+                           const reworkNote = reason.trim() ? `Rework requested: ${reason.trim()}` : 'Rework requested';
+                           addReviewComment(task.id, reworkNote);
+                           setTaskStatus(task.id, 'todo', reworkNote);
                         }
                       }}
                       className="flex-1 py-2 bg-pink-500/20 text-pink-600 border border-pink-500/30 rounded-lg text-[12px] font-bold hover:bg-pink-500/30 transition-colors"
                     >
-                      Request Rework
+                      Request Rework (To Do)
                     </button>
                   </div>
                 </div>

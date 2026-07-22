@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Task } from '@/lib/data';
+import { Task, canApproveOrCompleteTask } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import SubtaskModal from '@/components/tasks/SubtaskModal';
 import { useTick } from '@/lib/hooks';
@@ -44,12 +44,14 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
     }
   }
 
-  // Timer logic (mocked for now, assuming if status is in_progress it's running)
-  // Actually we need to integrate this with a real timer state if available, but for now:
   const isRunning = task.status === 'in_progress';
+  const canApprove = canApproveOrCompleteTask(state, task, state.currentUserId);
+  const isInReview = task.status === 'in_review';
+  const isDone = task.status === 'done';
 
   const handleStart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isInReview || isDone) return;
     if (isRunning) {
       // Pause, not reset to Todo — moves the card to the Paused column and keeps
       // whatever progress it already logged, instead of discarding it back to square one.
@@ -64,7 +66,21 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
 
   const handleDone = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setTaskStatus(task.id, 'in_review'); // Team members submit for review first, but let's assume they click Done and it opens drawer for note if we enforce it, or just sets it to in_review.
+    setTaskStatus(task.id, 'in_review');
+  };
+
+  const handleApproveDone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTaskStatus(task.id, 'done');
+  };
+
+  const handleRequestRework = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const reason = window.prompt('Rework Reason / Feedback:');
+    if (reason !== null) {
+      const reworkNote = reason.trim() ? `Rework requested: ${reason.trim()}` : 'Rework requested';
+      setTaskStatus(task.id, 'todo', reworkNote);
+    }
   };
 
   return (
@@ -136,32 +152,57 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
           />
         </div>
         
-        {/* Actions (Thumb sized 44px) */}
-        <div className="flex items-center gap-2 mt-3">
-          <button 
-            onClick={handleStart}
-            className={`flex-1 h-[44px] rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition ${isRunning ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-3 text-text hover:bg-surface'}`}
-          >
-            {isRunning ? (
-              <><span className="material-symbols-outlined text-base animate-pulse">pause_circle</span> Pause</>
-            ) : (
-              <><span className="material-symbols-outlined text-base">play_circle</span> {task.status === 'paused' || task.loggedMinutes > 0 ? 'Resume' : 'Start'}</>
+        {/* Actions */}
+        {!isDone && (
+          <div className="flex items-center gap-2 mt-3">
+            {!isInReview && (
+              <>
+                <button 
+                  onClick={handleStart}
+                  className={`flex-1 h-[44px] rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition ${isRunning ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-3 text-text hover:bg-surface'}`}
+                >
+                  {isRunning ? (
+                    <><span className="material-symbols-outlined text-base animate-pulse">pause_circle</span> Pause</>
+                  ) : (
+                    <><span className="material-symbols-outlined text-base">play_circle</span> {task.status === 'paused' || task.loggedMinutes > 0 ? 'Resume' : 'Start'}</>
+                  )}
+                </button>
+
+                <button 
+                  onClick={handleDone}
+                  className="flex-1 h-[44px] rounded-lg bg-surface-3 hover:bg-[#10B981]/15 hover:text-[#10B981] text-text font-bold text-sm flex items-center justify-center gap-2 transition"
+                >
+                  <span className="material-symbols-outlined text-base">check_circle</span> Done
+                </button>
+              </>
             )}
-          </button>
-          
-          <button 
-            onClick={handleDone}
-            className="flex-1 h-[44px] rounded-lg bg-surface-3 hover:bg-[#10B981]/15 hover:text-[#10B981] text-text font-bold text-sm flex items-center justify-center gap-2 transition"
-          >
-            <span className="material-symbols-outlined text-base">check_circle</span> Done
-          </button>
-          
-          <button 
-            className="w-[44px] h-[44px] flex-shrink-0 rounded-lg bg-surface-3 text-text-2 hover:text-text flex items-center justify-center transition"
-          >
-            <span className="material-symbols-outlined text-base">open_in_new</span>
-          </button>
-        </div>
+            
+            {isInReview && canApprove && (
+              <>
+                <button 
+                  onClick={handleApproveDone}
+                  className="flex-1 h-[44px] rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-500 font-bold text-xs flex items-center justify-center gap-1.5 transition border border-emerald-500/20"
+                >
+                  <span className="material-symbols-outlined text-base">check_circle</span> Approve (Done)
+                </button>
+
+                <button 
+                  onClick={handleRequestRework}
+                  className="flex-1 h-[44px] rounded-lg bg-pink-500/15 hover:bg-pink-500/25 text-pink-500 font-bold text-xs flex items-center justify-center gap-1.5 transition border border-pink-500/20"
+                >
+                  <span className="material-symbols-outlined text-base">replay</span> Rework (To Do)
+                </button>
+              </>
+            )}
+            
+            <button 
+              onClick={onClick}
+              className="w-[44px] h-[44px] flex-shrink-0 rounded-lg bg-surface-3 text-text-2 hover:text-text flex items-center justify-center transition"
+            >
+              <span className="material-symbols-outlined text-base">open_in_new</span>
+            </button>
+          </div>
+        )}
 
         {/* Subtasks Inline Expansion */}
         {isGoal && isExpanded && (

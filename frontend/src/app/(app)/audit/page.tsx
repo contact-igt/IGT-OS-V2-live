@@ -99,8 +99,6 @@ export default function AuditPage() {
     });
   };
 
-
-
   return (
     <div className="p-8 max-w-6xl mx-auto flex flex-col gap-6 min-h-[calc(100vh-4rem)]">
       <div className="flex items-center justify-between mb-2">

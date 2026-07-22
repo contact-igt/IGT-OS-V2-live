@@ -2,7 +2,7 @@
 
 import { memo, useMemo, useCallback } from 'react';
 import { Calendar, PlayCircle, PauseCircle } from 'lucide-react';
-import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress } from '@/lib/data';
+import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress, canApproveOrCompleteTask } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import LiveTimer from '@/components/ui/LiveTimer';
 import { useTick } from '@/lib/hooks';
@@ -91,6 +91,13 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
     if (nextStatus === 'todo' && task.status !== 'todo') {
       if (task.createdBy !== state.currentUserId && !isLeadership) {
         alert("Only the task assigner or leadership can move a task back to Todo.");
+        return;
+      }
+    }
+
+    if (nextStatus === 'done' && task.status === 'in_review') {
+      if (!canApproveOrCompleteTask(state, task, state.currentUserId)) {
+        alert("Only the person who assigned this task, CEO, COO, or Operations can mark a task in review as Done.");
         return;
       }
     }
@@ -223,7 +230,7 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
         </div>
 
         {/* Timer */}
-        {task.status !== 'done' && (
+        {task.status !== 'done' && task.status !== 'in_review' && (
           <div className="flex items-center gap-2">
             {timerRunning && timer && (
               <div className="flex items-center gap-2 bg-red-50 text-red-600 px-2 py-1 rounded-lg border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
