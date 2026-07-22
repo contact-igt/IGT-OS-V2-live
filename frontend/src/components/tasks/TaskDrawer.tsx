@@ -560,7 +560,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                   className={`w-full py-3 rounded-xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all font-grotesk border ${timerRunning ? 'bg-red-500/10 text-red-500 border-red-500/30' : 'bg-primary/10 text-primary border-primary/30'}`}
                 >
                   {timerRunning ? <StopCircle className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
-                  {timerRunning ? 'Complete Task' : 'Start Task'}
+                  {timerRunning ? 'Complete Task' : (task.status === 'paused' || task.loggedMinutes > 0 ? 'Resume Task' : 'Start Task')}
                 </button>
               )}
 
