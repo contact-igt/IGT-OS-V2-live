@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Video, AlignLeft, Sparkles, X, Link as LinkIcon } from 'lucide-react';
@@ -13,6 +14,7 @@ type ViewMode = 'day' | 'week' | 'month' | 'year';
 
 export default function CalendarPage() {
   const { state, dispatch } = useApp();
+  const { token, user } = useAuth();
   const router = useRouter();
   const [view, setView] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -47,16 +49,16 @@ export default function CalendarPage() {
       maxDate.setDate(28);
       maxDate.setMonth(maxDate.getMonth() + 2);
       
-      const events = await fetchGoogleCalendarEvents(
-        state.googleAccessToken || 'mock_token',
-        minDate.toISOString(), 
+      const { events, connected } = await fetchGoogleCalendarEvents(
+        token,
+        minDate.toISOString(),
         maxDate.toISOString()
       );
-      (dispatch as any)({ type: 'SET_GOOGLE_EVENTS', payload: events });
+      dispatch({ type: 'SET_GOOGLE_EVENTS', payload: { events, connected } });
       setLoading(false);
     }
     loadEvents();
-  }, [currentDate, state.googleAccessToken, dispatch]);
+  }, [currentDate, token, dispatch]);
 
   const tasksWithDeadlines = useMemo(() => {
     return state.tasks.filter(t => t.deadline && t.status !== 'done' && t.status !== 'cancelled');
@@ -162,7 +164,19 @@ export default function CalendarPage() {
               </button>
             ))}
           </div>
-          <button className="btn-primary" onClick={() => !state.isGoogleConnected && alert('Please integrate Google Calendar first')} disabled={loading}>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              if (state.isGoogleConnected) {
+                setCurrentDate(new Date(currentDate)); // re-trigger loadEvents
+                return;
+              }
+              if (!user?.id) return;
+              const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+              window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
+            }}
+            disabled={loading}
+          >
             <Sparkles className="w-4 h-4 mr-2" />
             {state.isGoogleConnected ? 'Sync Now' : 'Connect Google'}
           </button>

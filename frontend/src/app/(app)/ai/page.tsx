@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { TEAM_MEMBERS } from '@/lib/data';
+import MeetingNotesTab from '@/components/ai/MeetingNotesTab';
 
 // ──────────────────────────────────────────────
 // ROLE HIERARCHY & ACCESS CONTROL
@@ -165,30 +166,22 @@ export default function AIPage() {
 
     try {
       const systemPrompt = buildSystemPrompt(currentUser, accessibleData);
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Routed through our own backend so the OpenAI key stays server-side — this used to
+      // call api.openai.com directly from the browser with NEXT_PUBLIC_OPENAI_API_KEY,
+      // which would expose the key to anyone inspecting network requests.
+      const response = await fetch('/api/cortex-chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...newMessages,
-          ],
-          max_tokens: 1200,
-          temperature: 0.4,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, messages: newMessages }),
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `API Error ${response.status}`);
+        throw new Error(errData?.error || `API Error ${response.status}`);
       }
 
       const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content || 'No response received.';
+      const reply = data.reply || 'No response received.';
       setMessages([...newMessages, { role: 'assistant', content: reply }]);
     } catch (err: any) {
       setError(err.message || 'Failed to reach Invictus Cortex. Check your API key.');
@@ -368,26 +361,8 @@ export default function AIPage() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-              <span className="material-symbols-outlined" style={{ color: 'var(--c-primary)' }}>forum</span>
-              Meeting Transcripts
-            </h2>
-            <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '10px', background: 'var(--c-primary)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>upload</span>
-              Upload Recording
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 24px', borderRadius: '16px', border: '2px dashed var(--c-border)', background: 'var(--c-surface)', textAlign: 'center' }}>
-            <div style={{ width: '64px', height: '64px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--c-surface-2)', marginBottom: '16px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '32px', color: 'var(--c-text-3)', fontVariationSettings: "'FILL' 1" }}>mic</span>
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--c-text)', marginBottom: '8px' }}>No Meeting Recordings Yet</h3>
-            <p style={{ fontSize: '13px', color: 'var(--c-text-3)', maxWidth: '360px', lineHeight: '1.6' }}>
-              Upload a meeting recording or paste a transcript to get AI-powered summaries, action items, and analytics.
-            </p>
-          </div>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <MeetingNotesTab />
         </div>
       )}
       <style>{`@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }`}</style>

@@ -14,7 +14,7 @@ import {
 import {
   Task, Client, TeamMember, AuditEntry, TaskApproval, ClientCredential, SocialMetric, Notification, TimeEntry,
   INITIAL_TASKS, CLIENTS, TEAM_MEMBERS, INITIAL_AUDIT_LOG, CREDENTIALS, SOCIAL_METRICS, SEED_TIME_ENTRIES,
-  isOverdue, isDueToday, formatMinutes,
+  isOverdue, isDueToday, formatMinutes, canApproveOrCompleteTask,
   type AttendanceLog, type AdAccountBalance, type GitHubDevActivity, type GitHubRepo,
   type Lead, type CampaignLog, type MeetingEvent,
   type PaymentRecord, type Campaign, type CampaignWeeklyLog2,
@@ -91,6 +91,7 @@ type AppAction =
   | { type: 'STOP_TIMER'; payload: { taskId: string; userId: string } }
   | { type: 'TICK' }
   | { type: 'ADD_AUDIT'; payload: AuditEntry }
+  | { type: 'ADD_MEETING_NOTE'; payload: any }
   | { type: 'LOG_TIME_MANUAL'; payload: { taskId: string; minutes: number; note: string; actorId: string; date?: string } }
   | { type: 'ADD_TEAM_MEMBER'; payload: Omit<TeamMember, 'id'> }
   | { type: 'ADD_CLIENT'; payload: Client }
@@ -111,7 +112,7 @@ type AppAction =
   | { type: 'DECIDE_APPROVAL'; payload: { id: string; decision: 'approved' | 'rejected'; note?: string } }
   | { type: 'UPDATE_DEAL_STAGE'; payload: { id: string; stage: string } }
   | { type: 'CREATE_DEAL'; payload: any }
-  | { type: 'SET_GOOGLE_EVENTS'; payload: { events: any[], accessToken?: string } }
+  | { type: 'SET_GOOGLE_EVENTS'; payload: { events: any[], connected?: boolean } }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'CLOCK_IN'; payload: { userId: string; date: string; time: string; isLate?: boolean } }
   | { type: 'CLOCK_OUT'; payload: { userId: string; date: string; time: string } };
@@ -326,6 +327,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
         }
       }
 
+      // Enforcement: Tasks in "In Review" can only be approved/marked Done by task assigner, CEO, COO, or Operations
+      if (action.payload.status === 'done' && prevStatus === 'in_review') {
+        if (!canApproveOrCompleteTask(state, task, action.payload.actorId)) {
+          console.warn("Unauthorized: Only the task assigner, CEO, COO, or Operations can mark a task in review as Done.");
+          return state;
+        }
+      }
+
       const actor = getActorName(state, action.payload.actorId);
       const clientName = getClientName(state, task.clientId);
       
@@ -375,7 +384,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
             actor, actorId: action.payload.actorId, action: 'timer_start', entity: 'Task', entityRef: task.title, entityId: task.id, clientName, meta: 'Timer auto-started'
           });
         }
-      } else if (action.payload.status !== 'in_progress' && prevStatus === 'in_progress') {
+      } else if (action.payload.status !== 'in_progress') {
         // Stop timer
         const timerIndex = timers.findIndex(t => t.taskId === task.id);
         if (timerIndex !== -1) {
@@ -542,6 +551,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'ADD_AUDIT': {
       return { ...state, auditLog: [action.payload, ...state.auditLog] };
+    }
+
+    case 'ADD_MEETING_NOTE': {
+      return { ...state, meetingNotes: [action.payload, ...state.meetingNotes] };
     }
 
 
@@ -825,6 +838,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         teamMembers: migratedState.teamMembers || initialState.teamMembers,
         activeTimers: action.payload.activeTimers || initialState.activeTimers,
         auditLog: action.payload.auditLog || initialState.auditLog,
+        meetingNotes: action.payload.meetingNotes || initialState.meetingNotes,
         credentials: action.payload.credentials || initialState.credentials,
         socialMetrics: action.payload.socialMetrics || initialState.socialMetrics,
         githubCommits: action.payload.githubCommits || initialState.githubCommits,
@@ -871,6 +885,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     }
 
+    // Was previously undispatched entirely — declared in the action union and dispatched
+    // from the Calendar page, but with no matching case here it silently fell through to
+    // `default` and never actually updated state, so real events could never render.
+    case 'SET_GOOGLE_EVENTS': {
+      return {
+        ...state,
+        googleEvents: action.payload.events,
+        isGoogleConnected: action.payload.connected !== undefined ? action.payload.connected : state.isGoogleConnected,
+      };
+    }
+
     default:
       return state;
   }
@@ -885,7 +910,7 @@ interface AppContextValue {
   decideApproval: (id: string, decision: 'approved' | 'rejected', note?: string) => void;
   updateDealStage: (id: string, stage: string) => void;
   createDeal: (deal: any) => void;
-  saveMeetingNote: (note: any) => void;
+  saveMeetingNote: (note: any) => Promise<string | null>;
   // Convenience computed
   activeTasks: Task[];
   overdueTasks: Task[];
@@ -1036,7 +1061,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes] = await Promise.all([
+      const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes, meetingsRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, { headers }),
         fetch(`${baseUrl}/api/clients`, { headers }),
         fetch(`${baseUrl}/api/tasks`, { headers }),
@@ -1046,12 +1071,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetch(`${baseUrl}/api/social/accounts`, { headers }),
         fetch(`${baseUrl}/api/time-logs?active=true`, { headers }),
         fetch(`${baseUrl}/api/audit-log`, { headers }),
+        fetch(`${baseUrl}/api/meetings`, { headers }),
       ]);
 
       // A 401 from ANY endpoint means the session has expired — log out consistently
       // instead of only checking users/tasks, which used to leave the other endpoints
       // (attendance, github, social, timers) failing silently with no explanation.
-      const allResponses = [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes];
+      const allResponses = [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes, meetingsRes];
       if (allResponses.some(res => res.status === 401)) {
         logout();
         return;
@@ -1069,6 +1095,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // doesn't immediately re-POST every entry we just loaded back to the server.
       lastSyncedAuditIdRef.current = dbAuditLog[0]?.id ?? null;
       const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
+      const dbMeetings = meetingsRes.ok ? await meetingsRes.json() : [];
 
       // Dynamically merge/load database users into state.teamMembers. Rebuilt from the
       // static TEAM_MEMBERS seed every time (not stateRef.current.teamMembers) so a browser
@@ -1250,6 +1277,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clientId: toMockClient[a.clientId] || null,
       }));
 
+      const meetingNotes = dbMeetings.map((m: any) => ({
+        id: m.id,
+        clientId: toMockClient[m.clientId] || null,
+        processedAt: m.createdAt,
+        transcriptSnippet: m.transcriptSnippet,
+        result: m.result,
+        tasksCreated: m.tasksCreated || [],
+        googleEventId: m.googleEventId || null,
+      }));
+
       // userId intentionally left as the real backend UUID, not translated through
       // toMockUser — matches the local START_TIMER dispatch (uses state.currentUserId,
       // the real uuid) and the same convention already used for attendanceLogs.
@@ -1271,6 +1308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         socialAccounts,
         teamMembers: updatedTeamMembers,
         auditLog: dbAuditLog,
+        meetingNotes,
         isGlobalLoading: false,
         globalError: null
       } as any });
@@ -1517,6 +1555,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setTaskStatus = useCallback((taskId: string, status: Task['status'], note?: string) => {
     const task = state.tasks.find(t => t.id === taskId);
     const prevStatus = task?.status;
+
+    if (task && status === 'done' && prevStatus === 'in_review') {
+      if (!canApproveOrCompleteTask(state, task, state.currentUserId)) {
+        alert("Only the person who assigned this task, CEO, COO, or Operations can mark a task in review as Done.");
+        return;
+      }
+    }
+
+    if (status !== 'in_progress' && isTimerRunning(taskId)) {
+      stopTimer(taskId);
+    }
+
     dispatch({ type: 'SET_TASK_STATUS', payload: { id: taskId, status, actorId: state.currentUserId, note } });
 
     if (token) {
@@ -1584,9 +1634,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               tags: data.tags,
             }),
           });
-          if (!res.ok) { console.error('Backend rejected task creation:', await res.text()); return; }
           const created = await res.json();
-          if (data.id) taskIdMapRef.current[data.id] = created.id;
+          if (data.id) {
+            taskIdMapRef.current[data.id] = created.id;
+            taskIdMapRef.current[created.id] = data.id;
+            if (data.id !== created.id) {
+              dispatch({
+                type: 'UPDATE_TASK',
+                payload: { id: data.id, updates: { id: created.id } },
+              });
+            }
+          }
 
           // Log the task-creation audit entry only now, stamped with the real backend id
           // from the start — logging it earlier (before this response came back) would mean
@@ -1735,10 +1793,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'CREATE_DEAL', payload: deal });
   }, []);
 
-  const saveMeetingNote = useCallback((note: any) => {
-    // Add logic to save meeting note to state or API
-    console.log('Saved meeting note:', note);
-  }, []);
+  const saveMeetingNote = useCallback(async (note: any): Promise<string | null> => {
+    if (!token) return null;
+    try {
+      const dbClientId = note.clientId ? (clientIdMapRef.current.toDb[note.clientId] || null) : null;
+      const res = await fetch(`${apiBaseUrl}/api/meetings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: note.result?.meetingMeta?.title || 'Meeting Notes',
+          clientId: dbClientId,
+          transcriptSnippet: note.transcriptSnippet,
+          analysisPreference: note.result?.meetingMeta?.meetingType || null,
+          result: note.result,
+        }),
+      });
+      if (!res.ok) { console.error('Failed to save meeting note:', await res.text()); return null; }
+      const saved = await res.json();
+      // Dispatched only after the backend confirms the real id — waiting here (rather than
+      // stamping a temporary local id first) avoids reintroducing the same local-id/real-id
+      // race that caused audit log entries to end up orphaned earlier; the analysis itself
+      // already rendered from component-local state, so there's no perceptible delay.
+      dispatch({ type: 'ADD_MEETING_NOTE', payload: {
+        id: saved.id,
+        clientId: note.clientId || null,
+        processedAt: saved.createdAt,
+        transcriptSnippet: note.transcriptSnippet,
+        result: note.result,
+        tasksCreated: note.tasksCreated || [],
+      } });
+      return saved.id;
+    } catch (err) {
+      console.error('Error saving meeting note:', err);
+      return null;
+    }
+  }, [token, apiBaseUrl]);
 
   const addReviewComment = useCallback((taskId: string, text: string) => {
     dispatch({ type: 'ADD_REVIEW_COMMENT', payload: { taskId, text, authorId: state.currentUserId } });

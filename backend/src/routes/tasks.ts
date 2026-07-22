@@ -121,7 +121,33 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     ];
 
     const result = await pool.query(query, params);
-    res.status(201).json(serializeTask(result.rows[0]));
+    const createdTask = result.rows[0];
+
+    // Log task creation in public.audit_log table
+    try {
+      const userRes = await pool.query('SELECT name FROM public.users WHERE id = $1', [req.user.id]);
+      const userName = userRes.rows[0]?.name || 'Unknown';
+
+      const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [clientId]);
+      const clientName = clientRes.rows[0]?.name || '—';
+
+      await pool.query(
+        `INSERT INTO public.audit_log (actor_id, actor_name, action, entity, entity_ref, entity_id, client_name, meta)
+         VALUES ($1, $2, 'task_create', 'Task', $3, $4, $5, $6)`,
+        [
+          req.user.id,
+          userName,
+          title,
+          createdTask.id,
+          clientName,
+          `Priority: ${priority || 'medium'}`,
+        ]
+      );
+    } catch (auditErr) {
+      console.error('Failed to log task creation audit entry:', auditErr);
+    }
+
+    res.status(201).json(serializeTask(createdTask));
   } catch (error: any) {
     console.error('Error creating task:', error);
     res.status(500).json({ error: 'Internal server error' });

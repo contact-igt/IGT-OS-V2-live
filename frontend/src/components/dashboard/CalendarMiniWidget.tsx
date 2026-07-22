@@ -1,33 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 import { Task } from '@/lib/data';
 import { GripVertical } from 'lucide-react';
 
-export default function CalendarMiniWidget({ 
-  activeTasks, 
-  setSelectedDate 
-}: { 
+export default function CalendarMiniWidget({
+  activeTasks,
+  setSelectedDate
+}: {
   activeTasks: Task[],
-  setSelectedDate: (d: Date) => void 
+  setSelectedDate: (d: Date) => void
 }) {
   const { state, dispatch } = useApp();
+  const { token } = useAuth();
   const [calendarWeeks, setCalendarWeeks] = useState(2);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function loadEvents() {
-      if (!state.googleAccessToken) return;
+      if (!token) return;
       setLoading(true);
       const minDate = new Date();
       const maxDate = new Date();
       maxDate.setDate(maxDate.getDate() + 30);
-      const events = await fetchGoogleCalendarEvents(state.googleAccessToken, minDate.toISOString(), maxDate.toISOString());
-      dispatch({ type: 'SET_GOOGLE_EVENTS', payload: { events } });
+      const { events, connected } = await fetchGoogleCalendarEvents(token, minDate.toISOString(), maxDate.toISOString());
+      dispatch({ type: 'SET_GOOGLE_EVENTS', payload: { events, connected } });
       setLoading(false);
     }
     loadEvents();
-  }, [state.googleAccessToken, dispatch]);
+  }, [token, dispatch]);
 
   return (
     <>

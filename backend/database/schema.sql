@@ -398,3 +398,36 @@ CREATE TABLE public.audit_log (
   meta TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+
+-- 22. AI Note Taker (meeting transcripts analyzed by GPT-4o; result stored whole since its
+-- shape evolves with the analysis prompt, same precedent as architecture_docs.content /
+-- social_accounts.latest_posts)
+CREATE TABLE public.meetings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  transcript_snippet TEXT,
+  analysis_preference TEXT,
+  result JSONB NOT NULL,
+  tasks_created UUID[] DEFAULT '{}',
+  google_event_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- 23. Google Account Connections (per-employee OAuth for Calendar + Gmail; unlike
+-- social_accounts, which represents a CLIENT's channel, this represents the logged-in
+-- employee's own Google account, so it's keyed by user_id instead of client_id)
+CREATE TABLE public.google_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  encrypted_access_token BYTEA NOT NULL,
+  access_token_iv BYTEA NOT NULL,
+  encrypted_refresh_token BYTEA NOT NULL,
+  refresh_token_iv BYTEA NOT NULL,
+  token_expires_at TIMESTAMPTZ,
+  scopes TEXT[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now()
+);

@@ -31,24 +31,27 @@ export default function MyWorkspacePage() {
   const today = new Date();
   today.setHours(0,0,0,0);
   
-  const todaysFocus = myTasks.filter(t => {
-    let overdue = false;
-    let dueToday = false;
-    if (t.deadline) {
-      const dl = new Date(t.deadline);
-      dl.setHours(0,0,0,0);
-      if (dl.getTime() < today.getTime()) overdue = true;
-      if (dl.getTime() === today.getTime()) dueToday = true;
-    }
-    return overdue || dueToday || t.priority === 'critical' || t.priority === 'high';
-  }).sort((a, b) => {
-    // overdue first
-    const aDl = a.deadline ? new Date(a.deadline).getTime() : Infinity;
-    const bDl = b.deadline ? new Date(b.deadline).getTime() : Infinity;
-    if (aDl < today.getTime() && bDl >= today.getTime()) return -1;
-    if (bDl < today.getTime() && aDl >= today.getTime()) return 1;
-    return aDl - bDl;
-  });
+  const todaysFocus = myTasks
+    .filter(t => t.status !== 'in_review' && t.status !== 'done')
+    .filter(t => {
+      let overdue = false;
+      let dueToday = false;
+      if (t.deadline) {
+        const dl = new Date(t.deadline);
+        dl.setHours(0,0,0,0);
+        if (dl.getTime() < today.getTime()) overdue = true;
+        if (dl.getTime() === today.getTime()) dueToday = true;
+      }
+      return overdue || dueToday || t.priority === 'critical' || t.priority === 'high';
+    })
+    .sort((a, b) => {
+      // overdue first
+      const aDl = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+      const bDl = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+      if (aDl < today.getTime() && bDl >= today.getTime()) return -1;
+      if (bDl < today.getTime() && aDl >= today.getTime()) return 1;
+      return aDl - bDl;
+    });
   
   const inReviewTasks = myTasks.filter(t => t.status === 'in_review');
   const upcomingTasks = myTasks.filter(t => !todaysFocus.find(tf => tf.id === t.id) && t.status !== 'in_review');

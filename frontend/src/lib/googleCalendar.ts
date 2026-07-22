@@ -9,41 +9,43 @@ export interface GoogleEvent {
   meetLink?: string;
 }
 
-export async function fetchGoogleCalendarEvents(accessToken: string, timeMin: string, timeMax: string): Promise<GoogleEvent[]> {
-  // If no token or running in local dev without real keys, return mock data
-  if (!accessToken || accessToken === 'mock_token') {
-    return getMockEvents(timeMin);
-  }
+// Routed through our own backend (which holds the real Google access token server-side)
+// instead of calling googleapis.com directly from the browser — the browser never sees a
+// Google access token now. `token` here is this app's own auth JWT, not a Google token.
+export async function fetchGoogleCalendarEvents(token: string | null, timeMin: string, timeMax: string): Promise<{ events: GoogleEvent[]; connected: boolean }> {
+  if (!token) return { events: getMockEvents(timeMin), connected: false };
 
   try {
-    const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events');
-    url.searchParams.append('timeMin', timeMin);
-    url.searchParams.append('timeMax', timeMax);
-    url.searchParams.append('singleEvents', 'true');
-    url.searchParams.append('orderBy', 'startTime');
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const params = new URLSearchParams({ start: timeMin, end: timeMax });
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` }
+    const res = await fetch(`${baseUrl}/api/google/calendar/events?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!res.ok) {
-      throw new Error('Failed to fetch Google Calendar events');
+    if (res.status === 404) {
+      // No Google account connected yet — fall back to mock data rather than an empty page.
+      return { events: getMockEvents(timeMin), connected: false };
     }
+    if (!res.ok) throw new Error('Failed to fetch Google Calendar events');
 
-    const data = await res.json();
-    return data.items.map((item: any) => ({
-      id: item.id,
-      summary: item.summary,
-      description: item.description,
-      start: item.start,
-      end: item.end,
-      htmlLink: item.htmlLink,
-      attendees: item.attendees,
-      meetLink: item.hangoutLink
-    }));
+    const items = await res.json();
+    return {
+      events: items.map((item: any) => ({
+        id: item.id,
+        summary: item.summary,
+        description: item.description,
+        start: item.start,
+        end: item.end,
+        htmlLink: item.htmlLink,
+        attendees: item.attendees,
+        meetLink: item.hangoutLink,
+      })),
+      connected: true,
+    };
   } catch (error) {
     console.error('Error fetching calendar events:', error);
-    return getMockEvents(timeMin); // Fallback to mock data on error
+    return { events: getMockEvents(timeMin), connected: false };
   }
 }
 
@@ -51,7 +53,7 @@ function getMockEvents(baseDateIso: string): GoogleEvent[] {
   const base = new Date(baseDateIso);
   // Create an event for today
   const today = new Date();
-  
+
   const m1Start = new Date(today);
   m1Start.setHours(10, 0, 0, 0);
   const m1End = new Date(today);
