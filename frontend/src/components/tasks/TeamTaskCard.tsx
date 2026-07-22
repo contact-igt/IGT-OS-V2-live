@@ -12,7 +12,7 @@ interface TeamTaskCardProps {
 }
 
 export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
-  const { state, setTaskStatus, getTaskLoggedMinutes } = useApp();
+  const { state, setTaskStatus, requestStopTimer, startTimer, getTaskLoggedMinutes } = useApp();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSubtaskModal, setShowSubtaskModal] = useState(false);
 
@@ -51,9 +51,14 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
   const handleStart = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isRunning) {
-      setTaskStatus(task.id, 'todo'); // Stop
+      // Pause, not reset to Todo — moves the card to the Paused column and keeps
+      // whatever progress it already logged, instead of discarding it back to square one.
+      requestStopTimer(task.id, 'paused');
     } else {
+      // setTaskStatus alone only updates the status column — startTimer is what actually
+      // opens the real time_logs row on the backend, so both are required together.
       setTaskStatus(task.id, 'in_progress'); // Start
+      startTimer(task.id);
     }
   };
 
@@ -138,7 +143,7 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
             className={`flex-1 h-[44px] rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition ${isRunning ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-3 text-text hover:bg-surface'}`}
           >
             {isRunning ? (
-              <><span className="material-symbols-outlined text-base animate-pulse">stop_circle</span> Stop</>
+              <><span className="material-symbols-outlined text-base animate-pulse">pause_circle</span> Pause</>
             ) : (
               <><span className="material-symbols-outlined text-base">play_circle</span> Start</>
             )}
