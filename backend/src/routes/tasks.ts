@@ -291,6 +291,24 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/tasks/:id — admin/ops only, matching the frontend's canDelete gate. Dependent
+// rows (time_logs, task_comments, task_assets, audit_logs, notifications, subtasks) all cascade
+// via FK ON DELETE CASCADE, so a plain delete here is sufficient.
+router.delete('/:id', requireAuth, requireRole('admin', 'ops'), async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM public.tasks WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+    res.status(204).send();
+  } catch (error: any) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/tasks/:id/timer/start
 router.post('/:id/timer/start', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
