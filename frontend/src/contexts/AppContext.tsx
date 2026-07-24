@@ -1126,6 +1126,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbClients = clientsRes.ok ? await clientsRes.json() : [];
       const dbTasks = tasksRes.ok ? await tasksRes.json() : [];
       const dbNotifications = notificationsRes.ok ? await notificationsRes.json() : [];
+      const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
       const updatedTeamMembers = dbUsers.map((dbUser: any) => {
         const getInitials = (name: string) => {
           return (name || '').split(' ').map(n => n[0] || '').join('').toUpperCase().slice(0, 2);

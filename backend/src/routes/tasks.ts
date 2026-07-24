@@ -67,7 +67,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     if (role === 'admin' || role === 'ops') {
       query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
     } else {
-      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) ORDER BY t.created_at DESC`;
+      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) OR t.created_by = $1 ORDER BY t.created_at DESC`;
       params = [id];
     }
 
