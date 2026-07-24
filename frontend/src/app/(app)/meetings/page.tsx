@@ -1,0 +1,210 @@
+'use client';
+
+import { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
+import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
+import MeetingAnalyzePanel from '@/components/ai/MeetingAnalyzePanel';
+import MeetingNotesTab from '@/components/ai/MeetingNotesTab';
+import { ArrowLeft, Check, Sparkles } from 'lucide-react';
+
+interface MeetingCard {
+  id: string;
+  title: string;
+  start: string;
+  attendees?: { email: string }[];
+  analyzed: boolean;
+  noteId?: string;
+  isCalendarEvent: boolean;
+  clientName?: string | null;
+}
+
+function MeetingsPageInner() {
+  const { state } = useApp();
+  const { token } = useAuth();
+  const router = useRouter();
+
+  const [events, setEvents] = useState<GoogleEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [analyzePanelEvent, setAnalyzePanelEvent] = useState<GoogleEvent | null>(null);
+  const [showNewNote, setShowNewNote] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      const now = new Date();
+      const start = new Date(now); start.setDate(start.getDate() - 90);
+      const end = new Date(now); end.setDate(end.getDate() + 14);
+      const { events: fetched, connected: isConnected } = await fetchGoogleCalendarEvents(token, start.toISOString(), end.toISOString());
+      setEvents(fetched);
+      setConnected(isConnected);
+      setLoading(false);
+    }
+    load();
+  }, [token]);
+
+  const cards: MeetingCard[] = useMemo(() => {
+    const eventCards: MeetingCard[] = events.map(ev => {
+      const note = state.meetingNotes.find((n: any) => n.googleEventId === ev.id);
+      return {
+        id: ev.id,
+        title: ev.summary,
+        start: ev.start.dateTime,
+        attendees: ev.attendees,
+        analyzed: !!note,
+        noteId: note?.id,
+        isCalendarEvent: true,
+        clientName: note ? (state.clients.find(c => c.id === note.clientId)?.name || null) : null,
+      };
+    });
+
+    const manualNoteCards: MeetingCard[] = state.meetingNotes
+      .filter((n: any) => !n.googleEventId)
+      .map((n: any) => ({
+        id: n.id,
+        title: n.result?.meetingMeta?.title || 'Meeting Notes',
+        start: n.processedAt,
+        analyzed: true,
+        noteId: n.id,
+        isCalendarEvent: false,
+        clientName: state.clients.find(c => c.id === n.clientId)?.name || null,
+      }));
+
+    return [...eventCards, ...manualNoteCards].sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
+  }, [events, state.meetingNotes, state.clients]);
+
+  const handleCardClick = useCallback((card: MeetingCard) => {
+    if (card.analyzed && card.noteId) {
+      router.push(`/meetings/${card.noteId}`);
+      return;
+    }
+    const event = events.find(e => e.id === card.id);
+    if (event) setAnalyzePanelEvent(event);
+  }, [events, router]);
+
+  if (showNewNote) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <button
+          onClick={() => setShowNewNote(false)}
+          className="flex items-center gap-1.5 text-[12px] font-bold mb-4 hover:opacity-70 transition-opacity"
+          style={{ color: 'var(--c-text-3)' }}
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Meetings
+        </button>
+        <MeetingNotesTab />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-[24px] font-bold" style={{ color: 'var(--c-text)', fontFamily: 'var(--font-syne-var)' }}>Meeting Summaries</h1>
+          <p className="text-[13px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>
+            {connected ? 'Synced from your Google Calendar' : 'Connect Google Calendar to see your synced meetings'}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowNewNote(true)}
+          className="btn-primary flex items-center gap-1.5"
+        >
+          <Sparkles className="w-4 h-4" /> New Meeting Note
+        </button>
+      </div>
+
+      {!connected && (
+        <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center justify-between">
+          <p className="text-[13px]" style={{ color: 'var(--c-text-2)' }}>
+            Your calendar isn't connected yet, so only manually-added meeting notes show below.
+          </p>
+          <button onClick={() => router.push('/calendar')} className="text-[12px] font-bold text-primary hover:underline flex-shrink-0 ml-4">
+            Connect Google →
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-[13px] text-center py-16" style={{ color: 'var(--c-text-3)' }}>Loading meetings...</div>
+      ) : cards.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-12 text-center" style={{ borderColor: 'var(--c-border)' }}>
+          <p className="text-[14px] font-bold mb-1" style={{ color: 'var(--c-text)' }}>No meetings yet</p>
+          <p className="text-[13px]" style={{ color: 'var(--c-text-3)' }}>Connect Google Calendar, or click "New Meeting Note" to paste a transcript directly.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {cards.map(card => (
+            <button
+              key={card.id}
+              onClick={() => handleCardClick(card)}
+              className="text-left card-surface2 p-4 rounded-xl border border-border hover:border-primary/50 transition-all hover:-translate-y-0.5"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <h3 className="font-bold text-[14px] leading-snug" style={{ color: 'var(--c-text)' }}>{card.title}</h3>
+                {card.analyzed ? (
+                  <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(42,177,130,0.1)', color: '#2AB182' }}>
+                    <Check className="w-3 h-3" /> Analyzed
+                  </span>
+                ) : (
+                  <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--c-surface-3)', color: 'var(--c-text-3)' }}>
+                    Not analyzed
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[12px] mb-3" style={{ color: 'var(--c-text-3)' }}>
+                {new Date(card.start).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </p>
+
+              {card.clientName && (
+                <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary mb-2">{card.clientName}</span>
+              )}
+
+              {card.attendees && card.attendees.length > 0 && (
+                <div className="flex -space-x-1.5 mt-2">
+                  {card.attendees.slice(0, 4).map((a, i) => (
+                    <div
+                      key={i}
+                      title={a.email}
+                      className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold"
+                      style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}
+                    >
+                      {a.email.slice(0, 2).toUpperCase()}
+                    </div>
+                  ))}
+                  {card.attendees.length > 4 && (
+                    <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold" style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}>
+                      +{card.attendees.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {analyzePanelEvent && (
+        <MeetingAnalyzePanel
+          event={analyzePanelEvent}
+          onClose={() => setAnalyzePanelEvent(null)}
+          onSaved={(meetingId) => {
+            setAnalyzePanelEvent(null);
+            router.push(`/meetings/${meetingId}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function MeetingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <MeetingsPageInner />
+    </Suspense>
+  );
+}

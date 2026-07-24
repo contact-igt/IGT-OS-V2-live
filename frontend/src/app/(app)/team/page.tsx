@@ -25,9 +25,8 @@ export default function TeamPage() {
       // Attendance rows are keyed by the real backend user id, not member.id (the mock id).
       // Break/return-lateness is tracked server-side (attendance_logs.late_return) for audit
       // purposes only — deliberately not surfaced here, just the overall hours worked today.
-      const realUserId = getRealUserId(member.id);
       const todaysSessions = (state.attendanceLogs || [])
-        .filter(a => a.userId === realUserId && a.date === todayStr)
+        .filter(a => a.userId === member.id && a.date === todayStr)
         .sort((a, b) => new Date(a.clockIn!).getTime() - new Date(b.clockIn!).getTime());
       const firstClockIn = todaysSessions[0]?.clockIn;
       const clockInTime = firstClockIn
@@ -52,7 +51,7 @@ export default function TeamPage() {
       }
 
       const inProgressTask = activeTasks.find(t => t.status === 'in_progress');
-      const activeTimer = inProgressTask ? state.activeTimers.find(t => t.taskId === inProgressTask.id && t.userId === realUserId) : undefined;
+      const activeTimer = inProgressTask ? state.activeTimers.find(t => t.taskId === inProgressTask.id && t.userId === member.id) : undefined;
 
       return {
         member, activeTasks, upcomingTasks, doneTasks, timeLeft, avgWorkTime, clockInTime,
@@ -60,7 +59,7 @@ export default function TeamPage() {
         inProgressTask, activeTimerStartedAt: activeTimer?.startedAt,
       };
     })
-  , [state.teamMembers, state.tasks, state.attendanceLogs, state.activeTimers, todayStr, getRealUserId]);
+  , [state.teamMembers, state.tasks, state.attendanceLogs, state.activeTimers, todayStr]);
 
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const isAdmin = currentUser?.role === 'admin' || state.currentUserId === 'u1';

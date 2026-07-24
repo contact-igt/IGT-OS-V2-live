@@ -39,7 +39,7 @@ function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect
 
   useEffect(() => {
     if (!token) { setLoading(false); return; }
-    fetch('/api/gmail-meetings', { headers: { Authorization: `Bearer ${token}` } })
+    fetch('/api/gmail-meetings', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
       .then(r => r.json())
       .then(data => { setRecaps(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
@@ -119,6 +119,22 @@ export default function MeetingNotesTab() {
   const [momCopied,     setMomCopied]     = useState(false);
   const [activeSection, setActiveSection] = useState<'quality' | 'decisions' | 'tasks' | 'mom' | 'insights'>('quality');
   const [analysisPreference, setAnalysisPreference] = useState<'general' | 'sales' | 'project-management' | 'technical'>('general');
+  const [models, setModels] = useState<{ name: string; displayName: string }[]>([]);
+  const [selectedModel, setSelectedModel] = useState('');
+
+  // Model list comes from Gemini's own API (not hardcoded) so it stays correct as Google
+  // renames/deprecates model versions over time.
+  useEffect(() => {
+    fetch('/api/gemini-models')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setModels(data);
+          setSelectedModel(data[0].name);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Handle ?prefill= query param for Calendar deep-linking
   useEffect(() => {
@@ -158,6 +174,7 @@ export default function MeetingNotesTab() {
         body: JSON.stringify({
           transcript,
           analysisPreference,
+          model: selectedModel,
           context: {
             clients: state.clients.map(c => c.name),
             team: state.teamMembers.map(m => m.name),
@@ -192,7 +209,7 @@ export default function MeetingNotesTab() {
         id: crypto.randomUUID(),
         clientId: matchedClient?.id || null,
         processedAt: new Date().toISOString(),
-        transcriptSnippet: transcript.substring(0, 150) + '...',
+        transcriptSnippet: transcript,
         result: data,
         tasksCreated: [],
       };
@@ -203,7 +220,7 @@ export default function MeetingNotesTab() {
     } finally {
       setAnalyzing(false);
     }
-  }, [transcript, state.clients, state.teamMembers, analysisPreference]);
+  }, [transcript, state.clients, state.teamMembers, analysisPreference, selectedModel]);
 
   const handleAudioUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -290,7 +307,7 @@ export default function MeetingNotesTab() {
         id: crypto.randomUUID(),
         clientId: matchedClient?.id || null,
         processedAt: new Date().toISOString(),
-        transcriptSnippet: transcript.slice(0, 200),
+        transcriptSnippet: transcript,
         result,
         tasksCreated: [],
       };
@@ -398,7 +415,7 @@ export default function MeetingNotesTab() {
             AI Meeting Notes
           </h2>
           <p className="text-[14px]" style={{ color: 'var(--c-text-3)' }}>
-            Paste a transcript or import from Gmail · Claude AI processes it into decisions, tasks &amp; MOMs
+            Paste a transcript or import from Gmail · AI processes it into decisions, tasks &amp; MOMs
           </p>
         </div>
 
@@ -438,7 +455,7 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
 
         {/* Action buttons and Settings */}
         <div className="flex flex-col gap-4 mb-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-bold" style={{ color: 'var(--c-text-2)' }}>Lens:</span>
             <select
               value={analysisPreference}
@@ -451,8 +468,23 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
               <option value="project-management">Project Management (Risks & Timeline)</option>
               <option value="technical">Technical (Architecture & Infra)</option>
             </select>
+
+            <span className="text-[13px] font-bold ml-2" style={{ color: 'var(--c-text-2)' }}>Model:</span>
+            <select
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+              disabled={models.length === 0}
+              className="text-[13px] rounded-lg px-3 py-1.5 outline-none font-medium disabled:opacity-50"
+              style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-border)', color: 'var(--c-text)' }}
+            >
+              {models.length === 0 ? (
+                <option>No models available</option>
+              ) : (
+                models.map(m => <option key={m.name} value={m.name}>{m.displayName}</option>)
+              )}
+            </select>
           </div>
-          
+
           <div className="flex gap-3">
             <button
               onClick={handleAnalyze}
@@ -462,7 +494,7 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
               {analyzing ? (
                 <>
                   <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Analyzing with Claude...
+                  Analyzing...
                 </>
               ) : (
                 <>Analyze Meeting</>
@@ -531,7 +563,7 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
               {state.meetingNotes.map(m => (
                 <div 
                   key={m.id} 
-                  onClick={() => router.push(`/ai/meeting/${m.id}`)}
+                  onClick={() => router.push(`/meetings/${m.id}`)}
                   className="rounded-xl p-4 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex items-center justify-between group"
                   style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}
                 >

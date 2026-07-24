@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { requireAuth } from '../middleware/auth';
 import { postMeetingSummaryAlert } from '../lib/googleChat';
+import { postMeetingSummaryAlertDiscord } from '../lib/discord';
 
 const router = Router();
 
@@ -54,23 +55,38 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
-  const { title, clientId, transcriptSnippet, analysisPreference, result } = req.body;
+  const { title, clientId, transcriptSnippet, analysisPreference, result, googleEventId } = req.body;
   if (!title || !result) {
     return res.status(400).json({ error: 'title and result are required' });
   }
 
   try {
-    const insertResult = await pool.query(
-      `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result]
-    );
+    // When scoped to a calendar event, upsert on google_event_id so re-analyzing the same
+    // event updates its existing row instead of creating a duplicate card.
+    const insertResult = googleEventId
+      ? await pool.query(
+          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result, google_event_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (google_event_id) DO UPDATE SET
+             title = EXCLUDED.title, client_id = EXCLUDED.client_id,
+             transcript_snippet = EXCLUDED.transcript_snippet, analysis_preference = EXCLUDED.analysis_preference,
+             result = EXCLUDED.result
+           RETURNING *`,
+          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result, googleEventId]
+        )
+      : await pool.query(
+          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result]
+        );
 
     // Fire-and-forget, same non-blocking convention attendance.ts uses for its Chat alert —
     // a slow/down webhook should never delay the API response.
     postMeetingSummaryAlert({ title, summary: result?.summary, actionItems: result?.actionItems })
       .catch(err => console.error('Failed to post meeting summary to Google Chat:', err));
+    postMeetingSummaryAlertDiscord({ title, summary: result?.summary, actionItems: result?.actionItems })
+      .catch(err => console.error('Failed to post meeting summary to Discord:', err));
 
     res.status(201).json(serializeMeeting(insertResult.rows[0]));
   } catch (error) {

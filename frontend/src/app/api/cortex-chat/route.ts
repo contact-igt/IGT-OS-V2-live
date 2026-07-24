@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSecret } from '@/lib/serverSecrets';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,10 +10,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'systemPrompt and messages are required' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = await getServerSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY);
     if (!apiKey || apiKey.includes('REPLACE_WITH_YOUR_KEY')) {
       return NextResponse.json({
-        error: 'OpenAI API key not configured. Add OPENAI_API_KEY to .env.local and restart the dev server.',
+        error: 'OpenAI API key not configured. Add it under Credentials → API Keys.',
       }, { status: 500 });
     }
 

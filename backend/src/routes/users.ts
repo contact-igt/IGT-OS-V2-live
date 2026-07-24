@@ -13,7 +13,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, name, email, role, department, avatar_url, must_change_password 
+      `SELECT id, name, email, role, department, avatar_url, color, must_change_password 
        FROM public.users 
        ORDER BY name ASC`
     );
@@ -33,7 +33,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.github_username, u.must_change_password,
+      `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.color, u.github_username, u.must_change_password,
               (SELECT COALESCE(array_agg(page_path), ARRAY[]::text[]) FROM public.page_access WHERE user_id = u.id) AS granted_pages
        FROM public.users u WHERE u.id = $1`,
       [userId]
@@ -126,6 +126,31 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
       return res.status(409).json({ error: 'A user with that email already exists' });
     }
     console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /:id — update user details (color, role, department) in database
+router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  const { id } = req.params;
+  const { color, role, department } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE public.users
+       SET color = COALESCE($1, color),
+           role = COALESCE($2, role),
+           department = COALESCE($3, department)
+       WHERE id = $4
+       RETURNING id, name, email, role, department, avatar_url, color, must_change_password`,
+      [color || null, role || null, department || null, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    console.error('Error updating user:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

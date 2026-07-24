@@ -3,7 +3,7 @@
 import { useApp } from '@/contexts/AppContext';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { TeamMember, RoleTag, NAV_SECTIONS } from '@/lib/data';
+import { TeamMember, RoleTag, NAV_SECTIONS, parseHexColor } from '@/lib/data';
 
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
@@ -191,8 +191,27 @@ export default function AdminPage() {
     updateTeamMember(id, { role: newRole });
   };
 
-  const handleColorChange = (id: string, newColor: string) => {
+  const handleColorChange = async (id: string, newColor: string) => {
     updateTeamMember(id, { color: newColor });
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const member = state.teamMembers.find(m => m.id === id);
+      if (member?.email) {
+        const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+        const roster = await rosterRes.json();
+        const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
+        if (realUser) {
+          await fetch(`${baseUrl}/api/users/${realUser.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ color: newColor }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync color to database:', err);
+    }
   };
 
   const togglePermission = (member: TeamMember, permId: string) => {
@@ -346,11 +365,11 @@ export default function AdminPage() {
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
-                        value={member.color || '#3B82F6'}
+                        value={parseHexColor(member.color)}
                         onChange={(e) => handleColorChange(member.id, e.target.value)}
                         className="w-8 h-8 rounded cursor-pointer border-0 p-0 bg-transparent"
                       />
-                      <span className="text-[12px] font-mono text-text-2">{member.color || '#3B82F6'}</span>
+                      <span className="text-[12px] font-mono text-text-2">{parseHexColor(member.color)}</span>
                     </div>
                   </td>
                   <td className="p-4">

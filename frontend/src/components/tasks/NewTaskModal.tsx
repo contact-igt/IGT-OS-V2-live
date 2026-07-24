@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/contexts/AppContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
+import DateTimePicker from '@/components/ui/DateTimePicker';
 
 import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS } from '@/lib/data';
 
@@ -93,6 +95,7 @@ function ClientPicker({ value, onChange }: { value: string; onChange: (id: strin
 
 export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
   const { createTask, state, requestApproval, notifyUser } = useApp();
+  const confirm = useConfirm();
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const scope = getAssignmentScope(currentUser, state.teamMembers);
 
@@ -378,14 +381,25 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     }
   };
 
+  const isFormDirty = Boolean(form.title.trim() || form.description.trim() || batchTitles.trim() || form.driveLink.trim());
+  const handleBackdropClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isFormDirty) {
+      onClose();
+    } else if (await confirm('Discard unsaved task creation?', { confirmLabel: 'Discard', danger: true })) {
+      onClose();
+    }
+  };
+
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[120]" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }} onClick={onClose} />
+      <div className="fixed inset-0 z-[120]" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }} onClick={handleBackdropClick} />
 
       {/* Modal */}
       <div
         className="fixed z-[121] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full flex flex-col"
+        onClick={e => e.stopPropagation()}
         style={{
           maxWidth: 580,
           maxHeight: '90vh',
@@ -603,13 +617,10 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>
                 Deadline <span className="text-red-500">*</span>
               </label>
-              <input 
-                type="datetime-local" 
-                className="input-base" 
-                value={form.deadline} 
-                onChange={e => set('deadline', e.target.value)} 
-                onClick={(e: any) => { try { e.target.showPicker(); } catch (err) {} }}
-                onFocus={(e: any) => { try { e.target.showPicker(); } catch (err) {} }}
+              <DateTimePicker
+                value={form.deadline}
+                onChange={v => set('deadline', v)}
+                error={!!errors.deadline}
               />
               {errors.deadline && <p className="text-[11px] mt-1 text-red-500">{errors.deadline}</p>}
             </div>

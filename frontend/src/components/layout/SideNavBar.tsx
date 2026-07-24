@@ -7,14 +7,14 @@ import {
   LayoutDashboard, User, CheckSquare, CalendarDays, Briefcase,
   Users, Layers, TrendingUp, Key, History, Sparkles, Shield,
   Menu, PanelLeftClose, Zap, LogOut, Terminal, Brush, Film, LineChart,
-  List, Calendar, BarChart, FileBarChart, Megaphone, Wallet, Star
+  List, Calendar, BarChart, FileBarChart, Megaphone, Wallet, Star, MessageSquare
 } from 'lucide-react';
 import { NAV_SECTIONS } from '@/lib/data';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
-  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/clients', '/my-profile'] },
+  { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/meetings', '/clients', '/my-profile'] },
   { title: 'Agency Ops',  items: ['/team', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];
@@ -27,6 +27,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   key: Key, history_edu: History, auto_awesome: Sparkles,
   admin_panel_settings: Shield, campaign: Megaphone,
   account_balance: Wallet, point_of_sale: TrendingUp, stars: Star,
+  forum: MessageSquare,
 };
 
 function SideNavBarInner() {
@@ -133,7 +134,7 @@ function SideNavBarInner() {
               if (item.section === 'dashboard') return false; // Hide completely
 
               // General Section Filtering for team
-              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/my-profile', '/team'];
+              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/meetings', '/my-profile', '/team'];
               if (!allowedForTeam.includes(item.href) && !isGranted) return false;
 
               return true;

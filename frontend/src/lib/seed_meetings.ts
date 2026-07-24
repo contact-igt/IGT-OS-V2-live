@@ -7,6 +7,12 @@
 
 // ── INTERFACES ──────────────────────────────────────────────
 
+export interface AttendanceBreak {
+  id: string;
+  breakStart: string;
+  breakEnd?: string | null;
+}
+
 export interface AttendanceLog {
   id?: string;
   userId: string;
@@ -14,8 +20,10 @@ export interface AttendanceLog {
   clockIn: string | null; // HH:MM IST
   clockOut: string | null;
   totalMinutes: number;
-  status?: 'present' | 'absent' | 'half_day' | 'late' | 'leave' | 'holiday' | 'weekend';
+  status?: 'present' | 'absent' | 'half_day' | 'late' | 'leave' | 'holiday' | 'weekend' | 'auto_closed';
   lateReturn?: boolean;   // true if this session's clock-in came >60min after the previous session's clock-out
+  breaks?: AttendanceBreak[];
+  isOnBreak?: boolean;
 }
 
 export interface AdAccountBalance {
@@ -182,20 +190,20 @@ export interface SocialAccount {
 // ── SEED: ATTENDANCE (today = Jul 12 2026) ──────────────────
 
 export const ATTENDANCE_TODAY: AttendanceLog[] = [
-  { userId: 'u-sushil',   date: '2026-07-12', clockIn: '08:30', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-anitha',   date: '2026-07-12', clockIn: '09:15', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-abhilash', date: '2026-07-12', clockIn: '09:00', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-aiswarya', date: '2026-07-12', clockIn: '09:30', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-anju',     date: '2026-07-12', clockIn: '09:45', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-rutuja',   date: '2026-07-12', clockIn: '09:20', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-karan',    date: '2026-07-12', clockIn: '09:40', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-basheer',  date: '2026-07-12', clockIn: '09:24', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-pranesh',  date: '2026-07-12', clockIn: '10:05', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-iyyappan', date: '2026-07-12', clockIn: '09:10', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-naveen',   date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 }, // not clocked in
-  { userId: 'u-veeravel', date: '2026-07-12', clockIn: '09:35', clockOut: null, totalMinutes: 0 },
-  { userId: 'u-tania',    date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 }, // not clocked in
-  { userId: 'u-jashwanth', date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 }, // exited
+  { userId: '101', date: '2026-07-12', clockIn: '08:30', clockOut: null, totalMinutes: 0 },
+  { userId: '102', date: '2026-07-12', clockIn: '09:15', clockOut: null, totalMinutes: 0 },
+  { userId: '103', date: '2026-07-12', clockIn: '09:00', clockOut: null, totalMinutes: 0 },
+  { userId: '111', date: '2026-07-12', clockIn: '09:30', clockOut: null, totalMinutes: 0 },
+  { userId: '112', date: '2026-07-12', clockIn: '09:45', clockOut: null, totalMinutes: 0 },
+  { userId: '113', date: '2026-07-12', clockIn: '09:20', clockOut: null, totalMinutes: 0 },
+  { userId: '104', date: '2026-07-12', clockIn: '09:40', clockOut: null, totalMinutes: 0 },
+  { userId: '109', date: '2026-07-12', clockIn: '09:24', clockOut: null, totalMinutes: 0 },
+  { userId: '110', date: '2026-07-12', clockIn: '10:05', clockOut: null, totalMinutes: 0 },
+  { userId: '106', date: '2026-07-12', clockIn: '09:10', clockOut: null, totalMinutes: 0 },
+  { userId: '105', date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 },
+  { userId: '107', date: '2026-07-12', clockIn: '09:35', clockOut: null, totalMinutes: 0 },
+  { userId: '114', date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 },
+  { userId: '108', date: '2026-07-12', clockIn: null, clockOut: null, totalMinutes: 0 },
 ];
 
 // ── SEED: AD ACCOUNT BALANCES ───────────────────────────────

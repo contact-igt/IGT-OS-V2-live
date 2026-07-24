@@ -19,8 +19,12 @@ export async function fetchGoogleCalendarEvents(token: string | null, timeMin: s
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
     const params = new URLSearchParams({ start: timeMin, end: timeMax });
 
+    // no-store: without this, the browser can serve a cached response for this exact
+    // URL+date-range from a PREVIOUS user's session on the same tab/device, silently
+    // showing one employee's calendar under another's login.
     const res = await fetch(`${baseUrl}/api/google/calendar/events?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
     });
 
     if (res.status === 404) {

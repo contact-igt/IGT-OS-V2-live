@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react';
 import { X, PlayCircle, StopCircle, PlusCircle } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calculateTaskProgress, canApproveOrCompleteTask } from '@/lib/data';
 import LiveTimer from '@/components/ui/LiveTimer';
 import EditTaskModal from '@/components/tasks/EditTaskModal';
+import DateTimePicker from '@/components/ui/DateTimePicker';
 
 interface Props {
   taskId: string | null;
@@ -18,6 +20,7 @@ const STATUSES: Task['status'][] = ['todo', 'in_progress', 'rework', 'in_review'
 
 export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const { state, setTaskStatus, updateTask, deleteTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser } = useApp();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<'details' | 'timelog' | 'audit'>('details');
   const [manualHours, setManualHours] = useState('');
   const [manualMins, setManualMins] = useState('');
@@ -100,6 +103,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
       <div
         className="fixed top-0 right-0 h-full z-[101] flex flex-col overflow-hidden bg-app-surface border-l border-app-border shadow-[var(--shadow-drawer)]"
         style={{ width: 'min(520px, 100vw)' }}
+        onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start gap-3 p-5 border-b border-app-border">
@@ -155,8 +159,8 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
               )}
               {canDelete && (
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Delete "${task.title}"? This cannot be undone.`)) {
+                  onClick={async () => {
+                    if (await confirm(`Delete "${task.title}"? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
                       dispatch({ type: 'DELETE_TASK', payload: { id: task.id } });
                       onClose();
                     }
@@ -274,11 +278,10 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1 text-app-text3">Deadline</label>
-                  <input
-                    type="datetime-local"
-                    value={task.deadline ? new Date(new Date(task.deadline).getTime() - new Date(task.deadline).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
-                    onChange={e => updateTask(task.id, { deadline: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                    className={`input-base text-[13px] py-1 px-2 ${overdue ? 'text-red-500' : 'text-app-text2'}`}
+                  <DateTimePicker
+                    value={task.deadline || ''}
+                    onChange={val => updateTask(task.id, { deadline: val ? new Date(val).toISOString() : null })}
+                    error={overdue}
                   />
                 </div>
                 <div>

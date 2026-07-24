@@ -9,7 +9,7 @@ import { getDailyQuote } from '@/lib/motivationalQuotes';
 import { Play, Square, CheckCircle, Bell, User, Clock, ChevronRight } from 'lucide-react';
 
 export default function MyWorkspacePage() {
-  const { state, setTaskStatus, clockIn, clockOut } = useApp();
+  const { state, setTaskStatus, clockIn, clockOut, startBreak, endBreak, getRealUserId } = useApp();
   const { user: authUser } = useAuth();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
@@ -69,13 +69,14 @@ export default function MyWorkspacePage() {
     <div className="flex flex-col h-full gap-6 pb-20 md:pb-10 max-w-7xl mx-auto">
       
       {/* A1 Header Bar */}
-      <div className="flex items-center justify-between bg-[var(--c-surface)] rounded-xl p-4 border border-[var(--c-border)] sticky top-0 z-20 shadow-sm">
+      {/* Header Greeting */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[var(--c-surface)] p-6 rounded-2xl border border-[var(--c-border)] shadow-sm">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold font-syne text-[var(--c-text)] flex items-center flex-wrap gap-2">
-            <span>{hour < 12 ? '☀️' : hour < 17 ? '🌤️' : '🌙'} {greeting}, {(currentUser?.name || 'Team Member')}.</span>
-            {(currentUser?.title || (currentUser as any)?.roleTag || (currentUser as any)?.role) && (
-              <span className="text-[10px] md:text-xs font-bold px-2 py-0.5 rounded border border-[var(--c-primary)]/30 bg-[var(--c-primary)]/10 text-[var(--c-primary)] uppercase tracking-wider">
-                {currentUser?.title || (currentUser as any)?.roleTag?.replace(/_/g, ' ') || (currentUser as any)?.role}
+          <h2 className="font-syne font-bold text-2xl text-[var(--c-text)] flex items-center gap-2">
+            Good day, {firstName}! 👋
+            {currentUser?.title && (
+              <span className="text-xs font-normal text-[var(--c-text-3)] bg-[var(--c-surface-3)] px-2.5 py-1 rounded-full border border-[var(--c-border)]">
+                {currentUser.title}
               </span>
             )}
           </h2>
@@ -88,28 +89,45 @@ export default function MyWorkspacePage() {
           {(() => {
             if (!currentUser) return null;
             const todayStr = new Date().toISOString().split('T')[0];
-            const todaysLogs = state.attendanceLogs
-              .filter(l => l.userId === currentUser.id && l.date === todayStr)
+            const userId = currentUser.id || authUser?.id || '';
+
+            const todaysLogs = (state.attendanceLogs || [])
+              .filter(l => (l.userId === userId || l.userId === authUser?.id) && l.date === todayStr)
               .sort((a, b) => new Date(b.clockIn!).getTime() - new Date(a.clockIn!).getTime());
             const openLog = todaysLogs.find(l => !l.clockOut);
 
             if (openLog) {
+              const isOnBreak = openLog.isOnBreak || (openLog.breaks && openLog.breaks.some((b: any) => !b.breakEnd));
               return (
-                <button
-                  onClick={() => clockOut(currentUser.id, todayStr, new Date().toISOString())}
-                  className="hidden md:flex bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold text-sm px-4 py-2 rounded-lg border border-amber-500/20 transition items-center gap-2"
-                >
-                  <Clock size={16} /> Clock out
-                </button>
+                <div className="flex items-center gap-2">
+                  {isOnBreak ? (
+                    <button
+                      onClick={() => endBreak(userId, todayStr)}
+                      className="hidden md:flex bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 font-bold text-sm px-4 py-2 rounded-lg border border-emerald-500/20 transition items-center gap-2"
+                    >
+                      <Play size={16} /> Resume Work
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => startBreak(userId, todayStr)}
+                      className="hidden md:flex bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold text-sm px-4 py-2 rounded-lg border border-amber-500/20 transition items-center gap-2"
+                    >
+                      <Clock size={16} /> Take Break
+                    </button>
+                  )}
+                  <button
+                    onClick={() => clockOut(userId, todayStr, new Date().toISOString())}
+                    className="hidden md:flex bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-sm px-4 py-2 rounded-lg border border-red-500/20 transition items-center gap-2"
+                  >
+                    <Square size={16} /> Clock out
+                  </button>
+                </div>
               );
             }
 
-            // No open session — always offer Clock In (whether it's the first session of the
-            // day, or resuming after a break). The 1h break buffer and any late return are
-            // still tracked server-side (attendance_logs.late_return) — just not surfaced here.
             return (
               <button
-                onClick={() => clockIn(currentUser.id, todayStr, new Date().toISOString(), new Date().getHours() >= 10)}
+                onClick={() => clockIn(userId, todayStr, new Date().toISOString(), new Date().getHours() >= 10)}
                 className="hidden md:flex bg-[var(--c-primary)]/10 hover:bg-[var(--c-primary)]/20 text-[var(--c-primary)] font-bold text-sm px-4 py-2 rounded-lg border border-[var(--c-primary)]/20 transition items-center gap-2"
               >
                 <Clock size={16} /> Clock in
