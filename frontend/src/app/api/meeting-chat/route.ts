@@ -1,5 +1,6 @@
 import { Anthropic } from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSecret } from '@/lib/serverSecrets';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,10 +10,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = await getServerSecret('ANTHROPIC_API_KEY', process.env.ANTHROPIC_API_KEY);
     if (!apiKey || apiKey.includes('REPLACE_WITH_YOUR_KEY')) {
       return NextResponse.json({
-        error: 'Anthropic API key not configured. Add ANTHROPIC_API_KEY to .env.local and restart the dev server.',
+        error: 'Anthropic API key not configured. Add it under Credentials → API Keys.',
       }, { status: 500 });
     }
 

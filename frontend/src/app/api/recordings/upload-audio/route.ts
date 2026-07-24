@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import OpenAI from 'openai';
-import os from 'os';
+import { getServerSecret } from '@/lib/serverSecrets';
+
+const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,52 +12,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY is not configured in .env.local' }, { status: 500 });
+    const apiKey = await getServerSecret('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
+    if (!apiKey) {
+      return NextResponse.json({ error: 'Gemini API key not configured. Add it under Credentials → API Keys.' }, { status: 500 });
     }
 
-    const openai = new OpenAI({ apiKey: openaiKey });
-
-    // Write file to a temporary location to pass to OpenAI (must be a file stream)
+    // Gemini accepts audio as inline base64 data directly in the request body — no temp
+    // file/stream needed the way Whisper's SDK required.
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
-    // Create a temporary file path
-    const tmpDir = os.tmpdir();
-    const filePath = path.join(tmpDir, `upload-${Date.now()}-${file.name}`);
-    fs.writeFileSync(filePath, buffer);
+    const base64Audio = Buffer.from(arrayBuffer).toString('base64');
+    const mimeType = file.type || 'audio/mpeg';
 
-    try {
-      // Create a read stream from the temp file
-      const stream = fs.createReadStream(filePath);
-      
-      const transcription = await openai.audio.transcriptions.create({
-        file: stream,
-        model: 'whisper-1',
-        response_format: 'verbose_json',
-        timestamp_granularities: ['segment'],
-      });
-
-      // Cleanup temp file
-      fs.unlinkSync(filePath);
-
-      let text = transcription.text;
-      if (!text && (transcription as any).segments) {
-         text = (transcription as any).segments.map((s: any) => s.text).join(' ');
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: 'Transcribe this audio recording verbatim. Return only the raw transcript text — no timestamps, no speaker labels, no commentary, no markdown.' },
+              { inlineData: { mimeType, data: base64Audio } },
+            ],
+          }],
+          generationConfig: { temperature: 0 },
+        }),
       }
+    );
 
-      return NextResponse.json({ transcript: text });
+    const data: any = await geminiRes.json();
 
-    } catch (apiError: any) {
-      // Cleanup temp file if API fails
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-      console.error('Whisper API Error:', apiError);
-      return NextResponse.json({ error: 'Transcription failed: ' + apiError.message }, { status: 500 });
+    if (!geminiRes.ok) {
+      console.error('Gemini transcription error:', data);
+      return NextResponse.json({ error: data.error?.message || 'Transcription failed' }, { status: 500 });
     }
 
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return NextResponse.json({ transcript: text.trim() });
   } catch (err: any) {
     console.error('Upload handler error:', err);
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });

@@ -239,6 +239,12 @@ export interface LeaveBalance {
   notes?: string;
 }
 
+export interface AttendanceBreak {
+  id: string;
+  breakStart: string;
+  breakEnd?: string | null;
+}
+
 export interface AttendanceLog {
   id: string;
   userId: string;
@@ -246,12 +252,15 @@ export interface AttendanceLog {
   clockIn: string | null; // ISO timestamp
   clockOut: string | null; // ISO timestamp
   totalMinutes: number;
-  status: 'present' | 'late' | 'half_day' | 'absent' | 'leave' | 'holiday' | 'weekend';
+  status: 'present' | 'late' | 'half_day' | 'absent' | 'leave' | 'holiday' | 'weekend' | 'auto_closed';
   lateFlag: boolean;
   source: 'web' | 'desktop_app' | 'manual_correction' | 'system';
   autoClosed: boolean;
   correctionNote?: string;
+  breaks?: AttendanceBreak[];
+  isOnBreak?: boolean;
 }
+
 
 export interface LeaveType {
   code: string;

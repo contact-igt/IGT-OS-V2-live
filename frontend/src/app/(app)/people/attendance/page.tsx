@@ -43,7 +43,7 @@ export default function AttendancePage() {
 
       for (const day of days) {
         const daysLogs = state.attendanceLogs
-          .filter(l => l.userId === realUserId && l.date === day)
+          .filter(l => l.userId === member.id && l.date === day)
           .sort((a, b) => new Date(a.clockIn!).getTime() - new Date(b.clockIn!).getTime());
         const log = daysLogs[0];
 

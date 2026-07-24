@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/contexts/AppContext';
 import { Copy, ExternalLink, Search, Share2, ShieldCheck, X } from 'lucide-react';
 import { ClientCredential } from '@/lib/data';
+import ApiKeysTab from '@/components/credentials/ApiKeysTab';
 
 export default function CredentialsPage() {
   const router = useRouter();
   const { state } = useApp();
   const [search, setSearch] = useState('');
-  
+  const [activeTab, setActiveTab] = useState<'clients' | 'api-keys'>('clients');
+
   // Selection state
   const [selectedCreds, setSelectedCreds] = useState<string[]>([]);
   
@@ -79,10 +81,32 @@ export default function CredentialsPage() {
         </div>
       </div>
 
+      {canShare && (
+        <div className="mb-5 flex gap-1 p-1 rounded-xl bg-surface-2 border border-border w-fit flex-shrink-0">
+          {(['clients', 'api-keys'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg text-[13px] font-bold transition-all ${
+                activeTab === tab ? 'bg-surface text-text shadow-sm' : 'text-text-2 hover:text-text'
+              }`}
+            >
+              {tab === 'clients' ? 'Client Credentials' : 'API Keys'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'api-keys' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+          <ApiKeysTab />
+        </div>
+      ) : (
+      <>
       <div className="mb-4 flex gap-4 flex-shrink-0">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-          <input 
+          <input
             type="text"
             placeholder="Search by client, platform, or username..."
             value={search}
@@ -169,6 +193,8 @@ export default function CredentialsPage() {
           })}
         </div>
       </div>
+      </>
+      )}
 
       {/* Share Modal */}
       {isShareModalOpen && (

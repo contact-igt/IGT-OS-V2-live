@@ -4,6 +4,7 @@ import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AppProvider } from '@/contexts/AppContext';
+import { ConfirmProvider } from '@/contexts/ConfirmContext';
 import CommandPalette from '@/components/layout/CommandPalette';
 
 
@@ -43,10 +44,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="h-full antialiased" style={{ background: 'var(--c-bg)', color: 'var(--c-text)' }}>
         <AuthProvider>
           <ThemeProvider>
-            <AppProvider>
-              {children}
-              <CommandPalette />
-            </AppProvider>
+            <ConfirmProvider>
+              <AppProvider>
+                {children}
+                <CommandPalette />
+              </AppProvider>
+            </ConfirmProvider>
           </ThemeProvider>
         </AuthProvider>
       </body>

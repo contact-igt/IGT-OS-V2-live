@@ -3,6 +3,7 @@
 
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { useConfirm } from './ConfirmContext';
 import {
   INITIAL_TASKS_FULL, SEED_TIME_ENTRIES_FULL, MEETING_NOTES_SEED,
   INITIAL_AUDIT_LOG_FULL,
@@ -14,7 +15,7 @@ import {
 import {
   Task, Client, TeamMember, AuditEntry, TaskApproval, ClientCredential, SocialMetric, Notification, TimeEntry,
   INITIAL_TASKS, CLIENTS, TEAM_MEMBERS, INITIAL_AUDIT_LOG, CREDENTIALS, SOCIAL_METRICS, SEED_TIME_ENTRIES,
-  isOverdue, isDueToday, formatMinutes, canApproveOrCompleteTask,
+  isOverdue, isDueToday, formatMinutes, canApproveOrCompleteTask, parseHexColor,
   type AttendanceLog, type AdAccountBalance, type GitHubDevActivity, type GitHubRepo,
   type Lead, type CampaignLog, type MeetingEvent,
   type PaymentRecord, type Campaign, type CampaignWeeklyLog2,
@@ -115,7 +116,9 @@ type AppAction =
   | { type: 'SET_GOOGLE_EVENTS'; payload: { events: any[], connected?: boolean } }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'CLOCK_IN'; payload: { userId: string; date: string; time: string; isLate?: boolean } }
-  | { type: 'CLOCK_OUT'; payload: { userId: string; date: string; time: string } };
+  | { type: 'CLOCK_OUT'; payload: { userId: string; date: string; time: string } }
+  | { type: 'START_BREAK'; payload: { userId: string; date: string; time: string } }
+  | { type: 'END_BREAK'; payload: { userId: string; date: string; time: string } };
 
 // ─────────────────────────────────────────────────────────────
 // INITIAL STATE
@@ -554,6 +557,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'ADD_MEETING_NOTE': {
+      // Re-analyzing the same calendar event upserts the same backend row (same id) — replace
+      // the existing entry in place instead of prepending a duplicate.
+      const existingIdx = state.meetingNotes.findIndex((n: any) => n.id === action.payload.id);
+      if (existingIdx !== -1) {
+        const updated = [...state.meetingNotes];
+        updated[existingIdx] = action.payload;
+        return { ...state, meetingNotes: updated };
+      }
       return { ...state, meetingNotes: [action.payload, ...state.meetingNotes] };
     }
 
@@ -571,11 +582,22 @@ function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'UPDATE_TEAM_MEMBER': {
+      const updatedMembers = state.teamMembers.map(m =>
+        m.id === action.payload.id ? { ...m, ...action.payload.updates } : m
+      );
+      if (typeof window !== 'undefined' && action.payload.updates.color) {
+        try {
+          const stored = localStorage.getItem('igt_team_member_colors');
+          const map = stored ? JSON.parse(stored) : {};
+          map[action.payload.id] = action.payload.updates.color;
+          const target = state.teamMembers.find(m => m.id === action.payload.id);
+          if (target?.email) map[target.email.toLowerCase()] = action.payload.updates.color;
+          localStorage.setItem('igt_team_member_colors', JSON.stringify(map));
+        } catch (e) {}
+      }
       return {
         ...state,
-        teamMembers: state.teamMembers.map(m =>
-          m.id === action.payload.id ? { ...m, ...action.payload.updates } : m
-        ),
+        teamMembers: updatedMembers,
       };
     }
 
@@ -869,7 +891,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case 'CLOCK_OUT': {
       const { userId, date, time } = action.payload;
       const actor = getActorName(state, userId);
-      const newAttendanceLogs = state.attendanceLogs.map(l => (l.userId === userId && l.date === date && !l.clockOut) ? { ...l, clockOut: time } : l);
+      const newAttendanceLogs = state.attendanceLogs.map(l => {
+        if (l.userId === userId && l.date === date && !l.clockOut) {
+          const breaks = (l.breaks || []).map(b => !b.breakEnd ? { ...b, breakEnd: time } : b);
+          return { ...l, clockOut: time, breaks, isOnBreak: false };
+        }
+        return l;
+      });
 
       const h = new Date(time).getHours();
       let newNotifications = [...state.notifications];
@@ -882,6 +910,37 @@ function appReducer(state: AppState, action: AppAction): AppState {
         attendanceLogs: newAttendanceLogs,
         notifications: newNotifications,
         auditLog: addAudit(state.auditLog, { actor, actorId: userId, action: 'clock_out', entity: 'Attendance', entityRef: date, clientName: '—', meta: 'User clocked out' })
+      };
+    }
+
+    case 'START_BREAK': {
+      const { userId, date, time } = action.payload;
+      const newAttendanceLogs = state.attendanceLogs.map(l => {
+        if (l.userId === userId && l.date === date && !l.clockOut) {
+          const breaks = l.breaks ? [...l.breaks] : [];
+          breaks.push({ id: `break-${Date.now()}`, breakStart: time, breakEnd: null });
+          return { ...l, breaks, isOnBreak: true };
+        }
+        return l;
+      });
+      return {
+        ...state,
+        attendanceLogs: newAttendanceLogs
+      };
+    }
+
+    case 'END_BREAK': {
+      const { userId, date, time } = action.payload;
+      const newAttendanceLogs = state.attendanceLogs.map(l => {
+        if (l.userId === userId && l.date === date && !l.clockOut) {
+          const breaks = (l.breaks || []).map(b => !b.breakEnd ? { ...b, breakEnd: time } : b);
+          return { ...l, breaks, isOnBreak: false };
+        }
+        return l;
+      });
+      return {
+        ...state,
+        attendanceLogs: newAttendanceLogs
       };
     }
 
@@ -937,6 +996,8 @@ interface AppContextValue {
   reloadData: () => void;
   clockIn: (userId: string, date: string, time: string, isLate?: boolean) => void;
   clockOut: (userId: string, date: string, time: string) => void;
+  startBreak: (userId: string, date: string) => void;
+  endBreak: (userId: string, date: string) => void;
   // Attendance rows are keyed by the real backend user id, not the mock id most components
   // use everywhere else — this looks up a mock team member's real id for matching against them.
   getRealUserId: (mockId: string) => string | undefined;
@@ -949,6 +1010,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 // ─────────────────────────────────────────────────────────────
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { token, logout, user } = useAuth();
+  const confirm = useConfirm();
 
   const [state, dispatch] = useReducer(appReducer, initialState);
   const prevUserRef = useRef<string | undefined>(user?.id);
@@ -987,67 +1049,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(err => console.error('Error syncing clock-in:', err));
       }
-    } else if (!user?.id && prevUserRef.current) {
-      dispatch({ type: 'CLOCK_OUT', payload: { userId: prevUserRef.current, date: todayStr, time: nowStr } });
     }
     prevUserRef.current = user?.id;
 
     const handleBeforeUnload = () => {
-      // Read the JWT directly (not the possibly-stale `user` closure) so a logout that
-      // fires this same handler via its own navigation doesn't resurrect cleared state.
       const jwt = localStorage.getItem('invictus_jwt');
       if (user?.id && jwt) {
         const today = new Date().toISOString().split('T')[0];
-        const nowStr = new Date().toISOString();
-        const currentLog = stateRef.current.attendanceLogs.find(a => a.userId === user.id && a.date === today && !a.clockOut);
+        let updatedState = { ...stateRef.current };
 
-        if (currentLog && !currentLog.clockOut) {
-          // keepalive lets the browser finish this request after the page starts unloading —
-          // a normal awaited fetch is unreliable inside beforeunload.
-          const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-          fetch(`${baseUrl}/api/attendance/clock-out`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${jwt}` },
-            keepalive: true,
-          }).catch(() => {});
-
-          let updatedState = { ...stateRef.current };
-
-          // 1. Clock out
-          updatedState.attendanceLogs = updatedState.attendanceLogs.map(a =>
-            (a.userId === user.id && a.date === today && !a.clockOut) ? { ...a, clockOut: nowStr } : a
-          );
+        // Save active task timers on unload (do NOT clock out attendance)
+        const userTimers = updatedState.activeTimers.filter(t => t.userId === user.id);
+        if (userTimers.length > 0) {
+          const nowMs = Date.now();
+          let newTasks = [...updatedState.tasks];
+          let newEntries = [...updatedState.timeEntries];
           
-          // 2. Stop any active timers
-          const userTimers = updatedState.activeTimers.filter(t => t.userId === user.id);
-          if (userTimers.length > 0) {
-            const nowMs = Date.now();
-            let newTasks = [...updatedState.tasks];
-            let newEntries = [...updatedState.timeEntries];
-            
-            userTimers.forEach(timer => {
-               const elapsedMin = Math.floor((nowMs - timer.startedAt) / 60000);
-               const totalMin = timer.accumulated + elapsedMin;
-               if (totalMin > 0) {
-                 newTasks = newTasks.map(t => t.id === timer.taskId ? { ...t, loggedMinutes: (t.loggedMinutes || 0) + totalMin } : t);
-                 newEntries.push({
-                   id: 'te-' + Date.now() + Math.random(),
-                   taskId: timer.taskId,
-                   userId: user.id,
-                   minutes: totalMin,
-                   date: today,
-                   note: 'Auto-logged on tab close'
-                 });
-               }
-            });
-            
-            updatedState.tasks = newTasks;
-            updatedState.timeEntries = newEntries;
-            updatedState.activeTimers = updatedState.activeTimers.filter(t => t.userId !== user.id);
-          }
+          userTimers.forEach(timer => {
+             const elapsedMin = Math.floor((nowMs - timer.startedAt) / 60000);
+             const totalMin = timer.accumulated + elapsedMin;
+             if (totalMin > 0) {
+               newTasks = newTasks.map(t => t.id === timer.taskId ? { ...t, loggedMinutes: (t.loggedMinutes || 0) + totalMin } : t);
+               newEntries.push({
+                 id: 'te-' + Date.now() + Math.random(),
+                 taskId: timer.taskId,
+                 userId: user.id,
+                 minutes: totalMin,
+                 date: today,
+                 note: 'Auto-logged on tab close'
+               });
+             }
+          });
           
-          localStorage.setItem('invictus_app_state_v2', JSON.stringify(updatedState));
+          updatedState.tasks = newTasks;
+          updatedState.timeEntries = newEntries;
+          updatedState.activeTimers = updatedState.activeTimers.filter(t => t.userId !== user.id);
         }
+        
+        localStorage.setItem('invictus_app_state_v2', JSON.stringify(updatedState));
       }
     };
 
@@ -1087,29 +1126,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbClients = clientsRes.ok ? await clientsRes.json() : [];
       const dbTasks = tasksRes.ok ? await tasksRes.json() : [];
       const dbNotifications = notificationsRes.ok ? await notificationsRes.json() : [];
-      const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
-      const dbGithub = githubRes.ok ? await githubRes.json() : { repos: [], commits: [], pullRequests: [] };
-      const dbSocial = socialRes.ok ? await socialRes.json() : { accounts: [] };
-      const dbAuditLog: AuditEntry[] = auditLogRes.ok ? await auditLogRes.json() : [];
-      // Anchor the "already synced" watermark before hydrating, so the sync effect below
-      // doesn't immediately re-POST every entry we just loaded back to the server.
-      lastSyncedAuditIdRef.current = dbAuditLog[0]?.id ?? null;
-      const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
-      const dbMeetings = meetingsRes.ok ? await meetingsRes.json() : [];
-
-      // Dynamically merge/load database users into state.teamMembers. Rebuilt from the
-      // static TEAM_MEMBERS seed every time (not stateRef.current.teamMembers) so a browser
-      // with an old localStorage snapshot can't carry forward a stale mock entry (e.g. an
-      // outdated email) that no longer matches any live dbUser — that used to silently
-      // produce a duplicate "ghost" team member alongside the freshly-merged real one.
-      const updatedTeamMembers = [...TEAM_MEMBERS];
-      for (const dbUser of dbUsers) {
-        if (!dbUser.email) continue;
-        const emailLower = dbUser.email.toLowerCase();
-        const existingIdx = updatedTeamMembers.findIndex(m => m.email && m.email.toLowerCase() === emailLower);
-
+      const updatedTeamMembers = dbUsers.map((dbUser: any) => {
         const getInitials = (name: string) => {
-          return name.split(' ').map(n => n[0] || '').join('').toUpperCase().slice(0, 2);
+          return (name || '').split(' ').map(n => n[0] || '').join('').toUpperCase().slice(0, 2);
         };
 
         const getRoleTag = (dept: string, role: string) => {
@@ -1135,70 +1154,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return dept || 'Other';
         };
 
-        if (existingIdx !== -1) {
-          const current = updatedTeamMembers[existingIdx];
-          updatedTeamMembers[existingIdx] = {
-            ...current,
-            name: dbUser.name,
-            role: dbUser.role,
-            department: getDeptName(dbUser.department),
-            roleTag: getRoleTag(dbUser.department, dbUser.role),
-            initials: getInitials(dbUser.name),
-            avatarUrl: dbUser.avatar_url || current.avatarUrl,
-          };
-        } else {
-          const emailPrefix = dbUser.email.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '');
-          const mockId = `u-${emailPrefix}`;
+        const colors = [
+          '#3B82F6', '#10B981', '#F97316', '#EC4899', '#F43F5E',
+          '#14B8A6', '#8B5CF6', '#6366F1', '#06B6D4', '#0EA5E9',
+          '#D946EF', '#F59E0B', '#84CC16', '#64748B'
+        ];
+        const hash = (dbUser.email || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+        const defaultColor = colors[hash % colors.length];
 
-          const colors = [
-            'bg-blue-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500', 'bg-rose-500',
-            'bg-teal-500', 'bg-violet-500', 'bg-indigo-500', 'bg-cyan-500', 'bg-sky-500',
-            'bg-fuchsia-500', 'bg-amber-500', 'bg-lime-500', 'bg-slate-500'
-          ];
-          const hash = dbUser.email.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-          const color = colors[hash % colors.length];
+        return {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role,
+          department: getDeptName(dbUser.department),
+          initials: getInitials(dbUser.name),
+          hoursThisWeek: 0,
+          weeklyTarget: 40,
+          color: parseHexColor(dbUser.color || savedColors[dbUser.id] || (dbUser.email && savedColors[dbUser.email.toLowerCase()]) || defaultColor),
+          permissions: dbUser.role === 'admin' ? ['all'] : dbUser.role === 'ops' ? ['manage_ops'] : [],
+          monthlySalaryINR: 0,
+          roleTag: getRoleTag(dbUser.department, dbUser.role),
+          mustChangePassword: dbUser.must_change_password,
+          avatarUrl: dbUser.avatar_url,
+        };
+      });
 
-          updatedTeamMembers.push({
-            id: mockId,
-            name: dbUser.name,
-            email: dbUser.email,
-            role: dbUser.role,
-            department: getDeptName(dbUser.department),
-            initials: getInitials(dbUser.name),
-            hoursThisWeek: 0,
-            weeklyTarget: 40,
-            color,
-            permissions: dbUser.role === 'admin' ? ['all'] : dbUser.role === 'ops' ? ['manage_ops'] : [],
-            monthlySalaryINR: 0,
-            roleTag: getRoleTag(dbUser.department, dbUser.role),
-            mustChangePassword: dbUser.must_change_password,
-            avatarUrl: dbUser.avatar_url,
-          });
-        }
-      }
-
-      // Build the mock-id <-> real-id maps (see refs above for why these exist).
-      const toDbUser: Record<string, string> = {};
-      const toMockUser: Record<string, string> = {};
-      for (const mock of updatedTeamMembers) {
-        const match = dbUsers.find((u: any) => u.email && mock.email && u.email.toLowerCase() === mock.email.toLowerCase());
-        if (match) { toDbUser[mock.id] = match.id; toMockUser[match.id] = mock.id; }
-      }
-      userIdMapRef.current = { toDb: toDbUser, toMock: toMockUser };
-
+      // Build the mock-id <-> real-id maps for clients
       const toDbClient: Record<string, string> = {};
       const toMockClient: Record<string, string> = {};
       for (const mock of CLIENTS) {
         const match = dbClients.find((c: any) => (c.short_code || c.shortCode)?.toUpperCase() === mock.code?.toUpperCase());
-        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = mock.id; }
+        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = match.id; }
       }
       clientIdMapRef.current = { toDb: toDbClient, toMock: toMockClient };
 
       const translatedTasks = dbTasks.map((t: any) => ({
         ...t,
         type: t.type || 'task',
-        assignedTo: (t.assignedTo || []).map((dbId: string) => toMockUser[dbId]).filter(Boolean),
-        createdBy: toMockUser[t.createdBy] || t.createdBy,
+        assignedTo: t.assignedTo || [],
+        createdBy: t.createdBy,
         clientId: toMockClient[t.clientId] || t.clientId,
         tags: t.tags || [],
         loggedMinutes: t.loggedMinutes || 0,
@@ -1206,8 +1201,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const translatedNotifications = dbNotifications.map((n: any) => ({
         ...n,
-        userId: toMockUser[n.userId] || n.userId,
-        actorId: toMockUser[n.actorId] || n.actorId,
+        userId: n.userId,
+        actorId: n.actorId,
       }));
 
       // NOTE: unlike tasks/notifications, attendance userId is intentionally left as the
@@ -1742,13 +1737,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token]);
 
-  const deleteTask = useCallback((id: string) => {
+  const deleteTask = useCallback(async (id: string) => {
     const task = state.tasks.find(t => t.id === id);
     if (!task) return;
-    if (window.confirm(`Delete '${task.title}'? This cannot be undone.`)) {
+    if (await confirm(`Delete '${task.title}'? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
       dispatch({ type: 'DELETE_TASK', payload: { id } });
     }
-  }, [state.tasks]);
+  }, [state.tasks, confirm]);
 
   const addTeamMember = useCallback((data: Omit<TeamMember, 'id'>) => dispatch({ type: 'ADD_TEAM_MEMBER', payload: data }), []);
   const updateTeamMember = useCallback((id: string, updates: Partial<TeamMember>) => dispatch({ type: 'UPDATE_TEAM_MEMBER', payload: { id, updates } }), []);
@@ -1801,11 +1796,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          title: note.result?.meetingMeta?.title || 'Meeting Notes',
+          title: note.title || note.result?.meetingMeta?.title || 'Meeting Notes',
           clientId: dbClientId,
           transcriptSnippet: note.transcriptSnippet,
           analysisPreference: note.result?.meetingMeta?.meetingType || null,
           result: note.result,
+          googleEventId: note.googleEventId || null,
         }),
       });
       if (!res.ok) { console.error('Failed to save meeting note:', await res.text()); return null; }
@@ -1821,6 +1817,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         transcriptSnippet: note.transcriptSnippet,
         result: note.result,
         tasksCreated: note.tasksCreated || [],
+        googleEventId: saved.googleEventId || null,
       } });
       return saved.id;
     } catch (err) {
@@ -1848,9 +1845,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fetch(`${baseUrl}/api/attendance/clock-in`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-      }).catch(err => console.error('Error syncing clock-in:', err));
+      })
+      .then(() => fetchData())
+      .catch(err => console.error('Error syncing clock-in:', err));
     }
-  }, [token]);
+  }, [token, fetchData]);
 
   const clockOut = useCallback((userId: string, date: string, time: string) => {
     dispatch({ type: 'CLOCK_OUT', payload: { userId, date, time } });
@@ -1859,9 +1858,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fetch(`${baseUrl}/api/attendance/clock-out`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-      }).catch(err => console.error('Error syncing clock-out:', err));
+      })
+      .then(() => fetchData())
+      .catch(err => console.error('Error syncing clock-out:', err));
     }
-  }, [token]);
+  }, [token, fetchData]);
+
+  const startBreak = useCallback((userId: string, date: string) => {
+    const time = new Date().toISOString();
+    dispatch({ type: 'START_BREAK', payload: { userId, date, time } });
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/attendance/break-start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then(() => fetchData())
+      .catch(err => console.error('Error starting break:', err));
+    }
+  }, [token, fetchData]);
+
+  const endBreak = useCallback((userId: string, date: string) => {
+    const time = new Date().toISOString();
+    dispatch({ type: 'END_BREAK', payload: { userId, date, time } });
+    if (token) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      fetch(`${baseUrl}/api/attendance/break-end`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then(() => fetchData())
+      .catch(err => console.error('Error ending break:', err));
+    }
+  }, [token, fetchData]);
 
   const getRealUserId = useCallback((mockId: string) => userIdMapRef.current.toDb[mockId], []);
 
@@ -1897,6 +1926,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setScreenShareMode,
     clockIn,
     clockOut,
+    startBreak,
+    endBreak,
     getRealUserId,
   }), [
     state, fetchData, activeTasks, overdueTasks, todayTasks,
@@ -1904,8 +1935,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     startTimer, stopTimer, requestStopTimer, setTaskStatus,
     createTask, updateTask, deleteTask, createClient, addTeamMember, updateTeamMember,
     setCurrentUser, requestApproval, notifyUser, resolveApproval, decideApproval,
-    updateDealStage, createDeal, saveMeetingNote, addReviewComment,
-    setScreenShareMode, clockIn, clockOut, getRealUserId,
+    updateDealStage, createDeal, saveMeetingNote, addReviewComment, setScreenShareMode,
+    clockIn, clockOut, startBreak, endBreak, getRealUserId
   ]);
 
   return (

@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '@/contexts/AppContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { Task, CATEGORY_LABELS, TaskCategory } from '@/lib/data';
+import DateTimePicker from '@/components/ui/DateTimePicker';
 
 interface Props {
   task: Task | null;
@@ -53,6 +55,7 @@ function getAssignmentScope(
 
 export default function EditTaskModal({ task, isOpen, onClose }: Props) {
   const { state, updateTask } = useApp();
+  const confirm = useConfirm();
   const currentUser = state.teamMembers.find((m) => m.id === state.currentUserId);
   const scope = getAssignmentScope(currentUser, state.teamMembers);
 
@@ -139,11 +142,21 @@ export default function EditTaskModal({ task, isOpen, onClose }: Props) {
     }, 300);
   };
 
+  const handleBackdropClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const isDirty = form.title !== task.title || form.description !== (task.description || '');
+    if (!isDirty) {
+      onClose();
+    } else if (await confirm('Discard unsaved edits?', { confirmLabel: 'Discard', danger: true })) {
+      onClose();
+    }
+  };
+
   const content = (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
+      onClick={handleBackdropClick}
     >
       <div
         className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col custom-scrollbar"
@@ -298,11 +311,9 @@ export default function EditTaskModal({ task, isOpen, onClose }: Props) {
               >
                 Deadline
               </label>
-              <input
-                type="datetime-local"
-                className="input-base w-full text-[13px]"
+              <DateTimePicker
                 value={form.deadline}
-                onChange={(e) => setForm((p) => ({ ...p, deadline: e.target.value }))}
+                onChange={(v) => setForm((p) => ({ ...p, deadline: v }))}
               />
             </div>
 

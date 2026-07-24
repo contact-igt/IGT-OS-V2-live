@@ -99,22 +99,14 @@ export default function DashboardPage() {
   // 2. Team Snapshot — only count unique users clocked in today, capped at team size
   const totalTeam = teamMembers.length;
   const attendanceLogs = state.attendanceLogs || [];
-  // attendanceLogs[].userId is the real backend UUID, not the mock id members are keyed by
-  // elsewhere — translate before matching (see AppContext.tsx's getRealUserId for why).
-  const realIdToMockId: Record<string, string> = {};
-  teamMembers.forEach((m: any) => {
-    const realId = getRealUserId(m.id);
-    if (realId) realIdToMockId[realId] = m.id;
-  });
   const presentToday = attendanceLogs.filter((log: any) => {
     const logDate = log.date || log.timestamp?.split('T')[0];
-    return logDate === todayStr && !!realIdToMockId[log.userId];
+    return logDate === todayStr && !!log.userId;
   });
-  // Deduplicate: one entry per userId (in case of duplicate logs)
-  const presentMockIdSet = new Set(presentToday.map((log: any) => realIdToMockId[log.userId]));
-  const presentUserIds = Array.from(presentMockIdSet) as string[];
+  const presentUserSet = new Set(presentToday.map((log: any) => log.userId));
+  const presentUserIds = Array.from(presentUserSet) as string[];
   const presentCount = Math.min(presentUserIds.length, totalTeam); // can never exceed total
-  const notClockedIn = teamMembers.filter((m: any) => !presentMockIdSet.has(m.id));
+  const notClockedIn = teamMembers.filter((m: any) => !presentUserSet.has(m.id));
 
   // 3. Meetings Today
   const meetings = state.meetings || [];

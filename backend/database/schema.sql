@@ -23,7 +23,7 @@ CREATE TYPE campaign_status AS ENUM ('planned', 'running', 'paused', 'completed'
 
 -- 1. Users
 CREATE TABLE public.users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id VARCHAR(20) PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   role user_role NOT NULL DEFAULT 'team',
@@ -31,6 +31,7 @@ CREATE TABLE public.users (
   password_hash TEXT NOT NULL,       -- Store hashed passwords (e.g., via bcrypt)
   must_change_password BOOLEAN DEFAULT true,
   avatar_url TEXT,
+  color TEXT DEFAULT '#3B82F6',
   is_active BOOLEAN DEFAULT true,
   failed_login_attempts INT DEFAULT 0,
   locked_until TIMESTAMPTZ,
@@ -412,7 +413,7 @@ CREATE TABLE public.meetings (
   analysis_preference TEXT,
   result JSONB NOT NULL,
   tasks_created UUID[] DEFAULT '{}',
-  google_event_id TEXT,
+  google_event_id TEXT UNIQUE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -430,4 +431,17 @@ CREATE TABLE public.google_accounts (
   token_expires_at TIMESTAMPTZ,
   scopes TEXT[] DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- 24. App Secrets (admin-managed API keys, e.g. OpenAI/Anthropic, editable from the
+-- Credentials page instead of requiring a redeploy to change an env var. Generic
+-- key_name -> encrypted_value so new secret slots don't need a schema change.)
+CREATE TABLE public.app_secrets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key_name TEXT NOT NULL UNIQUE,
+  encrypted_value BYTEA NOT NULL,
+  value_iv BYTEA NOT NULL,
+  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
 );

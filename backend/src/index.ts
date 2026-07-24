@@ -32,6 +32,7 @@ import architectureDocsRoutes from './routes/architectureDocs';
 import auditLogRoutes from './routes/auditLog';
 import meetingsRoutes from './routes/meetings';
 import googleAuthRoutes from './routes/googleAuth';
+import appSecretsRoutes from './routes/appSecrets';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import { requireAuth, requirePageAccess } from './middleware/auth';
 
@@ -312,6 +313,7 @@ app.use('/api/architecture-docs', architectureDocsRoutes);
 app.use('/api/audit-log', auditLogRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/google', googleAuthRoutes);
+app.use('/api/app-secrets', appSecretsRoutes);
 
 // Public — no auth required (login page hero)
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {

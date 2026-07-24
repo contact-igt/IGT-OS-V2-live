@@ -1,5 +1,7 @@
-import OpenAI from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSecret } from '@/lib/serverSecrets';
+
+const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 function buildPrompt(transcript: string, context: { clients: string[]; team: string[] }, analysisPreference?: string): string {
   let roleInstruction = '';
@@ -138,39 +140,46 @@ ${transcript}`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { transcript, context, analysisPreference } = await req.json();
+    const { transcript, context, analysisPreference, model } = await req.json();
 
     if (!transcript || transcript.length < 100) {
       return NextResponse.json({ error: 'Transcript too short (minimum 100 characters)' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey || apiKey.includes('REPLACE_WITH_YOUR_KEY')) {
+    const apiKey = await getServerSecret('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
+    if (!apiKey) {
       return NextResponse.json({
-        error: 'OpenAI API key not configured. Add OPENAI_API_KEY to .env.local and restart the dev server.',
+        error: 'Gemini API key not configured. Add it under Credentials → API Keys, or set GEMINI_API_KEY in .env.local.',
       }, { status: 500 });
     }
 
-    const openai = new OpenAI({ apiKey });
+    const selectedModel = model || DEFAULT_MODEL;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      max_tokens: 4096,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a highly analytical meeting assistant. Always output purely valid JSON with no markdown formatting or extra text.'
-        },
-        {
-          role: 'user',
-          content: buildPrompt(transcript, context || { clients: [], team: [] }, analysisPreference)
-        }
-      ]
-    });
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: 'You are a highly analytical meeting assistant. Always output purely valid JSON with no markdown formatting or extra text.' }],
+          },
+          contents: [{ parts: [{ text: buildPrompt(transcript, context || { clients: [], team: [] }, analysisPreference) }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
 
-    const raw = response.choices[0].message.content || '{}';
+    const data: any = await geminiRes.json();
+
+    if (!geminiRes.ok) {
+      return NextResponse.json({ error: data.error?.message || 'Gemini API error' }, { status: 500 });
+    }
+
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
 
     try {
       const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

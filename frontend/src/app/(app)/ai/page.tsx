@@ -3,7 +3,6 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { TEAM_MEMBERS } from '@/lib/data';
-import MeetingNotesTab from '@/components/ai/MeetingNotesTab';
 
 // ──────────────────────────────────────────────
 // ROLE HIERARCHY & ACCESS CONTROL
@@ -134,7 +133,6 @@ export default function AIPage() {
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'cortex' | 'meetings'>('cortex');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -227,21 +225,10 @@ export default function AIPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {accessBadge}
-          <div style={{ display: 'flex', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--c-border)', background: 'var(--c-surface)' }}>
-            {(['cortex', 'meetings'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', border: 'none', transition: 'all 0.2s',
-                  background: activeTab === tab ? 'var(--c-primary)' : 'transparent',
-                  color: activeTab === tab ? '#fff' : 'var(--c-text-2)' }}>
-                {tab === 'cortex' ? '🤖 Ask Cortex AI' : '📝 Meeting Summaries'}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
-      {activeTab === 'cortex' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           {/* Chat area */}
           <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '16px', minHeight: 0 }}>
             {messages.length === 0 && !loading ? (
@@ -360,11 +347,6 @@ export default function AIPage() {
             </p>
           </div>
         </div>
-      ) : (
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          <MeetingNotesTab />
-        </div>
-      )}
       <style>{`@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }`}</style>
     </div>
   );

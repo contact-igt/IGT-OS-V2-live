@@ -323,25 +323,49 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   infra: 'Infrastructure',
 };
 
+const TAILWIND_COLOR_MAP: Record<string, string> = {
+  'bg-primary': '#2563EB',
+  'bg-emerald-500': '#10B981',
+  'bg-orange-500': '#F97316',
+  'bg-pink-500': '#EC4899',
+  'bg-rose-500': '#F43F5E',
+  'bg-teal-500': '#14B8A6',
+  'bg-violet-500': '#8B5CF6',
+  'bg-blue-500': '#3B82F6',
+  'bg-indigo-500': '#6366F1',
+  'bg-cyan-500': '#06B6D4',
+  'bg-sky-500': '#0EA5E9',
+  'bg-fuchsia-500': '#D946EF',
+  'bg-amber-500': '#F59E0B',
+  'bg-lime-500': '#84CC16',
+  'bg-slate-500': '#64748B',
+};
+
+export function parseHexColor(color?: string): string {
+  if (!color) return '#3B82F6';
+  if (color.startsWith('#')) return color;
+  return TAILWIND_COLOR_MAP[color] || '#3B82F6';
+}
+
 // ─────────────────────────────────────────────────────────────
 // TEAM MEMBERS — with real salaries and roleTags (v3)
 // ─────────────────────────────────────────────────────────────
 export const TEAM_MEMBERS: TeamMember[] = [
-  { id: 'u-sushil', name: 'Sushil Athithiyaa', email: 'sushilathithiyaa@invictusglobaltech.com', role: 'super_admin', department: 'Leadership', initials: 'SA', hoursThisWeek: 45, weeklyTarget: 50, color: 'bg-primary', permissions: ['all'], monthlySalaryINR: 40000, roleTag: 'leadership', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, phoneNumber: '+91 9876543210', emergencyContact: '+91 9988776655', employeeId: 'EMP-001', dateJoined: '2023-01-15', averageWorkTime: '9:00 AM - 6:00 PM', currentScore: 9.5, leavesTaken: 4, leavesAvailable: 12 },
-  { id: 'u-anitha', name: 'Anitha Yogan', email: 'contact@invictusglobaltech.com', role: 'admin', department: 'Leadership', initials: 'AY', hoursThisWeek: 42, weeklyTarget: 45, color: 'bg-emerald-500', permissions: ['manage_ops'], monthlySalaryINR: 30000, roleTag: 'ops', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, phoneNumber: '+91 9876543211', emergencyContact: '+91 9988776656', employeeId: 'EMP-002', dateJoined: '2023-03-01', averageWorkTime: '9:30 AM - 6:30 PM', currentScore: 9.0, leavesTaken: 2, leavesAvailable: 14 },
-  { id: 'u-abhilash', name: 'Abhilash B Nair', email: 'connect@invictusglobaltech.com', role: 'ops', department: 'Operations', initials: 'AB', hoursThisWeek: 40, weeklyTarget: 45, color: 'bg-orange-500', permissions: ['manage_ops'], monthlySalaryINR: 25000, roleTag: 'ops', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-003' },
-  { id: 'u-aiswarya', name: 'Aiswarya Saiju', email: 'aiswarya.saiju.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'AS', hoursThisWeek: 35, weeklyTarget: 40, color: 'bg-pink-500', permissions: ['manage_marketing'], monthlySalaryINR: 20000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-011' },
-  { id: 'u-anju', name: 'Anju S', email: 'abhilash.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'AJ', hoursThisWeek: 32, weeklyTarget: 40, color: 'bg-rose-500', permissions: ['manage_marketing'], monthlySalaryINR: 15000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-012' },
-  { id: 'u-rutuja', name: 'Rutuja Rajbhar', email: 'rutuja.rajbhar.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'RU', hoursThisWeek: 36, weeklyTarget: 40, color: 'bg-teal-500', permissions: ['manage_marketing'], monthlySalaryINR: 20000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-013' },
-  { id: 'u-karan', name: 'Karan K', email: 'karankumar.igt@gmail.com', role: 'team', department: 'Design', title: 'Creative Head — Design', initials: 'KA', hoursThisWeek: 39, weeklyTarget: 40, color: 'bg-violet-500', permissions: ['manage_design'], monthlySalaryINR: 25000, roleTag: 'designer', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-004' },
-  { id: 'u-basheer', name: 'Basheer', email: 'basheerinvictus@gmail.com', role: 'team', department: 'Video', title: 'Creative Head — Video', initials: 'BA', hoursThisWeek: 38, weeklyTarget: 40, color: 'bg-blue-500', permissions: ['manage_video'], monthlySalaryINR: 30000, roleTag: 'video_editor', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-009' },
-  { id: 'u-pranesh', name: 'Pranesh Krishnan', email: 'praneshkrishnan.igt@gmail.com', role: 'team', department: 'Video', title: 'Video Editor Associate', initials: 'PK', hoursThisWeek: 41, weeklyTarget: 40, color: 'bg-indigo-500', permissions: ['manage_video'], monthlySalaryINR: 35000, roleTag: 'video_editor', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-010' },
-  { id: 'u-iyyappan', name: 'Iyyappan', email: 'iyyappan.igt@gmail.com', role: 'team', department: 'Development', title: 'Associate Developer', initials: 'IY', hoursThisWeek: 44, weeklyTarget: 40, color: 'bg-cyan-500', permissions: ['manage_dev'], monthlySalaryINR: 25000, roleTag: 'ai_developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-006' },
-  { id: 'u-naveen', name: 'Naveen Raj', email: 'naveenraj.igt@gmail.com', role: 'team', department: 'Development', title: 'Head of Development', initials: 'NR', hoursThisWeek: 40, weeklyTarget: 40, color: 'bg-sky-500', permissions: ['manage_dev'], monthlySalaryINR: 20000, roleTag: 'developer', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-008' },
-  { id: 'u-veeravel', name: 'Veeravel S', email: 'veeravel.igt@gmail.com', role: 'team', department: 'Development', title: 'Web Developer', initials: 'VE', hoursThisWeek: 38, weeklyTarget: 40, color: 'bg-fuchsia-500', permissions: ['manage_dev'], monthlySalaryINR: 20000, roleTag: 'web_developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-007' },
-  { id: 'u-tania', name: 'Tania Viquar', email: 'tania.viquar.igt@gmail.com', role: 'team', department: 'Sales', title: 'BDE / Sales', initials: 'TV', hoursThisWeek: 20, weeklyTarget: 30, color: 'bg-amber-500', permissions: ['view_ops'], monthlySalaryINR: 8000, roleTag: 'sales', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-014' },
-  { id: 'u-dikshita', name: 'Dikshita Rajpurohit', email: 'dikshitarajpurohit.igt@gmail.com', role: 'team', department: 'Marketing', title: 'Role TBD', initials: 'DR', hoursThisWeek: 0, weeklyTarget: 40, color: 'bg-lime-500', permissions: [], monthlySalaryINR: 15000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-015' },
-  { id: 'u-thariq', name: 'Mohammad Thariq', email: 'thariq.dev@gmail.com', role: 'ops', department: 'Development', title: 'CTO', initials: 'MT', hoursThisWeek: 30, weeklyTarget: 40, color: 'bg-slate-500', permissions: ['manage_dev'], monthlySalaryINR: 30000, roleTag: 'developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-016' },
+  { id: 'u-sushil', name: 'Sushil Athithiyaa', email: 'sushilathithiyaa@invictusglobaltech.com', role: 'super_admin', department: 'Leadership', initials: 'SA', hoursThisWeek: 45, weeklyTarget: 50, color: '#2563EB', permissions: ['all'], monthlySalaryINR: 40000, roleTag: 'leadership', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, phoneNumber: '+91 9876543210', emergencyContact: '+91 9988776655', employeeId: 'EMP-001', dateJoined: '2023-01-15', averageWorkTime: '9:00 AM - 6:00 PM', currentScore: 9.5, leavesTaken: 4, leavesAvailable: 12 },
+  { id: 'u-anitha', name: 'Anitha Yogan', email: 'contact@invictusglobaltech.com', role: 'admin', department: 'Leadership', initials: 'AY', hoursThisWeek: 42, weeklyTarget: 45, color: '#10B981', permissions: ['manage_ops'], monthlySalaryINR: 30000, roleTag: 'ops', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, phoneNumber: '+91 9876543211', emergencyContact: '+91 9988776656', employeeId: 'EMP-002', dateJoined: '2023-03-01', averageWorkTime: '9:30 AM - 6:30 PM', currentScore: 9.0, leavesTaken: 2, leavesAvailable: 14 },
+  { id: 'u-abhilash', name: 'Abhilash B Nair', email: 'connect@invictusglobaltech.com', role: 'ops', department: 'Operations', initials: 'AB', hoursThisWeek: 40, weeklyTarget: 45, color: '#F97316', permissions: ['manage_ops'], monthlySalaryINR: 25000, roleTag: 'ops', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-003' },
+  { id: 'u-aiswarya', name: 'Aiswarya Saiju', email: 'aiswarya.saiju.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'AS', hoursThisWeek: 35, weeklyTarget: 40, color: '#EC4899', permissions: ['manage_marketing'], monthlySalaryINR: 20000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-011' },
+  { id: 'u-anju', name: 'Anju S', email: 'abhilash.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'AJ', hoursThisWeek: 32, weeklyTarget: 40, color: '#F43F5E', permissions: ['manage_marketing'], monthlySalaryINR: 15000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-012' },
+  { id: 'u-rutuja', name: 'Rutuja Rajbhar', email: 'rutuja.rajbhar.igt@gmail.com', role: 'team', department: 'Performance Marketing', initials: 'RU', hoursThisWeek: 36, weeklyTarget: 40, color: '#14B8A6', permissions: ['manage_marketing'], monthlySalaryINR: 20000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-013' },
+  { id: 'u-karan', name: 'Karan K', email: 'karankumar.igt@gmail.com', role: 'team', department: 'Design', title: 'Creative Head — Design', initials: 'KA', hoursThisWeek: 39, weeklyTarget: 40, color: '#8B5CF6', permissions: ['manage_design'], monthlySalaryINR: 25000, roleTag: 'designer', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-004' },
+  { id: 'u-basheer', name: 'Basheer', email: 'basheerinvictus@gmail.com', role: 'team', department: 'Video', title: 'Creative Head — Video', initials: 'BA', hoursThisWeek: 38, weeklyTarget: 40, color: '#3B82F6', permissions: ['manage_video'], monthlySalaryINR: 30000, roleTag: 'video_editor', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-009' },
+  { id: 'u-pranesh', name: 'Pranesh Krishnan', email: 'praneshkrishnan.igt@gmail.com', role: 'team', department: 'Video', title: 'Video Editor Associate', initials: 'PK', hoursThisWeek: 41, weeklyTarget: 40, color: '#6366F1', permissions: ['manage_video'], monthlySalaryINR: 35000, roleTag: 'video_editor', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-010' },
+  { id: 'u-iyyappan', name: 'Iyyappan', email: 'iyyappan.igt@gmail.com', role: 'team', department: 'Development', title: 'Associate Developer', initials: 'IY', hoursThisWeek: 44, weeklyTarget: 40, color: '#06B6D4', permissions: ['manage_dev'], monthlySalaryINR: 25000, roleTag: 'ai_developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-006' },
+  { id: 'u-naveen', name: 'Naveen Raj', email: 'naveenraj.igt@gmail.com', role: 'team', department: 'Development', title: 'Head of Development', initials: 'NR', hoursThisWeek: 40, weeklyTarget: 40, color: '#0EA5E9', permissions: ['manage_dev'], monthlySalaryINR: 20000, roleTag: 'developer', isHeadOfDepartment: true, password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-008' },
+  { id: 'u-veeravel', name: 'Veeravel S', email: 'veeravel.igt@gmail.com', role: 'team', department: 'Development', title: 'Web Developer', initials: 'VE', hoursThisWeek: 38, weeklyTarget: 40, color: '#D946EF', permissions: ['manage_dev'], monthlySalaryINR: 20000, roleTag: 'web_developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-007' },
+  { id: 'u-tania', name: 'Tania Viquar', email: 'tania.viquar.igt@gmail.com', role: 'team', department: 'Sales', title: 'BDE / Sales', initials: 'TV', hoursThisWeek: 20, weeklyTarget: 30, color: '#F59E0B', permissions: ['view_ops'], monthlySalaryINR: 8000, roleTag: 'sales', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-014' },
+  { id: 'u-dikshita', name: 'Dikshita Rajpurohit', email: 'dikshitarajpurohit.igt@gmail.com', role: 'team', department: 'Marketing', title: 'Role TBD', initials: 'DR', hoursThisWeek: 0, weeklyTarget: 40, color: '#84CC16', permissions: [], monthlySalaryINR: 15000, roleTag: 'performance_marketer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-015' },
+  { id: 'u-thariq', name: 'Mohammad Thariq', email: 'thariq.dev@gmail.com', role: 'ops', department: 'Development', title: 'CTO', initials: 'MT', hoursThisWeek: 30, weeklyTarget: 40, color: '#64748B', permissions: ['manage_dev'], monthlySalaryINR: 30000, roleTag: 'developer', password: 'Invictus2026', mustChangePassword: true, employeeId: 'EMP-016' },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -538,6 +562,7 @@ export const NAV_SECTIONS = [
   { href: '/tasks',          label: 'Tasks',             icon: 'check_box',             color: 'var(--c-primary)', section: 'tasks' },
   { href: '/my-profile',     label: 'My Profile',        icon: 'person',                color: 'var(--c-primary)', section: 'my-profile' },
   { href: '/calendar', label: 'Calendar', icon: 'calendar_month', color: 'var(--c-primary)', section: 'calendar' },
+  { href: '/meetings',       label: 'Meeting Summaries', icon: 'forum',                 color: 'var(--c-primary)', section: 'meetings' },
   { href: '/clients',        label: 'Clients',           icon: 'business_center',       color: 'var(--c-primary)', section: 'clients' },
   { href: '/marketing',      label: 'Performance Marketing', icon: 'campaign',          color: 'var(--c-primary)', section: 'marketing' },
   { href: '/campaigns',      label: 'Campaigns',         icon: 'campaign',              color: 'var(--c-primary)', section: 'campaigns' },
