@@ -48,15 +48,26 @@ export default function DateTimePicker({
     }
   }, [value]);
 
-  // Position popover relative to trigger element
+  // Position popover relative to trigger element with smart flip positioning
   const handleOpenPopover = () => {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      const popoverWidth = 320;
+      const popoverWidth = 310;
+      const popoverHeight = 350;
+
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      let top = rect.bottom + window.scrollY + 6;
+      // If there's not enough room below, open above the input field
+      if (spaceBelow < popoverHeight && spaceAbove > spaceBelow) {
+        top = rect.top + window.scrollY - popoverHeight - 6;
+      }
+
       const left = Math.min(rect.left + window.scrollX, window.innerWidth - popoverWidth - 16);
-      
+
       setCoords({
-        top: rect.bottom + window.scrollY + 6,
+        top: Math.max(8, top),
         left: Math.max(16, left),
         width: popoverWidth,
       });
@@ -250,8 +261,8 @@ export default function DateTimePicker({
               </div>
             </div>
 
-            {/* Scrollable Calendar Body */}
-            <div className="overflow-y-auto max-h-[340px] custom-scrollbar pr-1">
+            {/* Scrollable Calendar & Time Body */}
+            <div className="flex-1 overflow-y-auto max-h-[240px] custom-scrollbar pr-1 my-1">
               {/* Days of Week Header */}
               <div className="grid grid-cols-7 text-center mb-1 text-[11px] font-bold text-[var(--c-text-3)]">
                 <span>Su</span>
@@ -263,110 +274,111 @@ export default function DateTimePicker({
                 <span>Sa</span>
               </div>
 
-            {/* Day Grid */}
-            <div className="grid grid-cols-7 text-center gap-1 mb-4">
-              {/* Empty padding cells */}
-              {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-                <div key={`empty-${i}`} className="h-8" />
-              ))}
+              {/* Day Grid */}
+              <div className="grid grid-cols-7 text-center gap-1 mb-3">
+                {/* Empty padding cells */}
+                {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                  <div key={`empty-${i}`} className="h-8" />
+                ))}
 
-              {/* Month Days */}
-              {Array.from({ length: daysInMonth }).map((_, i) => {
-                const day = i + 1;
-                const isSelected = selectedDay === day;
-                const today = new Date();
-                const isToday =
-                  today.getDate() === day &&
-                  today.getMonth() === currentMonth &&
-                  today.getFullYear() === currentYear;
+                {/* Month Days */}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const isSelected = selectedDay === day;
+                  const today = new Date();
+                  const isToday =
+                    today.getDate() === day &&
+                    today.getMonth() === currentMonth &&
+                    today.getFullYear() === currentYear;
 
-                return (
+                  return (
+                    <button
+                      key={`day-${day}`}
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setSelectedDay(day);
+                      }}
+                      className={`h-8 w-8 mx-auto flex items-center justify-center rounded-lg text-[12px] font-semibold transition-all ${
+                        isSelected
+                          ? 'bg-[#2563EB] text-white font-bold shadow'
+                          : isToday
+                          ? 'border border-[#2563EB] text-[#2563EB]'
+                          : 'text-[var(--c-text)] hover:bg-[var(--c-surface-2)]'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Time Selector Section */}
+              <div className="pt-2 border-t border-[var(--c-border)] flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--c-text-3)]">
+                  Time
+                </span>
+                <div className="flex items-center gap-1">
+                  {/* Hours selector */}
+                  <select
+                    value={displayHours12}
+                    onChange={e => {
+                      e.stopPropagation();
+                      const h12 = parseInt(e.target.value, 10);
+                      const newH = isPM ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12);
+                      setSelectedHours(newH);
+                    }}
+                    className="input-base text-[12px] py-1 px-1.5 w-14 text-center cursor-pointer"
+                  >
+                    {Array.from({ length: 12 }).map((_, idx) => {
+                      const h = idx + 1;
+                      return (
+                        <option key={`h-${h}`} value={h}>
+                          {String(h).padStart(2, '0')}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  <span className="font-bold text-[14px] text-[var(--c-text-2)]">:</span>
+
+                  {/* Minutes selector */}
+                  <select
+                    value={selectedMinutes}
+                    onChange={e => {
+                      e.stopPropagation();
+                      setSelectedMinutes(parseInt(e.target.value, 10));
+                    }}
+                    className="input-base text-[12px] py-1 px-1.5 w-14 text-center cursor-pointer"
+                  >
+                    {Array.from({ length: 60 }).map((_, m) => (
+                      <option key={`m-${m}`} value={m}>
+                        {String(m).padStart(2, '0')}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* AM / PM Toggle button */}
                   <button
-                    key={`day-${day}`}
                     type="button"
                     onClick={e => {
                       e.stopPropagation();
-                      setSelectedDay(day);
+                      if (isPM) {
+                        setSelectedHours(selectedHours - 12);
+                      } else {
+                        setSelectedHours(selectedHours + 12);
+                      }
                     }}
-                    className={`h-8 w-8 mx-auto flex items-center justify-center rounded-lg text-[12px] font-semibold transition-all ${
-                      isSelected
-                        ? 'bg-[#2563EB] text-white font-bold shadow'
-                        : isToday
-                        ? 'border border-[#2563EB] text-[#2563EB]'
-                        : 'text-[var(--c-text)] hover:bg-[var(--c-surface-2)]'
-                    }`}
+                    className="ml-1 px-2 py-1 rounded-lg text-[11px] font-bold uppercase border border-[var(--c-border)] bg-[var(--c-surface-2)] text-[var(--c-text)] hover:border-[#2563EB]"
                   >
-                    {day}
+                    {isPM ? 'PM' : 'AM'}
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Time Selector Section */}
-            <div className="pt-3 border-t border-[var(--c-border)] mb-4 flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--c-text-3)]">
-                Time
-              </span>
-              <div className="flex items-center gap-1">
-                {/* Hours selector */}
-                <select
-                  value={displayHours12}
-                  onChange={e => {
-                    e.stopPropagation();
-                    const h12 = parseInt(e.target.value, 10);
-                    const newH = isPM ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12);
-                    setSelectedHours(newH);
-                  }}
-                  className="input-base text-[12px] py-1 px-1.5 w-14 text-center"
-                >
-                  {Array.from({ length: 12 }).map((_, idx) => {
-                    const h = idx + 1;
-                    return (
-                      <option key={`h-${h}`} value={h}>
-                        {String(h).padStart(2, '0')}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                <span className="font-bold text-[14px] text-[var(--c-text-2)]">:</span>
-
-                {/* Minutes selector */}
-                <select
-                  value={selectedMinutes}
-                  onChange={e => {
-                    e.stopPropagation();
-                    setSelectedMinutes(parseInt(e.target.value, 10));
-                  }}
-                  className="input-base text-[12px] py-1 px-1.5 w-14 text-center"
-                >
-                  {Array.from({ length: 60 }).map((_, m) => (
-                    <option key={`m-${m}`} value={m}>
-                      {String(m).padStart(2, '0')}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (isPM) {
-                      setSelectedHours(selectedHours - 12);
-                    } else {
-                      setSelectedHours(selectedHours + 12);
-                    }
-                  }}
-                  className="ml-1 px-2 py-1 rounded-lg text-[11px] font-bold uppercase border border-[var(--c-border)] bg-[var(--c-surface-2)] text-[var(--c-text)] hover:border-[#2563EB]"
-                >
-                  {isPM ? 'PM' : 'AM'}
-                </button>
+                </div>
               </div>
             </div>
-          </div>
 
             {/* Bottom Footer Actions: Clear & Confirm */}
-            <div className="flex items-center justify-between pt-2 border-t border-[var(--c-border)]">
+            <div className="flex-shrink-0 pt-2 border-t border-[var(--c-border)] flex items-center justify-between">
               <button
                 type="button"
                 onClick={handleClear}
