@@ -1127,6 +1127,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dbTasks = tasksRes.ok ? await tasksRes.json() : [];
       const dbNotifications = notificationsRes.ok ? await notificationsRes.json() : [];
       const dbAttendance = attendanceRes.ok ? await attendanceRes.json() : [];
+      const dbGithub = githubRes.ok ? await githubRes.json() : {};
+      const dbSocial = socialRes.ok ? await socialRes.json() : {};
+      const dbActiveTimers = activeTimersRes.ok ? await activeTimersRes.json() : [];
+      const dbAuditLog = auditLogRes.ok ? await auditLogRes.json() : [];
+      const dbMeetings = meetingsRes.ok ? await meetingsRes.json() : [];
       const updatedTeamMembers = dbUsers.map((dbUser: any) => {
         const getInitials = (name: string) => {
           return (name || '').split(' ').map(n => n[0] || '').join('').toUpperCase().slice(0, 2);
@@ -1226,7 +1231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const githubCommits = (dbGithub.commits || []).map((c: any) => ({
         id: c.id,
-        userId: toMockUser[c.authorUserId] || null,
+        userId: c.authorUserId || null,
         repo: c.repo,
         clientId: null,
         taskId: c.linkedTaskId || null,
@@ -1244,7 +1249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           clientId: null,
           commitsThisWeek: repoCommits.length,
           lastPushed: repoCommits[0]?.timestamp ? new Date(repoCommits[0].timestamp).toLocaleDateString() : 'Unknown',
-          contributors: Array.from(new Set(repoCommits.map((c: any) => toMockUser[c.authorUserId]).filter(Boolean))),
+          contributors: Array.from(new Set(repoCommits.map((c: any) => c.authorUserId).filter(Boolean))),
           status: 'active' as const,
         };
       });
@@ -1252,7 +1257,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const devProjects = (dbGithub.repos || []).map((repo: any) => {
         const repoCommits = (dbGithub.commits || []).filter((c: any) => c.repo === repo.name);
         const repoPRs = (dbGithub.pullRequests || []).filter((pr: any) => pr.repo === repo.name);
-        const developers = Array.from(new Set(repoCommits.map((c: any) => toMockUser[c.authorUserId]).filter(Boolean))) as string[];
+        const developers = Array.from(new Set(repoCommits.map((c: any) => c.authorUserId).filter(Boolean))) as string[];
         return {
           id: repo.id,
           repoName: `${repo.owner}/${repo.name}`,
