@@ -233,6 +233,27 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
 
+    // Authoritative safety net: close out ANY still-running timer on this task whenever its
+    // status moves away from 'in_progress' — regardless of which user made this request. The
+    // frontend also tries to stop the timer client-side, but that only works when the acting
+    // user is the same person whose timer is running; it does nothing when an approver/ops
+    // person completes someone else's task, which is the normal review-approval flow here.
+    // Without this, timers silently keep running in the DB forever (see the 31-hour stuck
+    // "Whatsnexus Bug fix" timer this was written to fix).
+    if (status && status !== 'in_progress') {
+      try {
+        await pool.query(
+          `UPDATE public.time_logs
+           SET ended_at = NOW(),
+               duration_minutes = GREATEST(0, EXTRACT(EPOCH FROM (NOW() - started_at)) / 60)::int
+           WHERE task_id = $1 AND ended_at IS NULL`,
+          [id]
+        );
+      } catch (timerErr) {
+        console.error('Failed to auto-close active timers on status change:', timerErr);
+      }
+    }
+
     // Fire-and-forget: alert the Web Development Chat space about newly added dev-department
     // assignees only (see previousAssignedTo above) — mirrors the same check on task creation.
     if (assignedTo) {
