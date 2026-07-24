@@ -30,13 +30,14 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
   const userId = (req as any).user.id;
+  const userEmail = (req as any).user.email;
 
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.color, u.github_username, u.must_change_password,
               (SELECT COALESCE(array_agg(page_path), ARRAY[]::text[]) FROM public.page_access WHERE user_id = u.id) AS granted_pages
-       FROM public.users u WHERE u.id = $1`,
-      [userId]
+       FROM public.users u WHERE u.id = $1 OR (u.email IS NOT NULL AND LOWER(u.email) = LOWER($2))`,
+      [userId, userEmail || '']
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json(result.rows[0]);
