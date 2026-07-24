@@ -1017,12 +1017,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state; // inline ref sync — no useEffect needed
 
-  // Mock ids ('u-sushil', 'c1', ...) used throughout the app's hierarchy/permission
-  // logic don't match the real backend's UUIDs. These maps (built from /api/users
-  // and /api/clients by matching email / short code) translate between the two so
-  // tasks actually persist to Postgres under real foreign keys, while every existing
-  // component keeps working against the familiar mock ids.
-  const userIdMapRef = useRef<{ toDb: Record<string, string>; toMock: Record<string, string> }>({ toDb: {}, toMock: {} });
+  // Mock client ids ('c1', ...) used throughout the app's hierarchy/permission logic
+  // don't match the real backend's UUIDs. This map (built from /api/clients by matching
+  // short code) translates between the two so tasks actually persist to Postgres under
+  // real foreign keys. User ids no longer need an equivalent map — team members are keyed
+  // directly by the real backend id everywhere (see updatedTeamMembers in fetchData below).
   const clientIdMapRef = useRef<{ toDb: Record<string, string>; toMock: Record<string, string> }>({ toDb: {}, toMock: {} });
   // Maps a freshly-created task's local id to the real id Postgres assigned it, until
   // the next fetchData() makes the real id the task's id everywhere.
@@ -1593,9 +1592,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }
         const message = `Task moved to ${status}${note ? `: ${note}` : ''}`;
-        targets.forEach(mockUserId => {
-          const dbUserId = userIdMapRef.current.toDb[mockUserId];
-          if (!dbUserId) return;
+        targets.forEach(dbUserId => {
           fetch(`${apiBaseUrl}/api/notifications`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1617,7 +1614,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('No backend client mapping for', data.clientId, '— task created locally only.');
             return;
           }
-          const dbAssignedTo = (data.assignedTo || []).map(mockId => userIdMapRef.current.toDb[mockId]).filter(Boolean);
+          const dbAssignedTo = data.assignedTo || [];
 
           const res = await fetch(`${apiBaseUrl}/api/tasks`, {
             method: 'POST',
@@ -1727,7 +1724,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const dbTaskId = taskIdMapRef.current[id] || id;
           const body: any = { ...updates };
           if (updates.assignedTo) {
-            body.assignedTo = updates.assignedTo.map(mockId => userIdMapRef.current.toDb[mockId]).filter(Boolean);
+            body.assignedTo = updates.assignedTo;
           }
           delete body.clientId; // client reassignment isn't supported by this path today
 
@@ -1766,15 +1763,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'CREATE_NOTIFICATION', payload: { userId, actorId: state.currentUserId, type, taskId: taskId || '', message } });
 
     if (token) {
-      const dbUserId = userIdMapRef.current.toDb[userId];
       const dbTaskId = taskId ? (taskIdMapRef.current[taskId] || taskId) : undefined;
-      if (dbUserId) {
-        fetch(`${apiBaseUrl}/api/notifications`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ userId: dbUserId, type, taskId: dbTaskId, message }),
-        }).catch(err => console.error('Failed to sync notification to backend:', err));
-      }
+      fetch(`${apiBaseUrl}/api/notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userId, type, taskId: dbTaskId, message }),
+      }).catch(err => console.error('Failed to sync notification to backend:', err));
     }
   }, [state.currentUserId, token]);
 
@@ -1898,7 +1892,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token, fetchData]);
 
-  const getRealUserId = useCallback((mockId: string) => userIdMapRef.current.toDb[mockId], []);
+  // User ids are the real backend id everywhere now — no translation needed. Kept as a
+  // pass-through rather than removed outright since callers throughout the app still invoke it.
+  const getRealUserId = useCallback((mockId: string) => mockId, []);
 
   const contextValue = React.useMemo(() => ({
     reloadData: fetchData,

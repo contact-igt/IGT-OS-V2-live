@@ -53,3 +53,41 @@ export async function postMeetingSummaryAlert(meeting: { title: string; summary?
     console.error('[googleChat] Failed to post meeting summary alert:', error);
   }
 }
+
+// Posts to the Web Development Space (webhook saved as IGT_OS, not GOOGLE_CHAT_* — Google
+// Chat's own naming validation rejected the more descriptive names used for the other two
+// webhooks above) whenever a task is assigned to at least one Development-department member.
+export async function postDevTaskAssignmentAlert(
+  task: { title: string; priority: string; deadline?: string | null; clientName?: string },
+  assigneeNames: string[]
+): Promise<void> {
+  const webhookUrl = process.env.IGT_OS;
+  if (!webhookUrl) {
+    console.warn('[googleChat] IGT_OS webhook not configured, skipping dev task alert:', task.title);
+    return;
+  }
+
+  const deadlineStr = task.deadline
+    ? new Date(task.deadline).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })
+    : 'No deadline';
+  const lines = [
+    `🆕 *New task assigned:* ${task.title}`,
+    `*Priority:* ${task.priority.toUpperCase()}`,
+    task.clientName ? `*Client:* ${task.clientName}` : '',
+    `*Assigned to:* ${assigneeNames.join(', ')}`,
+    `*Deadline:* ${deadlineStr}`,
+  ].filter(Boolean);
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: lines.join('\n') }),
+    });
+    if (!res.ok) {
+      console.error('[googleChat] Webhook responded with', res.status, await res.text());
+    }
+  } catch (error: any) {
+    console.error('[googleChat] Failed to post dev task assignment alert:', error);
+  }
+}
