@@ -1745,8 +1745,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!task) return;
     if (await confirm(`Delete '${task.title}'? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
       dispatch({ type: 'DELETE_TASK', payload: { id } });
+      if (token) {
+        const dbTaskId = taskIdMapRef.current[id] || id;
+        fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(err => console.error('Failed to sync task deletion to backend:', err));
+      }
     }
-  }, [state.tasks, confirm]);
+  }, [state.tasks, confirm, token]);
 
   const addTeamMember = useCallback((data: Omit<TeamMember, 'id'>) => dispatch({ type: 'ADD_TEAM_MEMBER', payload: data }), []);
   const updateTeamMember = useCallback((id: string, updates: Partial<TeamMember>) => dispatch({ type: 'UPDATE_TEAM_MEMBER', payload: { id, updates } }), []);
