@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { postDevTaskAssignmentAlert } from '../lib/googleChat';
 
 const router = Router();
 
@@ -147,6 +148,28 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       console.error('Failed to log task creation audit entry:', auditErr);
     }
 
+    // Fire-and-forget: alert the Web Development Chat space if any assignee is in that
+    // department. Not awaited so a slow/failing webhook never delays the task-create response.
+    if (assignedTo && assignedTo.length > 0) {
+      (async () => {
+        try {
+          const devRes = await pool.query(
+            `SELECT name FROM public.users WHERE id = ANY($1) AND department = 'development'`,
+            [assignedTo]
+          );
+          if (devRes.rows.length === 0) return;
+
+          const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [clientId]);
+          await postDevTaskAssignmentAlert(
+            { title, priority: priority || 'medium', deadline, clientName: clientRes.rows[0]?.name },
+            devRes.rows.map((r: any) => r.name)
+          );
+        } catch (err) {
+          console.error('Failed to post dev task assignment alert:', err);
+        }
+      })();
+    }
+
     res.status(201).json(serializeTask(createdTask));
   } catch (error: any) {
     console.error('Error creating task:', error);
@@ -162,6 +185,15 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags } = req.body;
+
+    // Capture the pre-update assignee list so the Chat alert below fires only for genuinely
+    // *new* dev-department assignees — without this, re-saving the same assignedTo array on
+    // every unrelated edit would re-post the same alert each time.
+    let previousAssignedTo: string[] = [];
+    if (assignedTo) {
+      const prevRes = await pool.query('SELECT assigned_to FROM public.tasks WHERE id = $1', [id]);
+      previousAssignedTo = prevRes.rows[0]?.assigned_to || [];
+    }
 
     const hasDeadline = deadline !== undefined;
     const { date: deadlineDate, time: deadlineTime } = hasDeadline ? splitDeadline(deadline) : { date: null, time: null };
@@ -200,6 +232,32 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+    // Fire-and-forget: alert the Web Development Chat space about newly added dev-department
+    // assignees only (see previousAssignedTo above) — mirrors the same check on task creation.
+    if (assignedTo) {
+      const newlyAdded = assignedTo.filter((uid: string) => !previousAssignedTo.includes(uid));
+      if (newlyAdded.length > 0) {
+        (async () => {
+          try {
+            const devRes = await pool.query(
+              `SELECT name FROM public.users WHERE id = ANY($1) AND department = 'development'`,
+              [newlyAdded]
+            );
+            if (devRes.rows.length === 0) return;
+
+            const updatedTask = serializeTask(result.rows[0]);
+            const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [updatedTask.clientId]);
+            await postDevTaskAssignmentAlert(
+              { title: updatedTask.title, priority: updatedTask.priority, deadline: updatedTask.deadline, clientName: clientRes.rows[0]?.name },
+              devRes.rows.map((r: any) => r.name)
+            );
+          } catch (err) {
+            console.error('Failed to post dev task reassignment alert:', err);
+          }
+        })();
+      }
+    }
 
     const loggedResult = await pool.query(
       `SELECT COALESCE(SUM(duration_minutes), 0) AS logged_minutes FROM public.time_logs WHERE task_id = $1 AND ended_at IS NOT NULL`,
