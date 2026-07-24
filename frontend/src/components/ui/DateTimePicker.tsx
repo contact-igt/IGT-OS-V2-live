@@ -195,11 +195,43 @@ export default function DateTimePicker({
               boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
             }}
           >
-            {/* Header: Month & Year navigation */}
+            {/* Header: Month & Year navigation with scrollable selectors */}
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--c-border)]">
-              <span className="font-bold text-[14px] text-[var(--c-text)]">
-                {monthNames[currentMonth]} {currentYear}
-              </span>
+              <div className="flex items-center gap-1">
+                <select
+                  value={currentMonth}
+                  onChange={e => {
+                    e.stopPropagation();
+                    setCurrentMonth(Number(e.target.value));
+                  }}
+                  className="bg-transparent font-bold text-[13px] text-[var(--c-text)] cursor-pointer outline-none hover:text-[#2563EB] transition-colors"
+                >
+                  {monthNames.map((m, idx) => (
+                    <option key={m} value={idx} className="bg-[var(--c-surface)] text-[var(--c-text)]">
+                      {m}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={currentYear}
+                  onChange={e => {
+                    e.stopPropagation();
+                    setCurrentYear(Number(e.target.value));
+                  }}
+                  className="bg-transparent font-bold text-[13px] text-[var(--c-text)] cursor-pointer outline-none hover:text-[#2563EB] transition-colors"
+                >
+                  {Array.from({ length: 20 }).map((_, idx) => {
+                    const yr = 2020 + idx;
+                    return (
+                      <option key={yr} value={yr} className="bg-[var(--c-surface)] text-[var(--c-text)]">
+                        {yr}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -218,16 +250,18 @@ export default function DateTimePicker({
               </div>
             </div>
 
-            {/* Days of Week Header */}
-            <div className="grid grid-cols-7 text-center mb-1 text-[11px] font-bold text-[var(--c-text-3)]">
-              <span>Su</span>
-              <span>Mo</span>
-              <span>Tu</span>
-              <span>We</span>
-              <span>Th</span>
-              <span>Fr</span>
-              <span>Sa</span>
-            </div>
+            {/* Scrollable Calendar Body */}
+            <div className="overflow-y-auto max-h-[340px] custom-scrollbar pr-1">
+              {/* Days of Week Header */}
+              <div className="grid grid-cols-7 text-center mb-1 text-[11px] font-bold text-[var(--c-text-3)]">
+                <span>Su</span>
+                <span>Mo</span>
+                <span>Tu</span>
+                <span>We</span>
+                <span>Th</span>
+                <span>Fr</span>
+                <span>Sa</span>
+              </div>
 
             {/* Day Grid */}
             <div className="grid grid-cols-7 text-center gap-1 mb-4">
@@ -313,7 +347,6 @@ export default function DateTimePicker({
                   ))}
                 </select>
 
-                {/* AM / PM Toggle button */}
                 <button
                   type="button"
                   onClick={e => {
@@ -330,6 +363,7 @@ export default function DateTimePicker({
                 </button>
               </div>
             </div>
+          </div>
 
             {/* Bottom Footer Actions: Clear & Confirm */}
             <div className="flex items-center justify-between pt-2 border-t border-[var(--c-border)]">

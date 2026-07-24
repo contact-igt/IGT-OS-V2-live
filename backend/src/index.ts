@@ -41,6 +41,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Disable ETags and force fresh API responses without 304 stale caching
+app.set('etag', false);
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // Setup CORS and JSON parsing
 app.use(cors());
 // Must be mounted BEFORE express.json() below — the webhook needs the raw request
