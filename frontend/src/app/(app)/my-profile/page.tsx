@@ -2,7 +2,7 @@
 
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { User, Phone, Briefcase, Calendar, Clock, Star, Activity, Plus, FileText, CheckCircle, TrendingUp, Layers, PenTool, LayoutDashboard, MonitorPlay, Film, Code, Bug, Zap, Target, BarChart3, TrendingDown, Users, Search } from 'lucide-react';
+import { User, Phone, Briefcase, Calendar, Clock, Star, Activity, Plus, FileText, CheckCircle, TrendingUp, Layers, PenTool, LayoutDashboard, MonitorPlay, Film, Code, Bug, Zap, Target, BarChart3, TrendingDown, Users, Search, LogOut, Mail as MailIcon } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 
 interface PerformanceMetrics {
@@ -224,6 +224,9 @@ export default function MyProfilePage() {
   const [githubSaving, setGithubSaving] = useState(false);
   const [agencyMetrics, setAgencyMetrics] = useState<{ monthlyArr: number | null; agencyHealthPercent: number | null } | null>(null);
   const [initiativesStats, setInitiativesStats] = useState({ done: 0, total: 0 });
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [myLeaveRequests, setMyLeaveRequests] = useState<Array<{ from_date: string; to_date: string; status: string }>>([]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -262,7 +265,69 @@ export default function MyProfilePage() {
         setInitiativesStats({ done: data.filter(i => i.progressPercent === 100).length, total: data.length });
       })
       .catch(err => console.error('Failed to load strategic initiatives:', err));
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/google/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => {
+        setGoogleConnected(!!data.connected);
+        setGoogleEmail(data.email || null);
+      })
+      .catch(err => console.error('Failed to load Google account status:', err));
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/leave-requests/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res.status))
+      .then(data => setMyLeaveRequests(data))
+      .catch(err => console.error('Failed to load leave requests:', err));
   }, [user?.id]);
+
+  // Days requested this calendar month, across all of the caller's own leave requests whose
+  // date range overlaps it. There's no approve/reject step anywhere in the app yet — every
+  // submitted request stays 'pending' forever — so this counts requested days, not
+  // manager-approved days; the label below says "Requested" rather than "Taken" to stay honest.
+  const leaveDaysThisMonth = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    let days = 0;
+    for (const r of myLeaveRequests) {
+      const from = new Date(r.from_date);
+      const to = new Date(r.to_date);
+      const start = from < monthStart ? monthStart : from;
+      const end = to > monthEnd ? monthEnd : to;
+      if (start <= end) {
+        days += Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      }
+    }
+    return days;
+  }, [myLeaveRequests]);
+
+  const handleConnectGmail = () => {
+    if (!user?.id) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
+  };
+
+  const handleDisconnectGmail = async () => {
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const res = await fetch(`${baseUrl}/api/google/disconnect`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setGoogleConnected(false);
+        setGoogleEmail(null);
+      }
+    } catch (err) {
+      console.error('Failed to disconnect Google account:', err);
+    }
+  };
 
   const handleSaveGithubUsername = async () => {
     setGithubSaveError(null);
@@ -296,6 +361,10 @@ export default function MyProfilePage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ ...leaveState, requestedByName: user?.name })
       });
+      setMyLeaveRequests(prev => [
+        { from_date: leaveState.fromDate, to_date: leaveState.toDate, status: 'pending' },
+        ...prev,
+      ]);
       alert('Leave requested successfully');
       setLeaveState({ type: 'sick', fromDate: '', toDate: '', reason: '' });
     } catch (e) {
@@ -353,14 +422,14 @@ export default function MyProfilePage() {
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold font-syne tracking-tight text-app-text">My Profile</h1>
           <p className="text-app-text2 mt-2 font-grotesk">Manage your personal and employment information.</p>
         </div>
         {!isEditing ? (
-          <button 
+          <button
             onClick={() => setIsEditing(true)}
             className="bg-app-surface2 hover:bg-app-hover text-app-text px-4 py-2 rounded-lg font-medium transition-colors text-sm border border-app-border"
           >
@@ -394,7 +463,7 @@ export default function MyProfilePage() {
               <User className="w-5 h-5 text-primary" /> Personal Details
             </h2>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               <div>
                 <label className="text-xs font-bold text-app-text3 uppercase tracking-wider mb-1 block">Full Name</label>
                 <div className="text-app-text font-medium">{currentUser.name}</div>
@@ -500,6 +569,38 @@ export default function MyProfilePage() {
               <p className="text-xs text-app-text2 mt-2">Linked as <span className="text-app-text font-medium">@{githubUsername}</span></p>
             )}
           </div>
+
+          <div className="bg-app-surface border border-app-border rounded-xl p-6 relative overflow-hidden group hover:border-emerald-500/50 transition-colors">
+            <h2 className="text-lg font-bold font-syne mb-2 flex items-center gap-2">
+              <MailIcon className="w-5 h-5 text-emerald-500" /> Google Account
+            </h2>
+            <p className="text-xs text-app-text2 mb-4">
+              Connect your Google account to sync Calendar events and import Gmail meeting recaps.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleConnectGmail}
+                className="bg-app-surface2 hover:bg-app-hover text-app-text px-4 py-2 rounded-lg font-medium transition-colors text-sm border border-app-border"
+              >
+                {googleConnected ? 'Reconnect Google Account' : 'Connect Gmail'}
+              </button>
+              {googleConnected && (
+                <button
+                  onClick={handleDisconnectGmail}
+                  className="bg-app-surface2 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 text-app-text px-4 py-2 rounded-lg font-medium transition-colors text-sm border border-app-border flex items-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" /> Logout
+                </button>
+              )}
+              {googleConnected && (
+                googleEmail ? (
+                  <span className="text-xs text-app-text2">Connected as <span className="text-app-text font-medium">{googleEmail}</span></span>
+                ) : (
+                  <span className="text-xs text-app-text2">Connected — email unknown, reconnect to verify which account</span>
+                )
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Right Column - Performance & Leaves */}
@@ -524,7 +625,7 @@ export default function MyProfilePage() {
             <h2 className="text-lg font-bold font-syne mb-6 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-purple-500" /> Leave Balance & Request
             </h2>
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-app-surface2 rounded-lg p-4 text-center">
                 <div className="text-2xl font-bold font-syne text-app-text mb-1">
                   {currentUser.leavesAvailable || 0}
@@ -536,6 +637,12 @@ export default function MyProfilePage() {
                   {currentUser.leavesTaken || 0}
                 </div>
                 <div className="text-[10px] font-bold text-app-text3 uppercase tracking-wider">Taken</div>
+              </div>
+              <div className="bg-app-surface2 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold font-syne text-app-text mb-1">
+                  {leaveDaysThisMonth}
+                </div>
+                <div className="text-[10px] font-bold text-app-text3 uppercase tracking-wider">Requested This Month</div>
               </div>
             </div>
             

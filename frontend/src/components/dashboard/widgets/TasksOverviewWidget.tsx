@@ -9,6 +9,8 @@ interface Props {
   tasksDueToday: any[];
   tasksOverdue: any[];
   tasksInReview: any[];
+  tasksCompleted: any[];
+  tasksPending: any[];
   totalTasks: any[];
 }
 
@@ -18,8 +20,14 @@ const TasksOverviewWidget = React.memo(function TasksOverviewWidget({
   tasksDueToday,
   tasksOverdue,
   tasksInReview,
+  tasksCompleted,
+  tasksPending,
   totalTasks,
 }: Props) {
+  const completionRate = totalTasks.length > 0
+    ? Math.round((tasksCompleted.length / totalTasks.length) * 100)
+    : 0;
+
   return (
     <div
       className={`overflow-hidden h-full h-full w-full border border-[var(--c-border)] rounded-xl bg-[var(--c-surface-2)] flex flex-col shadow-sm ${compactMode ? "p-3" : "p-5"}`}
@@ -53,58 +61,60 @@ const TasksOverviewWidget = React.memo(function TasksOverviewWidget({
         </Link>
       </div>
       {!compactMode && (
-        <div className="flex-1 flex flex-col justify-center mb-4 px-2">
+        <div className="mb-4 px-2">
           <div className="text-xs text-[var(--c-text-2)] mb-2 flex justify-between">
-            <span>Completion Rate (This Week)</span>
-            <span className="font-bold text-[var(--c-text)]">68%</span>
+            <span>Completion Rate</span>
+            <span className="font-bold text-[var(--c-text)]">{completionRate}%</span>
           </div>
           <div className="w-full bg-[var(--c-surface)] border border-[var(--c-border)] h-2.5 rounded-full overflow-hidden">
             <div
-              className="bg-blue-500 h-full rounded-full"
-              style={{ width: "68%" }}
+              className="bg-emerald-500 h-full rounded-full"
+              style={{ width: `${completionRate}%` }}
             ></div>
           </div>
         </div>
       )}
-      <div className={`flex flex-col mt-auto overflow-y-auto custom-scrollbar min-h-0 ${compactMode ? "gap-2" : "gap-3"}`}>
+      <div className={`grid grid-cols-3 flex-1 min-h-0 overflow-y-auto custom-scrollbar ${compactMode ? "gap-2" : "gap-3"}`}>
         <Link href="/tasks" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
           <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
             Total
           </div>
           <div className="text-2xl font-bold">{totalTasks.length}</div>
         </Link>
-        <div className={`grid grid-cols-2 ${compactMode ? "gap-2" : "gap-3"}`}>
-          <Link href="/tasks?status=active" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-              In Progress
-            </div>
-            <div className="text-2xl font-bold">{activeTasks.length}</div>
-          </Link>
-          <Link href="/tasks?status=due-today" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-              Due Today
-            </div>
-            <div className="text-2xl font-bold text-amber-500">
-              {tasksDueToday.length}
-            </div>
-          </Link>
-          <Link href="/tasks?status=overdue" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-              Overdue
-            </div>
-            <div className="text-2xl font-bold text-red-500">
-              {tasksOverdue.length}
-            </div>
-          </Link>
-          <Link href="/tasks?status=in-review" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-              In Review
-            </div>
-            <div className="text-2xl font-bold text-blue-500">
-              {tasksInReview.length}
-            </div>
-          </Link>
-        </div>
+        <Link href="/tasks?status=done" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+            Completed
+          </div>
+          <div className="text-2xl font-bold text-emerald-500">{tasksCompleted.length}</div>
+        </Link>
+        <Link href="/tasks?status=todo" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+            Pending
+          </div>
+          <div className="text-2xl font-bold text-slate-400">{tasksPending.length}</div>
+        </Link>
+        <Link href="/tasks?status=active" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+            In Progress
+          </div>
+          <div className="text-2xl font-bold text-blue-500">{activeTasks.length}</div>
+        </Link>
+        <Link href="/tasks?status=overdue" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+            Overdue
+          </div>
+          <div className="text-2xl font-bold text-red-500">
+            {tasksOverdue.length}
+          </div>
+        </Link>
+        <Link href="/tasks?status=due-today" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+            Due Today
+          </div>
+          <div className="text-2xl font-bold text-amber-500">
+            {tasksDueToday.length}
+          </div>
+        </Link>
       </div>
     </div>
   );

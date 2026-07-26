@@ -13,7 +13,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let query = '';
     let params: any[] = [];
 
-    if (role === 'admin' || role === 'ops') {
+    if (role === 'admin' || role === 'super_admin' || role === 'ops') {
       query = 'SELECT * FROM public.campaigns ORDER BY campaign_name ASC';
     } else {
       // In the schema, campaigns don't have assignedTo. They only have created_by. 

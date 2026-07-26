@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../lib/auditLog';
 
 const router = Router();
 
@@ -13,8 +14,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, name, email, role, department, avatar_url, color, must_change_password 
-       FROM public.users 
+      `SELECT id, name, email, role, department, avatar_url, color, must_change_password, employee_id, title
+       FROM public.users
        ORDER BY name ASC`
     );
     res.json(result.rows);
@@ -35,6 +36,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.color, u.github_username, u.must_change_password,
+              u.employee_id, u.title,
               (SELECT COALESCE(array_agg(page_path), ARRAY[]::text[]) FROM public.page_access WHERE user_id = u.id) AS granted_pages
        FROM public.users u WHERE u.id = $1 OR (u.email IS NOT NULL AND LOWER(u.email) = LOWER($2))`,
       [userId, userEmail || '']
@@ -89,6 +91,10 @@ function generateTempPassword(): string {
 }
 
 const VALID_ROLES = ['admin', 'ops', 'team', 'viewer'];
+// 'super_admin' is deliberately excluded from VALID_ROLES (create-employee form) — it's
+// not something a new hire is ever created as, only granted to an existing account via the
+// PUT /:id role-change path below.
+const UPDATABLE_ROLES = [...VALID_ROLES, 'super_admin'];
 const VALID_DEPARTMENTS = ['bd', 'operations', 'design', 'development', 'video', 'performance_marketing', 'sales'];
 
 // POST / — admin-only: actually creates a real, loginable account. Returns the one-time
@@ -121,6 +127,16 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
       [name, email.toLowerCase(), role || 'team', department || null, hash]
     );
 
+    logAudit(pool, {
+      actorId: req.user.id,
+      actorName: req.user.name || req.user.email,
+      action: 'employee_created',
+      entity: 'Employee',
+      entityRef: result.rows[0].name,
+      entityId: result.rows[0].id,
+      meta: { email: result.rows[0].email, role: result.rows[0].role, department: result.rows[0].department },
+    });
+
     res.status(201).json({ user: result.rows[0], tempPassword });
   } catch (error: any) {
     if (error.code === '23505') { // unique_violation on email
@@ -131,12 +147,21 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
   }
 });
 
-// PUT /:id — update user details (color, role, department) in database
-router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+// PUT /:id — update user details (color, role, department) in database. Admin-only: this
+// changes another employee's privilege level, so it must not be reachable by a plain
+// authenticated user calling the API directly (the previous version had no role gate at all).
+router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
   const { id } = req.params;
   const { color, role, department } = req.body;
+
+  if (role && !UPDATABLE_ROLES.includes(role)) {
+    return res.status(400).json({ error: `role must be one of: ${UPDATABLE_ROLES.join(', ')}` });
+  }
+  if (department && !VALID_DEPARTMENTS.includes(department)) {
+    return res.status(400).json({ error: `department must be one of: ${VALID_DEPARTMENTS.join(', ')}` });
+  }
 
   try {
     const result = await pool.query(
@@ -149,6 +174,21 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       [color || null, role || null, department || null, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    // Only role/department changes are audit-worthy — a color tweak isn't a privilege or
+    // org-structure change, so logging it on every pick would just be noise.
+    if (role || department) {
+      logAudit(pool, {
+        actorId: req.user.id,
+        actorName: req.user.name || req.user.email,
+        action: 'employee_updated',
+        entity: 'Employee',
+        entityRef: result.rows[0].name,
+        entityId: result.rows[0].id,
+        meta: { role: role || undefined, department: department || undefined },
+      });
+    }
+
     res.json(result.rows[0]);
   } catch (error: any) {
     console.error('Error updating user:', error);

@@ -1182,11 +1182,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hoursThisWeek: 0,
           weeklyTarget: 40,
           color: parseHexColor(dbUser.color || savedColors[dbUser.id] || (dbUser.email && savedColors[dbUser.email.toLowerCase()]) || defaultColor),
-          permissions: dbUser.role === 'admin' ? ['all'] : dbUser.role === 'ops' ? ['manage_ops'] : [],
+          permissions: (dbUser.role === 'admin' || dbUser.role === 'super_admin') ? ['all'] : dbUser.role === 'ops' ? ['manage_ops'] : [],
           monthlySalaryINR: 0,
           roleTag: getRoleTag(dbUser.department, dbUser.role),
           mustChangePassword: dbUser.must_change_password,
           avatarUrl: dbUser.avatar_url,
+          employeeId: dbUser.employee_id || undefined,
+          title: dbUser.title || undefined,
         };
       });
 

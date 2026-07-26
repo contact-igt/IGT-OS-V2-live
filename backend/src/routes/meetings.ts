@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { requireAuth } from '../middleware/auth';
 import { postMeetingSummaryAlert } from '../lib/googleChat';
 import { postMeetingSummaryAlertDiscord } from '../lib/discord';
+import { logAudit } from '../lib/auditLog';
 
 const router = Router();
 
@@ -87,6 +88,15 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       .catch(err => console.error('Failed to post meeting summary to Google Chat:', err));
     postMeetingSummaryAlertDiscord({ title, summary: result?.summary, actionItems: result?.actionItems })
       .catch(err => console.error('Failed to post meeting summary to Discord:', err));
+
+    logAudit(pool, {
+      actorId: req.user.id,
+      actorName: req.user.name || req.user.email,
+      action: 'meeting_saved',
+      entity: 'Meeting',
+      entityRef: title,
+      entityId: insertResult.rows[0].id,
+    });
 
     res.status(201).json(serializeMeeting(insertResult.rows[0]));
   } catch (error) {

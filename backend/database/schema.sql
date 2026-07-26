@@ -7,7 +7,7 @@ GRANT ALL ON SCHEMA public TO public;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Custom Enums
-CREATE TYPE user_role AS ENUM ('admin', 'ops', 'team', 'viewer');
+CREATE TYPE user_role AS ENUM ('admin', 'ops', 'team', 'viewer', 'super_admin');
 CREATE TYPE user_department AS ENUM ('bd', 'operations', 'design', 'development', 'video', 'performance_marketing', 'sales');
 CREATE TYPE client_category AS ENUM ('eye_care', 'fitness', 'healthcare', 'edtech', 'automotive', 'construction', 'other');
 CREATE TYPE contract_status AS ENUM ('active', 'paused', 'churned');
@@ -35,6 +35,8 @@ CREATE TABLE public.users (
   is_active BOOLEAN DEFAULT true,
   failed_login_attempts INT DEFAULT 0,
   locked_until TIMESTAMPTZ,
+  employee_id TEXT UNIQUE,           -- HR-facing id (e.g. "EMP-001"), distinct from the PK
+  title TEXT,                        -- job title (e.g. "Founder & CEO") shown in place of department where set
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
