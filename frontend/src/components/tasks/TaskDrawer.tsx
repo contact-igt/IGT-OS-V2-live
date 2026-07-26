@@ -45,12 +45,7 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   // this is safe going forward; older entries recorded before that fix (entityId null or
   // stale) simply won't surface here rather than risk showing up on the wrong task.
   const taskAudit = task
-    ? state.auditLog.filter(
-        a => a.entity === 'Task' && (
-          a.entityId === task.id ||
-          (a.entityRef && task.title && a.entityRef.trim().toLowerCase() === task.title.trim().toLowerCase())
-        )
-      )
+    ? state.auditLog.filter(a => a.entity === 'Task' && a.entityId === task.id)
     : [];
 
   // Close on Escape
@@ -160,8 +155,12 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
               {canDelete && (
                 <button
                   onClick={async () => {
-                    if (await confirm(`Delete "${task.title}"? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
-                      dispatch({ type: 'DELETE_TASK', payload: { id: task.id } });
+                    // deleteTask() already confirms internally and calls the backend DELETE
+                    // route — dispatching DELETE_TASK directly here (as this used to) only
+                    // ever removed the task from local state, never from Postgres, so it
+                    // silently reappeared on the next refresh. Only close if the user
+                    // actually confirmed — deleteTask() returns false on Cancel.
+                    if (await deleteTask(task.id)) {
                       onClose();
                     }
                   }}

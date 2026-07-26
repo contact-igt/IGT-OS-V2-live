@@ -26,10 +26,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         const token = localStorage.getItem('invictus_jwt');
         const headers = { 'Authorization': `Bearer ${token}` };
         
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         const [clientRes, delivRes, invRes] = await Promise.all([
-          fetch(`http://localhost:4000/api/clients/${id}`, { headers }),
-          fetch(`http://localhost:4000/api/clients/${id}/deliverables`, { headers }),
-          fetch(`http://localhost:4000/api/clients/${id}/invoices`, { headers })
+          fetch(`${apiBaseUrl}/api/clients/${id}`, { headers }),
+          fetch(`${apiBaseUrl}/api/clients/${id}/deliverables`, { headers }),
+          fetch(`${apiBaseUrl}/api/clients/${id}/invoices`, { headers })
         ]);
 
         if (clientRes.ok) setClient(await clientRes.json());

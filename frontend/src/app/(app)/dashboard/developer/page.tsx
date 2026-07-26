@@ -29,7 +29,8 @@ export default function DeveloperDashboard() {
   useEffect(() => {
     async function fetchHealth() {
       try {
-        const res = await fetch('http://localhost:4000/api/health');
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        const res = await fetch(`${apiBaseUrl}/api/health`);
         if (res.ok) {
           setApiHealth(await res.json());
         }

@@ -30,6 +30,7 @@ router.get('/connect', (req: Request, res: Response) => {
     scope: [
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
     ].join(' '),
     state: JSON.stringify({ userId }),
   });
@@ -73,20 +74,37 @@ router.get('/callback', async (req: Request, res: Response) => {
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
     const scopes = (tokenData.scope || '').split(' ').filter(Boolean);
 
+    // Fetch the connected account's own email so it can be shown in the UI — the whole
+    // point being that a mismatched OAuth consent (wrong Google account picked at sign-in)
+    // becomes immediately visible instead of silently surfacing another employee's calendar.
+    let email: string | null = null;
+    try {
+      const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (userinfoRes.ok) {
+        const userinfo = await userinfoRes.json() as any;
+        email = userinfo.email || null;
+      }
+    } catch (err) {
+      console.error('Failed to fetch Google account email:', err);
+    }
+
     // A repeat connect without a fresh refresh_token (Google only issues one on the first
     // consent, or when prompt=consent forces re-issue) keeps the existing one rather than
     // overwriting it with NULL.
     await pool.query(
-      `INSERT INTO public.google_accounts (user_id, encrypted_access_token, access_token_iv, encrypted_refresh_token, refresh_token_iv, token_expires_at, scopes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO public.google_accounts (user_id, email, encrypted_access_token, access_token_iv, encrypted_refresh_token, refresh_token_iv, token_expires_at, scopes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (user_id) DO UPDATE SET
+         email = COALESCE(EXCLUDED.email, public.google_accounts.email),
          encrypted_access_token = EXCLUDED.encrypted_access_token,
          access_token_iv = EXCLUDED.access_token_iv,
          encrypted_refresh_token = COALESCE(EXCLUDED.encrypted_refresh_token, public.google_accounts.encrypted_refresh_token),
          refresh_token_iv = COALESCE(EXCLUDED.refresh_token_iv, public.google_accounts.refresh_token_iv),
          token_expires_at = EXCLUDED.token_expires_at,
          scopes = EXCLUDED.scopes`,
-      [userId, accessTokenEnc.encrypted, accessTokenEnc.iv, refreshTokenEnc?.encrypted || null, refreshTokenEnc?.iv || null, expiresAt, scopes]
+      [userId, email, accessTokenEnc.encrypted, accessTokenEnc.iv, refreshTokenEnc?.encrypted || null, refreshTokenEnc?.iv || null, expiresAt, scopes]
     );
 
     res.redirect(`${process.env.FRONTEND_URL}/calendar?connected=google`);
@@ -102,8 +120,36 @@ router.get('/status', requireAuth, async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
   try {
-    const result = await pool.query('SELECT scopes FROM public.google_accounts WHERE user_id = $1', [req.user.id]);
-    res.json({ connected: result.rows.length > 0, scopes: result.rows[0]?.scopes || [] });
+    const result = await pool.query('SELECT scopes, email FROM public.google_accounts WHERE user_id = $1', [req.user.id]);
+    if (result.rows.length === 0) {
+      return res.json({ connected: false, scopes: [], email: null });
+    }
+
+    let email = result.rows[0].email;
+    // Backfill for accounts connected before email capture existed — no need to make the
+    // user reconnect, since the already-stored access/refresh token is enough on its own to
+    // ask Google who this is.
+    if (!email) {
+      try {
+        const accessToken = await getValidAccessToken(pool, req.user.id);
+        if (accessToken) {
+          const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (userinfoRes.ok) {
+            const userinfo = await userinfoRes.json() as any;
+            if (userinfo.email) {
+              email = userinfo.email;
+              await pool.query('UPDATE public.google_accounts SET email = $1 WHERE user_id = $2', [email, req.user.id]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to backfill Google account email:', err);
+      }
+    }
+
+    res.json({ connected: true, scopes: result.rows[0].scopes || [], email: email || null });
   } catch (error) {
     console.error('Error checking Google connection status:', error);
     res.status(500).json({ error: 'Internal server error' });

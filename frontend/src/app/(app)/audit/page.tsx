@@ -57,11 +57,12 @@ export default function AuditPage() {
       const token = localStorage.getItem('invictus_jwt');
       const headers = { 'Authorization': `Bearer ${token}` };
 
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const [campRes, teRes, usersRes, attRes] = await Promise.all([
-        fetch('http://localhost:4000/api/campaigns', { headers }),
-        fetch('http://localhost:4000/api/time-logs', { headers }),
-        fetch('http://localhost:4000/api/users', { headers }),
-        fetch('http://localhost:4000/api/attendance', { headers })
+        fetch(`${apiBaseUrl}/api/campaigns`, { headers }),
+        fetch(`${apiBaseUrl}/api/time-logs`, { headers }),
+        fetch(`${apiBaseUrl}/api/users`, { headers }),
+        fetch(`${apiBaseUrl}/api/attendance`, { headers })
       ]);
 
       if (campRes.ok) setCampaigns(await campRes.json());

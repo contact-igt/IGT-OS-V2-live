@@ -28,6 +28,7 @@ function MeetingsPageInner() {
   const [events, setEvents] = useState<GoogleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [analyzePanelEvent, setAnalyzePanelEvent] = useState<GoogleEvent | null>(null);
   const [showNewNote, setShowNewNote] = useState(false);
 
@@ -43,6 +44,27 @@ function MeetingsPageInner() {
       setLoading(false);
     }
     load();
+
+    // Surfaced so a mismatched Google account (wrong one picked at the OAuth consent
+    // screen) is immediately visible here, instead of silently showing someone else's
+    // calendar under this login.
+    async function loadGoogleStatus() {
+      if (!token) return;
+      try {
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        const res = await fetch(`${apiBaseUrl}/api/google/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGoogleEmail(data.email || null);
+        }
+      } catch (err) {
+        console.error('Failed to load Google connection status:', err);
+      }
+    }
+    loadGoogleStatus();
   }, [token]);
 
   const cards: MeetingCard[] = useMemo(() => {
@@ -105,7 +127,9 @@ function MeetingsPageInner() {
         <div>
           <h1 className="text-[24px] font-bold" style={{ color: 'var(--c-text)', fontFamily: 'var(--font-syne-var)' }}>Meeting Summaries</h1>
           <p className="text-[13px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>
-            {connected ? 'Synced from your Google Calendar' : 'Connect Google Calendar to see your synced meetings'}
+            {connected
+              ? (googleEmail ? `Synced from ${googleEmail}` : 'Synced from your Google Calendar')
+              : 'Connect Google Calendar to see your synced meetings'}
           </p>
         </div>
         <button

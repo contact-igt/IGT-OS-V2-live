@@ -26,6 +26,30 @@ export default function CalendarPage() {
   const [ganttSelectedTaskId, setGanttSelectedTaskId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+
+  // Surfaced next to the Connect/Sync button so a mismatched Google account (wrong one
+  // picked at the OAuth consent screen) is immediately visible here, instead of silently
+  // showing someone else's calendar under this login.
+  useEffect(() => {
+    async function loadGoogleStatus() {
+      if (!token) return;
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        const res = await fetch(`${baseUrl}/api/google/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGoogleEmail(data.email || null);
+        }
+      } catch (err) {
+        console.error('Failed to load Google connection status:', err);
+      }
+    }
+    loadGoogleStatus();
+  }, [token]);
 
   // Auto scroll to current time in day/week views
   const timeGridRef = useRef<HTMLDivElement>(null);
@@ -164,22 +188,40 @@ export default function CalendarPage() {
               </button>
             ))}
           </div>
-          <button
-            className="btn-primary"
-            onClick={() => {
-              if (state.isGoogleConnected) {
-                setCurrentDate(new Date(currentDate)); // re-trigger loadEvents
-                return;
-              }
-              if (!user?.id) return;
-              const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-              window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
-            }}
-            disabled={loading}
-          >
-            <Sparkles className="w-4 h-4 mr-2" />
-            {state.isGoogleConnected ? 'Sync Now' : 'Connect Google'}
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              className="btn-primary"
+              onClick={() => {
+                if (state.isGoogleConnected) {
+                  setCurrentDate(new Date(currentDate)); // re-trigger loadEvents
+                  return;
+                }
+                if (!user?.id) return;
+                const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+                window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
+              }}
+              disabled={loading}
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              {state.isGoogleConnected ? 'Sync Now' : 'Connect Google'}
+            </button>
+            {state.isGoogleConnected && (
+              googleEmail ? (
+                <span className="text-[11px] text-app-text3">Synced with {googleEmail}</span>
+              ) : (
+                <button
+                  className="text-[11px] text-primary hover:underline"
+                  onClick={() => {
+                    if (!user?.id) return;
+                    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+                    window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
+                  }}
+                >
+                  Reconnect to verify which account this is →
+                </button>
+              )
+            )}
+          </div>
         </div>
       </div>
 

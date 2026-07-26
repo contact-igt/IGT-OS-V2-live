@@ -88,6 +88,7 @@ router.get('/live', requireAuth, async (req: Request, res: Response) => {
                 ROW_NUMBER() OVER (PARTITION BY gc.repo_id ORDER BY gc.committed_at DESC) AS rn
          FROM public.github_commits gc
          LEFT JOIN public.users u ON u.github_username = gc.author_github_username
+                                   OR gc.author_github_username = ANY(u.github_username_aliases)
        ) sub
        WHERE rn <= 30
        ORDER BY committed_at DESC`

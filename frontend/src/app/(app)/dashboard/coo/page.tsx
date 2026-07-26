@@ -17,7 +17,8 @@ export default function COODashboard() {
     async function fetchAnalytics() {
       try {
         const token = localStorage.getItem('invictus_jwt');
-        const res = await fetch('http://localhost:4000/api/analytics/coo', {
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        const res = await fetch(`${apiBaseUrl}/api/analytics/coo`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

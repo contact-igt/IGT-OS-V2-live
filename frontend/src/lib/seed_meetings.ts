@@ -123,6 +123,10 @@ export interface MeetingEvent {
 export interface GitHubCommit {
   id: string;
   userId: string;
+  // Raw GitHub author username straight from the commit — kept even when userId can't be
+  // resolved to an employee (e.g. an org-level account like "contact-igt" used for merges),
+  // so the UI can still show something meaningful instead of a blank "??" row.
+  authorName?: string | null;
   repo: string;
   clientId: string | null;
   taskId: string | null;

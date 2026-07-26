@@ -22,7 +22,8 @@ export default function SalesDashboard() {
     async function fetchAnalytics() {
       try {
         const token = localStorage.getItem('invictus_jwt');
-        const res = await fetch('http://localhost:4000/api/analytics/sales', {
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        const res = await fetch(`${apiBaseUrl}/api/analytics/sales`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

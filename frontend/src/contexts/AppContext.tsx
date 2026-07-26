@@ -411,17 +411,22 @@ function appReducer(state: AppState, action: AppAction): AppState {
         }
       }
       
-      // Add the status change audit log
-      auditEntries = addAudit(auditEntries, {
-        actor,
-        actorId: action.payload.actorId,
-        action: 'task_status_change',
-        entity: 'Task',
-        entityRef: task.title,
-        entityId: task.id,
-        clientName,
-        meta: `${prevStatus} → ${action.payload.status}`,
-      });
+      // Add the status change audit log — only for an actual change. Without this guard,
+      // any repeated dispatch of the same status (a duplicate click, a retried request, a
+      // stray effect re-firing) silently piles up duplicate entries forever, since nothing
+      // else in this reducer path checks for a genuine transition before logging.
+      if (prevStatus !== action.payload.status) {
+        auditEntries = addAudit(auditEntries, {
+          actor,
+          actorId: action.payload.actorId,
+          action: 'task_status_change',
+          entity: 'Task',
+          entityRef: task.title,
+          entityId: task.id,
+          clientName,
+          meta: `${prevStatus} → ${action.payload.status}`,
+        });
+      }
 
       let newCompletedAt = task.completedAt;
       let newCompletedBy = task.completedBy;
@@ -983,7 +988,7 @@ interface AppContextValue {
   setTaskStatus: (taskId: string, status: Task['status'], note?: string) => void;
   createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
-  deleteTask: (id: string) => void;
+  deleteTask: (id: string) => Promise<boolean>;
   createClient: (name: string, shortCode: string) => Promise<{ id: string } | { error: string }>;
   addTeamMember: (data: Omit<TeamMember, 'id'>) => void;
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void;
@@ -1190,7 +1195,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const toMockClient: Record<string, string> = {};
       for (const mock of CLIENTS) {
         const match = dbClients.find((c: any) => (c.short_code || c.shortCode)?.toUpperCase() === mock.code?.toUpperCase());
-        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = match.id; }
+        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = mock.id; }
       }
       clientIdMapRef.current = { toDb: toDbClient, toMock: toMockClient };
 
@@ -1231,6 +1236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const githubCommits = (dbGithub.commits || []).map((c: any) => ({
         id: c.id,
         userId: c.authorUserId || null,
+        authorName: c.authorName || null,
         repo: c.repo,
         clientId: null,
         taskId: c.linkedTaskId || null,
@@ -1312,6 +1318,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isGlobalLoading: false,
         globalError: null
       } as any });
+      // Everything in dbAuditLog just came from the backend, so it's already persisted —
+      // mark it as synced immediately. Without this, the watermark below still points at a
+      // locally-generated "AUD-xxxx" id from before this hydration, which will never be
+      // found in this backend-sourced array (real UUIDs). That permanently pins boundaryIdx
+      // to -1 in the sync effect, causing it to silently re-POST the "newest" entry as a
+      // fresh duplicate on every single subsequent fetchData() call, forever.
+      if (dbAuditLog[0]?.id) {
+        lastSyncedAuditIdRef.current = dbAuditLog[0].id;
+      }
       dispatch({ type: 'SET_LOADING', payload: false });
     } catch (err: any) {
       console.error('fetchData failed, keeping local state:', err);
@@ -1538,9 +1553,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'STOP_TIMER', payload: { taskId, userId: state.currentUserId } });
     if (token) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      // keepalive: this fetch must still reach the server even if the page is mid-navigation
+      // or a refresh fires right after the click — without it, the browser can cancel the
+      // in-flight request, leaving the timer "stopped" locally but still running server-side.
       fetch(`${baseUrl}/api/tasks/${taskId}/timer/stop`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
       }).catch(err => console.error('Error syncing timer stop:', err));
     }
   }, [state.currentUserId, token]);
@@ -1571,10 +1590,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (token) {
       const dbTaskId = taskIdMapRef.current[taskId] || taskId;
+      // keepalive: a status change (esp. marking Done) must persist even if the user
+      // refreshes or navigates away right after clicking — otherwise the UI shows the new
+      // status optimistically while the backend never actually received the update, and the
+      // next fetchData() pass correctly (if confusingly) reverts to the true, unsaved status.
       fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ status }),
+        keepalive: true,
       }).catch(err => console.error('Failed to sync status change to backend:', err));
 
       // Mirror the local status-change notification (see SET_TASK_STATUS reducer case) to the
@@ -1740,9 +1764,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token]);
 
-  const deleteTask = useCallback(async (id: string) => {
+  const deleteTask = useCallback(async (id: string): Promise<boolean> => {
     const task = state.tasks.find(t => t.id === id);
-    if (!task) return;
+    if (!task) return false;
     if (await confirm(`Delete '${task.title}'? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
       dispatch({ type: 'DELETE_TASK', payload: { id } });
       if (token) {
@@ -1752,7 +1776,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(err => console.error('Failed to sync task deletion to backend:', err));
       }
+      return true;
     }
+    return false;
   }, [state.tasks, confirm, token]);
 
   const addTeamMember = useCallback((data: Omit<TeamMember, 'id'>) => dispatch({ type: 'ADD_TEAM_MEMBER', payload: data }), []);
