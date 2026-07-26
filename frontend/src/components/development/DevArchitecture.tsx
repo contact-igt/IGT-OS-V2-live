@@ -61,8 +61,6 @@ function DocCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('invictus_jwt')}` });
-
   const handleFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -77,7 +75,8 @@ function DocCard({
       const content = await file.text();
       const res = await fetch(`${API_BASE}/api/architecture-docs/${docType}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name, content }),
       });
       if (!res.ok) {
@@ -96,7 +95,7 @@ function DocCard({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/architecture-docs/${docType}/download`, { headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/architecture-docs/${docType}/download`, { credentials: 'include' });
       if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -119,7 +118,7 @@ function DocCard({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/architecture-docs/${docType}`, { method: 'DELETE', headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/architecture-docs/${docType}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error('Delete failed');
       onDeleted();
     } catch (err: any) {
@@ -197,7 +196,7 @@ export default function DevArchitecture() {
   const [docs, setDocs] = useState<Record<string, DocMeta>>({});
   const loadDocs = useCallback(() => {
     fetch(`${API_BASE}/api/architecture-docs`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('invictus_jwt')}` },
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : {})
       .then(setDocs)

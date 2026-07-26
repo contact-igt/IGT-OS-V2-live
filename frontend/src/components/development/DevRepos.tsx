@@ -122,10 +122,9 @@ export default function DevRepos({ search = '' }: { search?: string }) {
     setSyncing(true);
     setSyncMessage('');
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const res = await fetch(`${API_BASE}/api/github/backfill`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       const data = await res.json();
       setSyncMessage(res.ok ? data.message : (data.error || 'Failed to start sync'));

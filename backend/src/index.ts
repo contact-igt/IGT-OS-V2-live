@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { Pool, types } from 'pg';
 
 // node-postgres parses DATE columns into a JS Date at local midnight by default,
@@ -34,8 +34,11 @@ import meetingsRoutes from './routes/meetings';
 import googleAuthRoutes from './routes/googleAuth';
 import appSecretsRoutes from './routes/appSecrets';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
+import authRoutes from './routes/auth';
 import { requireAuth, requirePageAccess } from './middleware/auth';
 import { logAudit } from './lib/auditLog';
+import { setAuthCookies, signAccessToken, generateRefreshToken } from './lib/tokens';
+import { getDestination } from './lib/destination';
 
 dotenv.config();
 
@@ -93,8 +96,14 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// Setup CORS and JSON parsing
-app.use(cors());
+// Setup CORS and JSON parsing. `credentials: true` + an explicit origin (rather than '*')
+// is required for the browser to accept and send the HttpOnly auth cookies cross-origin.
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',').map(o => o.trim());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
+app.use(cookieParser());
 // Must be mounted BEFORE express.json() below — the webhook needs the raw request
 // body (as Express received it) to verify GitHub's HMAC signature; once express.json()
 // has parsed it, the original bytes are gone.
@@ -110,8 +119,6 @@ if (process.env.DATABASE_URL) {
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   });
   app.locals.pool = pool;
-  
-  const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key';
 
   app.post('/api/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
@@ -177,42 +184,36 @@ if (process.env.DATABASE_URL) {
       );
       logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_success' });
 
-      // 4. Generate JWT Token
-      const token = jwt.sign(
-        {
-          id:         user.id,
-          email:      user.email,
-          role:       user.role,
-          department: user.department || '',
-          name:       user.name       || '',
-        },
-        JWT_SECRET,
-        { expiresIn: '24h' }
+      // 4. Issue an access token (short-lived, JWT) + refresh token (opaque, DB-backed)
+      // as HttpOnly cookies instead of handing a bearer token back for the frontend to
+      // store itself — see backend/src/lib/tokens.ts.
+      const accessToken = signAccessToken({
+        id:         user.id,
+        email:      user.email,
+        role:       user.role,
+        department: user.department || '',
+        name:       user.name       || '',
+      });
+
+      const { token: refreshToken, hash: refreshHash, expiresAt } = generateRefreshToken();
+      await pool.query(
+        'INSERT INTO public.refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+        [user.id, refreshHash, expiresAt]
       );
+      // Opportunistic housekeeping so this table doesn't grow unbounded with dead rows.
+      pool.query(
+        "DELETE FROM public.refresh_tokens WHERE user_id = $1 AND (revoked_at IS NOT NULL OR expires_at < NOW())",
+        [user.id]
+      ).catch(err => console.error('Failed to prune old refresh tokens:', err));
 
-      // 5. Determine Canonical Destination
-      let destination = '/my-workspace';
-      if (user.role === 'admin' || user.role === 'super_admin') {
-        destination = '/dashboard';
-      } else if (user.role === 'ops') {
-        if (user.department?.toLowerCase() === 'finance') {
-          destination = '/dashboard/finance';
-        } else if (user.email === 'contact@invictusglobaltech.com') {
-          destination = '/dashboard/coo';
-        } else {
-          destination = '/dashboard/ops';
-        }
-      } else {
-        destination = '/my-workspace';
-      }
+      setAuthCookies(res, accessToken, refreshToken);
 
-      if (user.must_change_password) {
-        destination = '/set-password';
-      }
+      // 5. Determine canonical destination (shared with GET /api/users/me so a page
+      // refresh mid-session redirects the same way a fresh login would).
+      const destination = getDestination(user);
 
-      // 6. Return user info and session token
+      // 6. Return user info only — the session itself now lives in the cookies set above.
       res.json({
-        token,
         user: {
           id:                user.id,
           name:              user.name,
@@ -362,6 +363,7 @@ app.use('/api/health', healthRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/github', requireAuth, requirePageAccess('/development', ['admin', 'ops']), githubDataRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/auth/instagram', instagramAuthRoutes);
 app.use('/api/auth/youtube', youtubeAuthRoutes);
 app.use('/api/social', requireAuth, requirePageAccess('/social', ['admin', 'ops']), socialSyncRoutes);

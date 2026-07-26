@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
+import { getDestination } from '../lib/destination';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, name, email, role, department, avatar_url, color, must_change_password, employee_id, title
+      `SELECT id, name, email, role, department, avatar_url, color, must_change_password, employee_id, title, is_head_of_department
        FROM public.users
        ORDER BY name ASC`
     );
@@ -36,13 +37,16 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.department, u.avatar_url, u.color, u.github_username, u.must_change_password,
-              u.employee_id, u.title,
+              u.employee_id, u.title, u.is_head_of_department,
               (SELECT COALESCE(array_agg(page_path), ARRAY[]::text[]) FROM public.page_access WHERE user_id = u.id) AS granted_pages
        FROM public.users u WHERE u.id = $1 OR (u.email IS NOT NULL AND LOWER(u.email) = LOWER($2))`,
       [userId, userEmail || '']
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    // Included so a page refresh (session restore via cookie) redirects the same way a
+    // fresh login would, without the frontend re-deriving this role/department branching.
+    res.json({ ...row, destination: getDestination(row) });
   } catch (error: any) {
     console.error('Error fetching own user:', error);
     res.status(500).json({ error: 'Internal server error' });

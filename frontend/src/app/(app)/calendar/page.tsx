@@ -14,7 +14,7 @@ type ViewMode = 'day' | 'week' | 'month' | 'year';
 
 export default function CalendarPage() {
   const { state, dispatch } = useApp();
-  const { token, user } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [view, setView] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -33,11 +33,11 @@ export default function CalendarPage() {
   // showing someone else's calendar under this login.
   useEffect(() => {
     async function loadGoogleStatus() {
-      if (!token) return;
+      if (!user) return;
       try {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         const res = await fetch(`${baseUrl}/api/google/status`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
           cache: 'no-store',
         });
         if (res.ok) {
@@ -49,7 +49,7 @@ export default function CalendarPage() {
       }
     }
     loadGoogleStatus();
-  }, [token]);
+  }, [user]);
 
   // Auto scroll to current time in day/week views
   const timeGridRef = useRef<HTMLDivElement>(null);
@@ -74,7 +74,7 @@ export default function CalendarPage() {
       maxDate.setMonth(maxDate.getMonth() + 2);
       
       const { events, connected } = await fetchGoogleCalendarEvents(
-        token,
+        !!user,
         minDate.toISOString(),
         maxDate.toISOString()
       );
@@ -82,7 +82,7 @@ export default function CalendarPage() {
       setLoading(false);
     }
     loadEvents();
-  }, [currentDate, token, dispatch]);
+  }, [currentDate, user, dispatch]);
 
   const tasksWithDeadlines = useMemo(() => {
     return state.tasks.filter(t => t.deadline && t.status !== 'done' && t.status !== 'cancelled');

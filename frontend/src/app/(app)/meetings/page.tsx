@@ -22,7 +22,7 @@ interface MeetingCard {
 
 function MeetingsPageInner() {
   const { state } = useApp();
-  const { token } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
 
   const [events, setEvents] = useState<GoogleEvent[]>([]);
@@ -38,7 +38,7 @@ function MeetingsPageInner() {
       const now = new Date();
       const start = new Date(now); start.setDate(start.getDate() - 90);
       const end = new Date(now); end.setDate(end.getDate() + 14);
-      const { events: fetched, connected: isConnected } = await fetchGoogleCalendarEvents(token, start.toISOString(), end.toISOString());
+      const { events: fetched, connected: isConnected } = await fetchGoogleCalendarEvents(!!user, start.toISOString(), end.toISOString());
       setEvents(fetched);
       setConnected(isConnected);
       setLoading(false);
@@ -49,11 +49,11 @@ function MeetingsPageInner() {
     // screen) is immediately visible here, instead of silently showing someone else's
     // calendar under this login.
     async function loadGoogleStatus() {
-      if (!token) return;
+      if (!user) return;
       try {
         const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         const res = await fetch(`${apiBaseUrl}/api/google/status`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
           cache: 'no-store',
         });
         if (res.ok) {
@@ -65,7 +65,7 @@ function MeetingsPageInner() {
       }
     }
     loadGoogleStatus();
-  }, [token]);
+  }, [user]);
 
   const cards: MeetingCard[] = useMemo(() => {
     const eventCards: MeetingCard[] = events.map(ev => {

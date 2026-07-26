@@ -20,6 +20,12 @@ const PRIORITY_COLORS = {
 const isLeadershipMember = (m?: { role?: string; roleTag?: string } | null) =>
   m?.role === 'super_admin' || m?.role === 'admin' || m?.roleTag === 'leadership';
 
+// Real accounts are keyed by backend DB ids now, not the old mock roster's 'u-*' ids — match
+// these two people by email (stable across environments) instead of a dead mock id that never
+// matches a hydrated teamMembers entry.
+const THARIQ_EMAIL = 'thariq.dev@gmail.com';
+const ABHILASH_EMAIL = 'connect@invictusglobaltech.com';
+
 // Assignment hierarchy: leadership and the CTO can assign to anyone (Thariq's cross-department
 // assignments are gated by an approval/notify side-effect in handleSubmit, not by hiding options);
 // Abhilash (Operations Manager) can assign to anyone except leadership/the CTO; everyone else
@@ -28,11 +34,11 @@ const isLeadershipMember = (m?: { role?: string; roleTag?: string } | null) =>
 // to self-assignment.
 function getAssignmentScope(currentUser: any, teamMembers: any[]): { mode: 'open' | 'locked'; options: any[] } {
   if (!currentUser) return { mode: 'locked', options: [] };
-  if (isLeadershipMember(currentUser) || currentUser.id === 'u-thariq') {
+  if (isLeadershipMember(currentUser) || currentUser.email === THARIQ_EMAIL) {
     return { mode: 'open', options: teamMembers };
   }
-  if (currentUser.id === 'u-abhilash') {
-    return { mode: 'open', options: teamMembers.filter(m => !isLeadershipMember(m) && m.id !== 'u-thariq') };
+  if (currentUser.email === ABHILASH_EMAIL) {
+    return { mode: 'open', options: teamMembers.filter(m => !isLeadershipMember(m) && m.email !== THARIQ_EMAIL) };
   }
   if (currentUser.department) {
     return { mode: 'open', options: teamMembers.filter(m => m.department === currentUser.department && !isLeadershipMember(m)) };
@@ -226,10 +232,10 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (form.type === 'subtask' && !form.parentId) e.parentId = 'Parent Task is required for subtasks';
     if (form.assignedTo.length === 0) {
       e.assignedTo = 'Assign at least one team member';
-    } else if (!isLeadershipMember(currentUser) && currentUser?.id !== 'u-thariq') {
+    } else if (!isLeadershipMember(currentUser) && currentUser?.email !== THARIQ_EMAIL) {
       const targetsLeadershipOrCto = form.assignedTo.some(id => {
         const m = state.teamMembers.find(t => t.id === id);
-        return m && (isLeadershipMember(m) || m.id === 'u-thariq');
+        return m && (isLeadershipMember(m) || m.email === THARIQ_EMAIL);
       });
       if (targetsLeadershipOrCto) e.assignedTo = 'You cannot assign tasks to leadership';
     }
@@ -241,13 +247,13 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setSubmitting(true);
 
-    const isThariq = currentUser?.id === 'u-thariq';
+    const isThariq = currentUser?.email === THARIQ_EMAIL;
     const ceo = state.teamMembers.find(m => m.role === 'super_admin');
     // Leadership, Thariq, Abhilash, and department heads manage their own assignments without
     // a CEO self-assignment approval request. Regular team members still need approval to
     // self-assign even though department scoping now also lets them assign to teammates.
-    const needsSelfAssignApproval = !isLeadershipMember(currentUser) && currentUser?.id !== 'u-thariq'
-      && currentUser?.id !== 'u-abhilash' && !currentUser?.isHeadOfDepartment;
+    const needsSelfAssignApproval = !isLeadershipMember(currentUser) && currentUser?.email !== THARIQ_EMAIL
+      && currentUser?.email !== ABHILASH_EMAIL && !currentUser?.isHeadOfDepartment;
 
     const applyThariqSideEffect = (taskId: string, taskTitle: string) => {
       if (!isThariq || !ceo) return;

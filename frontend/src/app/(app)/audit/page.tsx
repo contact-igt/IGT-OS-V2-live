@@ -95,9 +95,8 @@ export default function AuditPage() {
 
   const fetchLog = useCallback(async () => {
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const res = await fetch(`${baseUrl}/api/audit-log`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${baseUrl}/api/audit-log`, { credentials: 'include' });
       if (res.ok) setEntries(await res.json());
     } catch (e) {
       console.error('Failed to load audit log:', e);

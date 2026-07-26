@@ -13,23 +13,23 @@ export default function CalendarMiniWidget({
   setSelectedDate: (d: Date) => void
 }) {
   const { state, dispatch } = useApp();
-  const { token } = useAuth();
+  const { user } = useAuth();
   const [calendarWeeks, setCalendarWeeks] = useState(2);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function loadEvents() {
-      if (!token) return;
+      if (!user) return;
       setLoading(true);
       const minDate = new Date();
       const maxDate = new Date();
       maxDate.setDate(maxDate.getDate() + 30);
-      const { events, connected } = await fetchGoogleCalendarEvents(token, minDate.toISOString(), maxDate.toISOString());
+      const { events, connected } = await fetchGoogleCalendarEvents(!!user, minDate.toISOString(), maxDate.toISOString());
       dispatch({ type: 'SET_GOOGLE_EVENTS', payload: { events, connected } });
       setLoading(false);
     }
     loadEvents();
-  }, [token, dispatch]);
+  }, [user, dispatch]);
 
   return (
     <>

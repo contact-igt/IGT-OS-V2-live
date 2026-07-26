@@ -1014,13 +1014,15 @@ const AppContext = createContext<AppContextValue | null>(null);
 // PROVIDER
 // ─────────────────────────────────────────────────────────────
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const { token, logout, user } = useAuth();
+  const { logout, user } = useAuth();
   const confirm = useConfirm();
 
   const [state, dispatch] = useReducer(appReducer, initialState);
   const prevUserRef = useRef<string | undefined>(user?.id);
   const stateRef = useRef(state);
   stateRef.current = state; // inline ref sync — no useEffect needed
+  const userRef = useRef(user);
+  userRef.current = user; // read fresh in timers/callbacks without adding `user` to every dep array
 
   // Mock client ids ('c1', ...) used throughout the app's hierarchy/permission logic
   // don't match the real backend's UUIDs. This map (built from /api/clients by matching
@@ -1050,15 +1052,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         fetch(`${baseUrl}/api/attendance/clock-in`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         }).catch(err => console.error('Error syncing clock-in:', err));
       }
     }
     prevUserRef.current = user?.id;
 
     const handleBeforeUnload = () => {
-      const jwt = localStorage.getItem('invictus_jwt');
-      if (user?.id && jwt) {
+      if (user?.id) {
         const today = new Date().toISOString().split('T')[0];
         let updatedState = { ...stateRef.current };
 
@@ -1099,22 +1100,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   const fetchData = useCallback(async () => {
-    if (!token) return;
+    if (!user) return;
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const headers = { 'Authorization': `Bearer ${token}` };
+      const opts: RequestInit = { credentials: 'include' };
 
       const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes, meetingsRes] = await Promise.all([
-        fetch(`${baseUrl}/api/users`, { headers }),
-        fetch(`${baseUrl}/api/clients`, { headers }),
-        fetch(`${baseUrl}/api/tasks`, { headers }),
-        fetch(`${baseUrl}/api/notifications`, { headers }),
-        fetch(`${baseUrl}/api/attendance`, { headers }),
-        fetch(`${baseUrl}/api/github/live`, { headers }),
-        fetch(`${baseUrl}/api/social/accounts`, { headers }),
-        fetch(`${baseUrl}/api/time-logs?active=true`, { headers }),
-        fetch(`${baseUrl}/api/audit-log`, { headers }),
-        fetch(`${baseUrl}/api/meetings`, { headers }),
+        fetch(`${baseUrl}/api/users`, opts),
+        fetch(`${baseUrl}/api/clients`, opts),
+        fetch(`${baseUrl}/api/tasks`, opts),
+        fetch(`${baseUrl}/api/notifications`, opts),
+        fetch(`${baseUrl}/api/attendance`, opts),
+        fetch(`${baseUrl}/api/github/live`, opts),
+        fetch(`${baseUrl}/api/social/accounts`, opts),
+        fetch(`${baseUrl}/api/time-logs?active=true`, opts),
+        fetch(`${baseUrl}/api/audit-log`, opts),
+        fetch(`${baseUrl}/api/meetings`, opts),
       ]);
 
       // A 401 from ANY endpoint means the session has expired — log out consistently
@@ -1189,6 +1190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           avatarUrl: dbUser.avatar_url,
           employeeId: dbUser.employee_id || undefined,
           title: dbUser.title || undefined,
+          isHeadOfDepartment: !!dbUser.is_head_of_department,
         };
       });
 
@@ -1334,15 +1336,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error('fetchData failed, keeping local state:', err);
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [token, logout]);
+  }, [user?.id, logout]);
 
   useEffect(() => {
-    if (token) {
+    if (user) {
       fetchData();
     } else {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [token, fetchData]);
+  }, [user?.id, fetchData]);
 
   // Persist newly-added audit entries to the backend as they're created. addAudit()
   // always prepends new entries to the front of the array, so anything newer than
@@ -1350,7 +1352,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // adds an entry (task changes, timer events, clock in/out, etc.) without needing a
   // matching backend-sync call threaded through each of those individually.
   useEffect(() => {
-    if (!token || state.auditLog.length === 0) return;
+    if (!user || state.auditLog.length === 0) return;
     const newest = state.auditLog[0];
     if (newest.id === lastSyncedAuditIdRef.current) return;
 
@@ -1365,7 +1367,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     for (const entry of [...toSync].reverse()) {
       fetch(`${apiBaseUrl}/api/audit-log`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           actorName: entry.actor,
           action: entry.action,
@@ -1377,7 +1380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }),
       }).catch(err => console.error('Failed to sync audit entry to backend:', err));
     }
-  }, [state.auditLog, token]);
+  }, [state.auditLog, user]);
 
 
   const [isMounted, setIsMounted] = React.useState(false);
@@ -1496,9 +1499,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         stateVersion:      state.stateVersion,
       };
       // Skip writes once logged out — otherwise this timer (scheduled before logout)
-      // fires after logout's localStorage.removeItem and silently resurrects the
-      // just-cleared state.
-      if (!localStorage.getItem('invictus_jwt')) return;
+      // fires after logout clears state and silently resurrects the just-cleared data.
+      if (!userRef.current) return;
       try {
         localStorage.setItem('invictus_app_state_v2', JSON.stringify(essentialState));
       } catch {
@@ -1542,29 +1544,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const startTimer = useCallback((taskId: string) => {
     dispatch({ type: 'START_TIMER', payload: { taskId, userId: state.currentUserId } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       fetch(`${baseUrl}/api/tasks/${taskId}/timer/start`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       }).catch(err => console.error('Error syncing timer start:', err));
     }
-  }, [state.currentUserId, token]);
+  }, [state.currentUserId, user]);
 
   const stopTimer = useCallback((taskId: string) => {
     dispatch({ type: 'STOP_TIMER', payload: { taskId, userId: state.currentUserId } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       // keepalive: this fetch must still reach the server even if the page is mid-navigation
       // or a refresh fires right after the click — without it, the browser can cancel the
       // in-flight request, leaving the timer "stopped" locally but still running server-side.
       fetch(`${baseUrl}/api/tasks/${taskId}/timer/stop`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
         keepalive: true,
       }).catch(err => console.error('Error syncing timer stop:', err));
     }
-  }, [state.currentUserId, token]);
+  }, [state.currentUserId, user]);
 
   const requestStopTimer = useCallback((taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => {
     setStoppingTaskId(taskId);
@@ -1590,7 +1592,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     dispatch({ type: 'SET_TASK_STATUS', payload: { id: taskId, status, actorId: state.currentUserId, note } });
 
-    if (token) {
+    if (user) {
       const dbTaskId = taskIdMapRef.current[taskId] || taskId;
       // keepalive: a status change (esp. marking Done) must persist even if the user
       // refreshes or navigates away right after clicking — otherwise the UI shows the new
@@ -1598,7 +1600,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // next fetchData() pass correctly (if confusingly) reverts to the true, unsaved status.
       fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
         keepalive: true,
       }).catch(err => console.error('Failed to sync status change to backend:', err));
@@ -1621,18 +1624,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         targets.forEach(dbUserId => {
           fetch(`${apiBaseUrl}/api/notifications`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: dbUserId, type: 'status_change', taskId: dbTaskId, message }),
           }).catch(err => console.error('Failed to sync status-change notification:', err));
         });
       }
     }
-  }, [state.currentUserId, state.tasks, state.teamMembers, token]);
+  }, [state.currentUserId, state.tasks, state.teamMembers, user]);
 
   const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => {
     dispatch({ type: 'CREATE_TASK', payload: data });
 
-    if (token) {
+    if (user) {
       (async () => {
         try {
           const dbClientId = clientIdMapRef.current.toDb[data.clientId];
@@ -1644,7 +1648,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
           const res = await fetch(`${apiBaseUrl}/api/tasks`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               title: data.title,
               description: data.description,
@@ -1695,7 +1700,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           for (const dbUserId of dbAssignedTo) {
             fetch(`${apiBaseUrl}/api/notifications`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ userId: dbUserId, type: 'assignment', taskId: created.id, message: `You have been assigned a new task: ${data.title}` }),
             }).catch(err => console.error('Failed to sync assignment notification:', err));
           }
@@ -1704,17 +1710,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     }
-  }, [token]);
+  }, [user]);
 
   // Quick-add client (name + short code only — see backend POST /api/clients). Registers
   // the new client into both state.clients and clientIdMapRef so createTask's mock->real
   // id translation works immediately, without waiting for the next full fetchData() pass.
   const createClient = useCallback(async (name: string, shortCode: string): Promise<{ id: string } | { error: string }> => {
-    if (!token) return { error: 'Not authenticated' };
+    if (!user) return { error: 'Not authenticated' };
     try {
       const res = await fetch(`${apiBaseUrl}/api/clients`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, shortCode }),
       });
       const data = await res.json();
@@ -1739,12 +1746,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       return { error: 'Could not connect to the server' };
     }
-  }, [token]);
+  }, [user]);
 
   const updateTask = useCallback((id: string, updates: Partial<Task>) => {
     dispatch({ type: 'UPDATE_TASK', payload: { id, updates } });
 
-    if (token) {
+    if (user) {
       (async () => {
         try {
           const dbTaskId = taskIdMapRef.current[id] || id;
@@ -1756,7 +1763,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
           await fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
         } catch (err) {
@@ -1764,24 +1772,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     }
-  }, [token]);
+  }, [user]);
 
   const deleteTask = useCallback(async (id: string): Promise<boolean> => {
     const task = state.tasks.find(t => t.id === id);
     if (!task) return false;
     if (await confirm(`Delete '${task.title}'? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' })) {
       dispatch({ type: 'DELETE_TASK', payload: { id } });
-      if (token) {
+      if (user) {
         const dbTaskId = taskIdMapRef.current[id] || id;
         fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         }).catch(err => console.error('Failed to sync task deletion to backend:', err));
       }
       return true;
     }
     return false;
-  }, [state.tasks, confirm, token]);
+  }, [state.tasks, confirm, user]);
 
   const addTeamMember = useCallback((data: Omit<TeamMember, 'id'>) => dispatch({ type: 'ADD_TEAM_MEMBER', payload: data }), []);
   const updateTeamMember = useCallback((id: string, updates: Partial<TeamMember>) => dispatch({ type: 'UPDATE_TEAM_MEMBER', payload: { id, updates } }), []);
@@ -1797,15 +1805,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const notifyUser = useCallback((userId: string, message: string, taskId?: string, type: string = 'assignment') => {
     dispatch({ type: 'CREATE_NOTIFICATION', payload: { userId, actorId: state.currentUserId, type, taskId: taskId || '', message } });
 
-    if (token) {
+    if (user) {
       const dbTaskId = taskId ? (taskIdMapRef.current[taskId] || taskId) : undefined;
       fetch(`${apiBaseUrl}/api/notifications`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, type, taskId: dbTaskId, message }),
       }).catch(err => console.error('Failed to sync notification to backend:', err));
     }
-  }, [state.currentUserId, token]);
+  }, [state.currentUserId, user]);
 
   const resolveApproval = useCallback((taskId: string, approvalId: string, status: 'approved' | 'rejected', responseMessage?: string) => {
     dispatch({ type: 'RESOLVE_APPROVAL', payload: { taskId, approvalId, status, responseMessage } });
@@ -1824,12 +1833,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const saveMeetingNote = useCallback(async (note: any): Promise<string | null> => {
-    if (!token) return null;
+    if (!user) return null;
     try {
       const dbClientId = note.clientId ? (clientIdMapRef.current.toDb[note.clientId] || null) : null;
       const res = await fetch(`${apiBaseUrl}/api/meetings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: note.title || note.result?.meetingMeta?.title || 'Meeting Notes',
           clientId: dbClientId,
@@ -1859,7 +1869,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error('Error saving meeting note:', err);
       return null;
     }
-  }, [token, apiBaseUrl]);
+  }, [user, apiBaseUrl]);
 
   const addReviewComment = useCallback((taskId: string, text: string) => {
     dispatch({ type: 'ADD_REVIEW_COMMENT', payload: { taskId, text, authorId: state.currentUserId } });
@@ -1875,57 +1885,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const todayTasks = React.useMemo(() => state.tasks.filter(t => t.deadline && t.status !== 'done' && t.deadline === todayStr), [state.tasks, todayStr]);
   const clockIn = useCallback((userId: string, date: string, time: string, isLate?: boolean) => {
     dispatch({ type: 'CLOCK_IN', payload: { userId, date, time, isLate } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       fetch(`${baseUrl}/api/attendance/clock-in`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       })
       .then(() => fetchData())
       .catch(err => console.error('Error syncing clock-in:', err));
     }
-  }, [token, fetchData]);
+  }, [user, fetchData]);
 
   const clockOut = useCallback((userId: string, date: string, time: string) => {
     dispatch({ type: 'CLOCK_OUT', payload: { userId, date, time } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       fetch(`${baseUrl}/api/attendance/clock-out`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       })
       .then(() => fetchData())
       .catch(err => console.error('Error syncing clock-out:', err));
     }
-  }, [token, fetchData]);
+  }, [user, fetchData]);
 
   const startBreak = useCallback((userId: string, date: string) => {
     const time = new Date().toISOString();
     dispatch({ type: 'START_BREAK', payload: { userId, date, time } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       fetch(`${baseUrl}/api/attendance/break-start`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       })
       .then(() => fetchData())
       .catch(err => console.error('Error starting break:', err));
     }
-  }, [token, fetchData]);
+  }, [user, fetchData]);
 
   const endBreak = useCallback((userId: string, date: string) => {
     const time = new Date().toISOString();
     dispatch({ type: 'END_BREAK', payload: { userId, date, time } });
-    if (token) {
+    if (user) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       fetch(`${baseUrl}/api/attendance/break-end`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       })
       .then(() => fetchData())
       .catch(err => console.error('Error ending break:', err));
     }
-  }, [token, fetchData]);
+  }, [user, fetchData]);
 
   // User ids are the real backend id everywhere now — no translation needed. Kept as a
   // pass-through rather than removed outright since callers throughout the app still invoke it.

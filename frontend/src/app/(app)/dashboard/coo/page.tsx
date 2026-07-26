@@ -16,12 +16,9 @@ export default function COODashboard() {
   useEffect(() => {
     async function fetchAnalytics() {
       try {
-        const token = localStorage.getItem('invictus_jwt');
         const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         const res = await fetch(`${apiBaseUrl}/api/analytics/coo`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          credentials: 'include',
         });
         if (res.ok) {
           const data = await res.json();

@@ -97,9 +97,8 @@ export default function AdminPage() {
   const handleResetPassword = async (member: TeamMember) => {
     setActionMenuOpen(null);
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { credentials: 'include' });
       const roster = await rosterRes.json();
       const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
       if (!realUser) {
@@ -108,7 +107,7 @@ export default function AdminPage() {
       }
       const res = await fetch(`${baseUrl}/api/users/${realUser.id}/admin-reset-password`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) {
@@ -138,9 +137,8 @@ export default function AdminPage() {
     setPageAccessLoading(true);
     setIsPageAccessModalOpen(true);
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { credentials: 'include' });
       const roster = await rosterRes.json();
       const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
       if (!realUser) {
@@ -148,7 +146,7 @@ export default function AdminPage() {
         return;
       }
       setPageAccessRealUserId(realUser.id);
-      const res = await fetch(`${baseUrl}/api/page-access/${realUser.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${baseUrl}/api/page-access/${realUser.id}`, { credentials: 'include' });
       const data = await res.json();
       if (res.ok) {
         const checked: Record<string, boolean> = {};
@@ -167,12 +165,12 @@ export default function AdminPage() {
     setPageAccessSaving(true);
     setPageAccessError('');
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const pages = Object.entries(pageAccessChecked).filter(([, v]) => v).map(([k]) => k);
       const res = await fetch(`${baseUrl}/api/page-access/${pageAccessRealUserId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pages }),
       });
       const data = await res.json();
@@ -203,9 +201,8 @@ export default function AdminPage() {
     if (!newRole || newRole === member.role) return;
     setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'saving' }));
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { credentials: 'include' });
       const roster = await rosterRes.json();
       const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
       if (!realUser) {
@@ -215,7 +212,8 @@ export default function AdminPage() {
       }
       const res = await fetch(`${baseUrl}/api/users/${realUser.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       });
       const data = await res.json();
@@ -237,17 +235,17 @@ export default function AdminPage() {
   const handleColorChange = async (id: string, newColor: string) => {
     updateTeamMember(id, { color: newColor });
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const member = state.teamMembers.find(m => m.id === id);
       if (member?.email) {
-        const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+        const rosterRes = await fetch(`${baseUrl}/api/users`, { credentials: 'include' });
         const roster = await rosterRes.json();
         const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
         if (realUser) {
           await fetch(`${baseUrl}/api/users/${realUser.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ color: newColor }),
           });
         }
@@ -273,11 +271,11 @@ export default function AdminPage() {
     setAddUserError('');
 
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const res = await fetch(`${baseUrl}/api/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName, email: newEmail, role: newRole, department: newDepartment }),
       });
       const data = await res.json();

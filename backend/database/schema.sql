@@ -37,6 +37,7 @@ CREATE TABLE public.users (
   locked_until TIMESTAMPTZ,
   employee_id TEXT UNIQUE,           -- HR-facing id (e.g. "EMP-001"), distinct from the PK
   title TEXT,                        -- job title (e.g. "Founder & CEO") shown in place of department where set
+  is_head_of_department BOOLEAN NOT NULL DEFAULT false, -- self-assign-approval bypass + department-head notification routing
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -456,3 +457,16 @@ CREATE TABLE public.app_secrets (
   updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+
+-- 25. Refresh Tokens (HttpOnly-cookie auth — rotated on every /api/auth/refresh call so a
+-- stolen token is single-use; only the sha256 hash is stored, never the raw value.)
+CREATE TABLE public.refresh_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(20) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_refresh_tokens_user_id ON public.refresh_tokens(user_id);
