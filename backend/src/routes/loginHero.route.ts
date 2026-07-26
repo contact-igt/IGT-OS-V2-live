@@ -14,7 +14,7 @@ export const heroCache = new Map<string, HeroContent>();
 
 // ── ROLE KEY RESOLVER ──────────────────────────────────────────────────────
 export function resolveRoleKey(role: string, department: string): string {
-  if (role === 'admin') return 'leadership';
+  if (role === 'admin' || role === 'super_admin') return 'leadership';
   const d = (department || '').toLowerCase();
   if (d.includes('design') || d.includes('creative'))      return 'design';
   if (d.includes('tech') || d.includes('dev') || d.includes('ai')) return 'dev';

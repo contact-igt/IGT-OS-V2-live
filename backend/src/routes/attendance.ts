@@ -294,7 +294,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let query = '';
     let params: any[] = [];
 
-    if (role === 'admin' || role === 'ops') {
+    if (role === 'admin' || role === 'super_admin' || role === 'ops') {
       query = `SELECT * FROM public.attendance_logs WHERE date >= CURRENT_DATE - $1::int ORDER BY date DESC, clock_in DESC`;
       params = [days];
     } else {

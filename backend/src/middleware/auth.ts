@@ -26,9 +26,11 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
 
 export const requireRole = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    if (!req.user) return res.status(403).json({ error: 'Forbidden' });
+    // super_admin is a strict superset of admin — any route open to 'admin' is open to
+    // super_admin too, without needing every call site updated to list both roles.
+    const allowed = roles.includes(req.user.role) || (req.user.role === 'super_admin' && roles.includes('admin'));
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     next();
   };
 };
@@ -40,6 +42,7 @@ export const requirePageAccess = (pagePath: string, defaultRoles: string[]) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     if (defaultRoles.includes(req.user.role)) return next();
+    if (req.user.role === 'super_admin' && defaultRoles.includes('admin')) return next();
 
     const pool: Pool = req.app.locals.pool;
     if (!pool) return res.status(500).json({ error: 'Database not configured' });

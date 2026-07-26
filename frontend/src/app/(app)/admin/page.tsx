@@ -54,6 +54,12 @@ export default function AdminPage() {
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
 
+  // Role changes are staged locally until "Save" is clicked, then PUT to the real backend —
+  // previously this select updated only local mock state and never reached the DB at all.
+  const [pendingRoles, setPendingRoles] = useState<Record<string, string>>({});
+  const [roleSaveStatus, setRoleSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  const [roleSaveError, setRoleSaveError] = useState<Record<string, string>>({});
+
   // API Keys State
   const [apiKeys, setApiKeys] = useState<ApiKeyIntegration[]>([
     { id: '1', type: 'api_key', service: 'AI', client: 'Global', value: 'sk-ant-api03-xxxxxxxxxxx', addedAt: '2026-07-01' },
@@ -188,7 +194,44 @@ export default function AdminPage() {
   };
 
   const handleRoleChange = (id: string, newRole: TeamMember['role']) => {
-    updateTeamMember(id, { role: newRole });
+    setPendingRoles(prev => ({ ...prev, [id]: newRole }));
+    setRoleSaveStatus(prev => { const next = { ...prev }; delete next[id]; return next; });
+  };
+
+  const handleSaveRole = async (member: TeamMember) => {
+    const newRole = pendingRoles[member.id];
+    if (!newRole || newRole === member.role) return;
+    setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'saving' }));
+    try {
+      const token = localStorage.getItem('invictus_jwt');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const rosterRes = await fetch(`${baseUrl}/api/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const roster = await rosterRes.json();
+      const realUser = roster.find((u: any) => u.email?.toLowerCase() === member.email?.toLowerCase());
+      if (!realUser) {
+        setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'error' }));
+        setRoleSaveError(prev => ({ ...prev, [member.id]: `Could not find a real backend account for ${member.name}.` }));
+        return;
+      }
+      const res = await fetch(`${baseUrl}/api/users/${realUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'error' }));
+        setRoleSaveError(prev => ({ ...prev, [member.id]: data.error || 'Failed to save' }));
+        return;
+      }
+      updateTeamMember(member.id, { role: newRole as TeamMember['role'] });
+      setPendingRoles(prev => { const next = { ...prev }; delete next[member.id]; return next; });
+      setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'saved' }));
+      setTimeout(() => setRoleSaveStatus(prev => { const next = { ...prev }; delete next[member.id]; return next; }), 2500);
+    } catch (err) {
+      setRoleSaveStatus(prev => ({ ...prev, [member.id]: 'error' }));
+      setRoleSaveError(prev => ({ ...prev, [member.id]: 'Could not connect to the server.' }));
+    }
   };
 
   const handleColorChange = async (id: string, newColor: string) => {
@@ -350,16 +393,33 @@ export default function AdminPage() {
                     </div>
                   </td>
                   <td className="p-4">
-                    <select
-                      className="input-base text-[12px] py-1.5 w-[140px]"
-                      value={member.role}
-                      onChange={(e) => handleRoleChange(member.id, e.target.value as TeamMember['role'])}
-                      disabled={member.role === 'super_admin'} // Prevent changing super admin
-                    >
-                      {Object.entries(ROLE_LABELS).map(([val, label]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="input-base text-[12px] py-1.5 w-[140px]"
+                        value={pendingRoles[member.id] ?? member.role}
+                        onChange={(e) => handleRoleChange(member.id, e.target.value as TeamMember['role'])}
+                        disabled={member.role === 'super_admin'} // Prevent changing super admin
+                      >
+                        {Object.entries(ROLE_LABELS).map(([val, label]) => (
+                          <option key={val} value={val}>{label}</option>
+                        ))}
+                      </select>
+                      {pendingRoles[member.id] !== undefined && pendingRoles[member.id] !== member.role && (
+                        <button
+                          onClick={() => handleSaveRole(member)}
+                          disabled={roleSaveStatus[member.id] === 'saving'}
+                          className="text-[11px] font-bold px-2.5 py-1.5 rounded bg-primary text-black disabled:opacity-50"
+                        >
+                          {roleSaveStatus[member.id] === 'saving' ? 'Saving…' : 'Save'}
+                        </button>
+                      )}
+                      {roleSaveStatus[member.id] === 'saved' && (
+                        <span className="text-[11px] font-bold text-emerald-500">Saved ✓</span>
+                      )}
+                    </div>
+                    {roleSaveStatus[member.id] === 'error' && (
+                      <p className="text-[11px] text-red-400 mt-1">{roleSaveError[member.id]}</p>
+                    )}
                   </td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">

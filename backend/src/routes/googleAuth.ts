@@ -156,6 +156,21 @@ router.get('/status', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/google/disconnect — removes the caller's stored Google tokens. Calendar/Gmail
+// features fall back to their disconnected empty state until they connect again.
+router.delete('/disconnect', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  try {
+    await pool.query('DELETE FROM public.google_accounts WHERE user_id = $1', [req.user.id]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error disconnecting Google account:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/google/calendar/events?start=&end=
 router.get('/calendar/events', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;

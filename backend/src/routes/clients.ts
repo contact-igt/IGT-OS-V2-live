@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { requireAuth } from '../middleware/auth';
+import { logAudit } from '../lib/auditLog';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     const role = req.user.role;
     let query = '';
 
-    if (role === 'admin' || role === 'ops') {
+    if (role === 'admin' || role === 'ops' || role === 'super_admin') {
       query = 'SELECT * FROM public.clients ORDER BY name ASC';
     } else {
       query = 'SELECT id, name, short_code, color_hex FROM public.clients ORDER BY name ASC';
@@ -48,6 +49,15 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
        RETURNING *`,
       [name, shortCode]
     );
+    logAudit(pool, {
+      actorId: req.user.id,
+      actorName: req.user.name || req.user.email,
+      action: 'client_created',
+      entity: 'Client',
+      entityRef: result.rows[0].name,
+      entityId: result.rows[0].id,
+      clientName: result.rows[0].name,
+    });
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     if (error.code === '23505') {
@@ -67,7 +77,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     let query = '';
 
-    if (role === 'admin' || role === 'ops') {
+    if (role === 'admin' || role === 'ops' || role === 'super_admin') {
       query = 'SELECT * FROM public.clients WHERE id = $1';
     } else {
       query = 'SELECT id, name, short_code, color_hex FROM public.clients WHERE id = $1';

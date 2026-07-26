@@ -35,11 +35,54 @@ import googleAuthRoutes from './routes/googleAuth';
 import appSecretsRoutes from './routes/appSecrets';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import { requireAuth, requirePageAccess } from './middleware/auth';
+import { logAudit } from './lib/auditLog';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Coarse UA parsing for the audit log's Device column — good enough to distinguish
+// "Chrome / Windows" from "Safari / iOS" without pulling in a UA-parsing dependency.
+function parseDevice(userAgent: string | undefined): string {
+  const ua = userAgent || '';
+  let browser = 'Unknown';
+  if (/edg\//i.test(ua)) browser = 'Edge';
+  else if (/chrome\//i.test(ua)) browser = 'Chrome';
+  else if (/firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/safari\//i.test(ua)) browser = 'Safari';
+
+  let os = 'Unknown';
+  if (/windows/i.test(ua)) os = 'Windows';
+  else if (/mac os|macintosh/i.test(ua)) os = 'MacOS';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad|ios/i.test(ua)) os = 'iOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+
+  return `${browser} / ${os}`;
+}
+
+function getClientIp(req: Request): string {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
+  return req.socket.remoteAddress || req.ip || 'Unknown';
+}
+
+// Every login attempt (success, wrong password, lockout, unknown email) writes one row
+// here — previously only a running failed_login_attempts counter existed on the user row,
+// with no timestamped history at all, so "Failed Logins" / "Recent Critical Events" on the
+// audit dashboard had nothing real to show.
+function logAuthEvent(pool: Pool, req: Request, params: { actorId: string | null; actorName: string; action: string; reason?: string }) {
+  logAudit(pool, {
+    actorId: params.actorId,
+    actorName: params.actorName,
+    action: params.action,
+    entity: 'Auth',
+    entityRef: params.actorName,
+    entityId: params.actorId,
+    meta: { ip: getClientIp(req), device: parseDevice(req.headers['user-agent'] as string), reason: params.reason },
+  });
+}
 
 // Disable ETags and force fresh API responses without 304 stale caching
 app.set('etag', false);
@@ -86,6 +129,7 @@ if (process.env.DATABASE_URL) {
       const result = await pool.query('SELECT * FROM public.users WHERE email = $1', [email.toLowerCase()]);
 
       if (result.rows.length === 0) {
+        logAuthEvent(pool, req, { actorId: null, actorName: email, action: 'login_failed', reason: 'unknown_email' });
         return res.status(401).json({ error: 'Invalid email or password.' });
       }
 
@@ -93,17 +137,19 @@ if (process.env.DATABASE_URL) {
 
       // 1.5. Check if active
       if (!user.is_active) {
+        logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_blocked', reason: 'account_disabled' });
         return res.status(403).json({ error: 'Account is disabled. Please contact admin.' });
       }
 
       // 1.6. Check if locked out
       if (user.locked_until && new Date(user.locked_until) > new Date()) {
+        logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_blocked', reason: 'locked_out' });
         return res.status(423).json({ error: 'Account locked due to multiple failed attempts. Try again later.' });
       }
 
       // 2. Verify hashed password
       const isMatch = await bcrypt.compare(password, user.password_hash);
-      
+
       if (!isMatch) {
         const newAttempts = (user.failed_login_attempts || 0) + 1;
         if (newAttempts >= 5) {
@@ -112,12 +158,14 @@ if (process.env.DATABASE_URL) {
             "UPDATE public.users SET failed_login_attempts = $1, locked_until = NOW() + INTERVAL '30 minutes' WHERE id = $2",
             [newAttempts, user.id]
           );
+          logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_blocked', reason: 'locked_out_now' });
           return res.status(423).json({ error: 'Account locked due to multiple failed attempts. Try again later.' });
         } else {
           await pool.query(
             "UPDATE public.users SET failed_login_attempts = $1 WHERE id = $2",
             [newAttempts, user.id]
           );
+          logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_failed', reason: 'wrong_password' });
           return res.status(401).json({ error: 'Invalid email or password.' });
         }
       }
@@ -127,6 +175,7 @@ if (process.env.DATABASE_URL) {
         "UPDATE public.users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
         [user.id]
       );
+      logAuthEvent(pool, req, { actorId: user.id, actorName: user.name, action: 'login_success' });
 
       // 4. Generate JWT Token
       const token = jwt.sign(
@@ -143,7 +192,7 @@ if (process.env.DATABASE_URL) {
 
       // 5. Determine Canonical Destination
       let destination = '/my-workspace';
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'super_admin') {
         destination = '/dashboard';
       } else if (user.role === 'ops') {
         if (user.department?.toLowerCase() === 'finance') {
@@ -228,7 +277,7 @@ if (process.env.DATABASE_URL) {
       
       // Determine RoleKey for AI Hero
       let roleKey = 'dev';
-      if (user.role === 'admin' || user.role === 'ops') roleKey = 'leadership';
+      if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'ops') roleKey = 'leadership';
       else if (user.department?.toLowerCase().includes('design')) roleKey = 'design';
       else if (user.department?.toLowerCase().includes('video')) roleKey = 'video';
       else if (user.department?.toLowerCase().includes('marketing')) roleKey = 'marketing';
@@ -398,10 +447,50 @@ app.post('/api/leave-requests', requireAuth, async (req: Request, res: Response)
         'Abhilash B Nair',
       ]
     );
+
+    // The request itself was previously stored with nobody ever informed — no notification,
+    // no email, nothing. Every leave request now notifies exactly Abhilash B Nair (103, Ops
+    // Manager), Anitha Yogan (102, COO), and Sushil Athithiyaa (101, CEO) — not the broader
+    // admin/ops role set, which would also sweep in people like the CTO who isn't part of the
+    // leave-approval chain. The submitter is excluded so nobody gets notified of their own request.
+    const submitterId = (req as any).user?.id;
+    const LEAVE_NOTIFY_IDS = ['101', '102', '103'];
+    pool.query(
+      `INSERT INTO public.notifications (user_id, actor_id, type, message)
+       SELECT id, $1, 'status_change', $2 FROM public.users WHERE id = ANY($3) AND id != $1`,
+      [submitterId, `${requestedByName || 'Someone'} requested ${type} leave from ${fromDate} to ${toDate}: "${reason}"`, LEAVE_NOTIFY_IDS]
+    ).catch(err => console.error('[leave] Failed to create notification:', err));
+
+    logAudit(pool, {
+      actorId: submitterId,
+      actorName: requestedByName || 'Unknown',
+      action: 'leave_requested',
+      entity: 'Leave',
+      entityRef: `${type} leave (${fromDate} to ${toDate})`,
+      meta: { type, fromDate, toDate, reason },
+    });
+
     return res.json({ success: true, data: { message: 'Leave request submitted.' }, error: null });
   } catch (err: any) {
     console.error('[leave] DB error:', err.message);
     return res.json({ success: true, data: { message: 'Leave request logged.' }, error: null });
+  }
+});
+
+// GET /api/leave-requests/me — the caller's own submitted requests, for showing a real
+// "leave taken this month" figure on My Profile instead of a static, always-zero field.
+app.get('/api/leave-requests/me', requireAuth, async (req: Request, res: Response) => {
+  if (!pool) return res.json([]);
+  try {
+    const result = await pool.query(
+      `SELECT id, type, from_date, to_date, reason, status, created_at
+       FROM leave_requests WHERE user_id = $1 ORDER BY created_at DESC`,
+      [(req as any).user.id]
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    console.error('[leave] Error fetching own leave requests:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

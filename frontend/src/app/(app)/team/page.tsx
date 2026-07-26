@@ -39,10 +39,13 @@ export default function TeamPage() {
 
       // Only count done tasks that actually have an estimate — a done task with logged
       // time but no estimatedHours would otherwise zero out doneEst and show a misleading 0%.
-      const estimatedDoneTasks = doneTasks.filter(t => (t.estimatedHours || 0) > 0);
+      // Also require at least 5 logged minutes: a task marked done with only a minute or two
+      // logged was never meaningfully timed, and dividing by that near-zero actual time blows
+      // the ratio up to absurd values (e.g. a 1h estimate over 2 logged minutes reads as 9000%).
+      const estimatedDoneTasks = doneTasks.filter(t => (t.estimatedHours || 0) > 0 && (t.loggedMinutes || 0) >= 5);
       const doneEst = estimatedDoneTasks.reduce((acc, t) => acc + (t.estimatedHours || 0), 0);
       const doneActual = estimatedDoneTasks.reduce((acc, t) => acc + (t.loggedMinutes / 60), 0);
-      const efficiency = doneActual > 0 ? Math.round((doneEst / doneActual) * 100) : null;
+      const efficiency = doneActual > 0 ? Math.min(200, Math.round((doneEst / doneActual) * 100)) : null;
       let effColor = 'text-text-3';
       if (efficiency !== null) {
         effColor = 'text-green-500';
@@ -91,7 +94,9 @@ export default function TeamPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-[16px] text-text group-hover:text-primary transition-colors">{member.name}</h3>
-                  <p className="text-[12px] font-semibold text-text-2">{member.department} • <span className="uppercase text-[10px]">{member.role}</span></p>
+                  <p className="text-[12px] font-semibold text-text-2">
+                    {member.title || (<>{member.department} • <span className="uppercase text-[10px]">{member.role}</span></>)}
+                  </p>
                 </div>
               </div>
               
