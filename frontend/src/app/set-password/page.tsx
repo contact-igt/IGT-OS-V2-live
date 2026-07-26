@@ -20,18 +20,18 @@ const Logo = ({ size = 'normal' }: { size?: 'normal' | 'large' }) => (
 
 function SetPasswordForm() {
   const router = useRouter();
-  const { user, token, login } = useAuth();
-  
+  const { user, login } = useAuth();
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!token || !user) {
+    if (!user) {
       router.push('/login');
     }
-  }, [token, user, router]);
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,24 +52,22 @@ function SetPasswordForm() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/set-password`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       });
       const data = await res.json();
 
       if (data.success) {
-        if (user && token) {
-          login(token, { ...user, mustChangePassword: false });
+        if (user) {
+          login({ ...user, mustChangePassword: false });
         }
       } else {
         setError(data.error || 'Failed to update password.');
       }
     } catch (err: any) {
-      if (user && token) {
-        login(token, { ...user, mustChangePassword: false });
+      if (user) {
+        login({ ...user, mustChangePassword: false });
       } else {
         setError('Could not connect to the server');
       }

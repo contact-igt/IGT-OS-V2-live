@@ -33,17 +33,18 @@ interface GmailRecap {
 }
 
 function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect: (body: string) => void }) {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const [recaps, setRecaps] = useState<GmailRecap[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) { setLoading(false); return; }
-    fetch('/api/gmail-meetings', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
-      .then(r => r.json())
+    if (!user) { setLoading(false); return; }
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${baseUrl}/api/google/gmail/meeting-recaps`, { credentials: 'include', cache: 'no-store' })
+      .then(r => r.status === 404 ? [] : r.json())
       .then(data => { setRecaps(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [token]);
+  }, [user]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

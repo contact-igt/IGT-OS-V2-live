@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 
 export interface User {
@@ -16,94 +16,139 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   loading: boolean;
   grantedPagesReady: boolean;
-  login: (token: string, user: User) => void;
+  login: (user: User) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  token: null,
   loading: true,
   grantedPagesReady: false,
   login: () => {},
   logout: () => {},
 });
 
+// The session itself lives in HttpOnly cookies the browser sends automatically — the
+// frontend never reads or stores a token. This maps the (snake_case) GET /api/users/me
+// response into the same shape POST /api/login already returns.
+function mapMeResponse(data: any): User {
+  return {
+    id: data.id,
+    name: data.name,
+    email: data.email,
+    role: data.role,
+    department: data.department || '',
+    mustChangePassword: data.must_change_password,
+    destination: data.destination,
+    grantedPages: data.granted_pages || [],
+  };
+}
+
+// How often to silently refresh the access token while the app is open, well under its
+// 15-minute lifetime so an active session never hits a 401 mid-use. If this fails, the
+// refresh token itself has expired/been revoked and the user is signed out.
+const SILENT_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [grantedPagesReady, setGrantedPagesReady] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
 
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  const fetchMe = useCallback(async (): Promise<User | null> => {
+    const res = await fetch(`${baseUrl}/api/users/me`, { credentials: 'include' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return mapMeResponse(data);
+  }, [baseUrl]);
+
+  const refreshSession = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${baseUrl}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, [baseUrl]);
+
+  // Session restore on load — there's no token in JS to check, so this asks the backend
+  // whether the request's cookies represent a valid session. If the (short-lived) access
+  // token cookie has already expired, one silent refresh is attempted before giving up, so
+  // a plain browser refresh doesn't log an otherwise-valid session out.
   useEffect(() => {
     setIsMounted(true);
-    if (typeof window === 'undefined') {
-      setLoading(false);
-      return;
-    }
-    // Check local storage for token on mount
-    const savedToken = localStorage.getItem('invictus_jwt');
-    const savedUser = localStorage.getItem('invictus_user');
-    
-    if (savedToken && savedUser) {
-      // eslint-disable-next-line
-      setToken(savedToken);
+    let cancelled = false;
+
+    (async () => {
       try {
-        const parsedUser = JSON.parse(savedUser);
-        if (parsedUser) {
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem('invictus_jwt');
-          localStorage.removeItem('invictus_user');
-          setToken(null);
-          setUser(null);
+        let me = await fetchMe();
+        if (!me) {
+          const refreshed = await refreshSession();
+          if (refreshed) me = await fetchMe();
         }
-      } catch(e) {}
-    }
-    setLoading(false);
-  }, []);
+        if (!cancelled) setUser(me);
+      } catch (e) {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [fetchMe, refreshSession]);
+
+  // Background silent refresh so long-lived sessions don't quietly expire mid-use.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(async () => {
+      const ok = await refreshSession();
+      if (!ok && userRef.current) {
+        setUser(null);
+        router.push('/login');
+      }
+    }, SILENT_REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [user, refreshSession, router]);
 
   useEffect(() => {
-    if (!token) {
+    if (!user) {
       setGrantedPagesReady(false);
       return;
     }
     setGrantedPagesReady(false);
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    fetch(`${baseUrl}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.ok ? res.json() : Promise.reject(res.status))
-      .then(data => {
-        setUser(prev => prev ? { ...prev, grantedPages: data.granted_pages || [] } : prev);
+    fetchMe()
+      .then(me => {
+        if (me) setUser(prev => prev ? { ...prev, grantedPages: me.grantedPages } : prev);
       })
       .catch(err => console.error('Failed to load granted pages:', err))
       .finally(() => setGrantedPagesReady(true));
-  }, [token]);
+  }, [user?.id, fetchMe]);
 
   // Silently refresh granted pages on every navigation — an admin-granted page should show
   // up the next time this user moves around the app, not only after a full re-login. This
   // doesn't touch grantedPagesReady, so it never re-blocks the redirect guard below.
   useEffect(() => {
-    if (!token) return;
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    fetch(`${baseUrl}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.ok ? res.json() : Promise.reject(res.status))
-      .then(data => {
-        setUser(prev => prev ? { ...prev, grantedPages: data.granted_pages || [] } : prev);
+    if (!user) return;
+    fetchMe()
+      .then(me => {
+        if (me) setUser(prev => prev ? { ...prev, grantedPages: me.grantedPages } : prev);
       })
       .catch(err => console.error('Failed to refresh granted pages:', err));
-  }, [token, pathname]);
+  }, [pathname]);
 
   const getDashboardRoute = (user: User | null) => {
     if (!user) return '/login';
     if (user.mustChangePassword) return '/set-password';
     if (user.destination) return user.destination;
-    
+
     const { role } = user;
     if (role === 'admin' || role === 'ops') return '/dashboard';
     return '/my-workspace';
@@ -111,43 +156,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && isMounted) {
-      if (!token && !pathname.startsWith('/login')) {
+      if (!user && !pathname.startsWith('/login')) {
         router.push('/login');
-      } else if (token) {
-        if (user?.mustChangePassword && pathname !== '/set-password') {
+      } else if (user) {
+        if (user.mustChangePassword && pathname !== '/set-password') {
           router.push('/set-password');
-        } else if (!user?.mustChangePassword && (pathname === '/login' || pathname === '/set-password')) {
+        } else if (!user.mustChangePassword && (pathname === '/login' || pathname === '/set-password')) {
           router.push(getDashboardRoute(user));
         }
       }
     }
-  }, [token, loading, pathname, router, user, isMounted]);
+  }, [user, loading, pathname, router, isMounted]);
 
-  const login = (newToken: string, newUser: User) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('invictus_jwt', newToken);
-      localStorage.setItem('invictus_user', JSON.stringify(newUser));
-    }
-    setToken(newToken);
+  const login = (newUser: User) => {
     setUser(newUser);
     router.push(getDashboardRoute(newUser));
   };
 
   const logout = () => {
-    // Only clear this session's auth — not invictus_app_state_v2. Tasks/notifications
-    // now sync to the real backend, but that blob still caches shared local state;
-    // clearing it on logout would wipe other accounts' tasks from this browser too.
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('invictus_jwt');
-      localStorage.removeItem('invictus_user');
-    }
-    setToken(null);
+    fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
     setUser(null);
     router.push('/login');
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, grantedPagesReady, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, grantedPagesReady, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

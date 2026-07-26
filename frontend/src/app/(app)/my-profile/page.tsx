@@ -230,10 +230,9 @@ export default function MyProfilePage() {
 
   useEffect(() => {
     if (!user?.id) return;
-    const token = localStorage.getItem('invictus_jwt');
     setMetricsLoading(true);
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/analytics/me/performance`, {
-      headers: { Authorization: `Bearer ${token}` }
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
       .then(data => setPerformanceMetrics(data))
@@ -241,7 +240,7 @@ export default function MyProfilePage() {
       .finally(() => setMetricsLoading(false));
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/me`, {
-      headers: { Authorization: `Bearer ${token}` }
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
       .then(data => {
@@ -251,14 +250,14 @@ export default function MyProfilePage() {
       .catch(err => console.error('Failed to load github username:', err));
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/agency-metrics`, {
-      headers: { Authorization: `Bearer ${token}` }
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
       .then(data => setAgencyMetrics(data))
       .catch(err => console.error('Failed to load agency metrics:', err));
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/agency-metrics/initiatives`, {
-      headers: { Authorization: `Bearer ${token}` }
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
       .then((data: Array<{ progressPercent: number }>) => {
@@ -267,7 +266,7 @@ export default function MyProfilePage() {
       .catch(err => console.error('Failed to load strategic initiatives:', err));
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/google/status`, {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
       cache: 'no-store',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
@@ -278,7 +277,7 @@ export default function MyProfilePage() {
       .catch(err => console.error('Failed to load Google account status:', err));
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/leave-requests/me`, {
-      headers: { Authorization: `Bearer ${token}` }
+      credentials: 'include',
     })
       .then(res => res.ok ? res.json() : Promise.reject(res.status))
       .then(data => setMyLeaveRequests(data))
@@ -314,11 +313,10 @@ export default function MyProfilePage() {
 
   const handleDisconnectGmail = async () => {
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const res = await fetch(`${baseUrl}/api/google/disconnect`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       if (res.ok) {
         setGoogleConnected(false);
@@ -333,10 +331,10 @@ export default function MyProfilePage() {
     setGithubSaveError(null);
     setGithubSaving(true);
     try {
-      const token = localStorage.getItem('invictus_jwt');
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/me`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ githubUsername: githubUsernameInput.trim() || null })
       });
       const data = await res.json();
@@ -355,10 +353,10 @@ export default function MyProfilePage() {
 
   const handleLeaveSubmit = async () => {
     try {
-      const token = localStorage.getItem('invictus_jwt');
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/leave-requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...leaveState, requestedByName: user?.name })
       });
       setMyLeaveRequests(prev => [

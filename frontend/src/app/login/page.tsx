@@ -91,13 +91,14 @@ export default function LoginPreviewPage() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
 
-      if (data.token) {
-        login(data.token, data.user);
+      if (res.ok && data.user) {
+        login(data.user);
       } else {
         setLoginError(data.error || 'Invalid credentials.');
       }

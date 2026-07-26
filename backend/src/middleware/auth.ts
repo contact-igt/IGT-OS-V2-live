@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
+import { ACCESS_COOKIE, verifyAccessToken } from '../lib/tokens';
 
 // Extend Express Request to include user
 declare global {
@@ -11,15 +12,19 @@ declare global {
   }
 }
 
+// Cookie is the primary transport now; the Authorization header fallback stays only for
+// non-browser callers (scripts/tools hitting the API directly) that can't hold cookies.
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = req.cookies?.[ACCESS_COOKIE] || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key';
-    req.user = jwt.verify(token, JWT_SECRET);
+    req.user = verifyAccessToken(token);
     next();
   } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({ error: 'Invalid token', code: 'TOKEN_EXPIRED' });
+    }
     res.status(401).json({ error: 'Invalid token' });
   }
 };

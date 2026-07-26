@@ -41,10 +41,9 @@ function SocialHubPageInner() {
   const handleSyncAll = async () => {
     setIsSyncing(true);
     try {
-      const token = localStorage.getItem('invictus_jwt');
       await fetch(`${apiBaseUrl}/api/social/sync`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       await reloadData();
     } catch (e) {

@@ -26,19 +26,25 @@ function isLeadershipMember(m?: { role?: string; roleTag?: string } | null) {
   return m?.role === 'super_admin' || m?.role === 'admin' || m?.roleTag === 'leadership';
 }
 
+// Real accounts are keyed by backend DB ids now, not the old mock roster's 'u-*' ids — match
+// these two people by email (stable across environments) instead of a dead mock id that never
+// matches a hydrated teamMembers entry.
+const THARIQ_EMAIL = 'thariq.dev@gmail.com';
+const ABHILASH_EMAIL = 'connect@invictusglobaltech.com';
+
 function getAssignmentScope(
   currentUser: any,
   teamMembers: any[]
 ): { mode: 'open' | 'locked'; options: any[] } {
   if (!currentUser) return { mode: 'locked', options: [] };
-  if (isLeadershipMember(currentUser) || currentUser.id === 'u-thariq') {
+  if (isLeadershipMember(currentUser) || currentUser.email === THARIQ_EMAIL) {
     return { mode: 'open', options: teamMembers };
   }
-  if (currentUser.id === 'u-abhilash') {
+  if (currentUser.email === ABHILASH_EMAIL) {
     return {
       mode: 'open',
       options: teamMembers.filter(
-        (m) => !isLeadershipMember(m) && m.id !== 'u-thariq'
+        (m) => !isLeadershipMember(m) && m.email !== THARIQ_EMAIL
       ),
     };
   }

@@ -32,14 +32,11 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
 
   const handleClearNotifications = () => {
     dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS', payload: { userId: state.currentUserId } });
-    const token = localStorage.getItem('invictus_jwt');
-    if (token) {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      fetch(`${baseUrl}/api/notifications`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(err => console.error('Failed to clear notifications on backend:', err));
-    }
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${baseUrl}/api/notifications`, {
+      method: 'DELETE',
+      credentials: 'include',
+    }).catch(err => console.error('Failed to clear notifications on backend:', err));
   };
 
   useEffect(() => {

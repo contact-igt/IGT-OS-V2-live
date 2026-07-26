@@ -15,7 +15,7 @@ interface SecretSlot {
 const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export default function ApiKeysTab() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const confirm = useConfirm();
   const [slots, setSlots] = useState<SecretSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,25 +24,26 @@ export default function ApiKeysTab() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!token) return;
+    if (!user) return;
     setLoading(true);
-    fetch(`${baseUrl}/api/app-secrets`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${baseUrl}/api/app-secrets`, { credentials: 'include' })
       .then(r => r.json())
       .then(data => { setSlots(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [token]);
+  }, [user]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async (keyName: string) => {
     const value = (drafts[keyName] || '').trim();
-    if (!value || !token) return;
+    if (!value || !user) return;
     setSavingKey(keyName);
     setError(null);
     try {
       const res = await fetch(`${baseUrl}/api/app-secrets/${keyName}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value }),
       });
       if (!res.ok) { setError('Failed to save key.'); return; }
@@ -56,12 +57,12 @@ export default function ApiKeysTab() {
   };
 
   const handleRemove = async (keyName: string) => {
-    if (!token) return;
+    if (!user) return;
     const ok = await confirm('Remove this key? The app will fall back to its environment variable, if one is set.', { danger: true, confirmLabel: 'Remove' });
     if (!ok) return;
     await fetch(`${baseUrl}/api/app-secrets/${keyName}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
     });
     load();
   };

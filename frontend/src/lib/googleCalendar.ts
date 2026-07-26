@@ -11,9 +11,9 @@ export interface GoogleEvent {
 
 // Routed through our own backend (which holds the real Google access token server-side)
 // instead of calling googleapis.com directly from the browser — the browser never sees a
-// Google access token now. `token` here is this app's own auth JWT, not a Google token.
-export async function fetchGoogleCalendarEvents(token: string | null, timeMin: string, timeMax: string): Promise<{ events: GoogleEvent[]; connected: boolean }> {
-  if (!token) return { events: [], connected: false };
+// Google access token, and our own session travels via the HttpOnly auth cookie.
+export async function fetchGoogleCalendarEvents(isAuthenticated: boolean, timeMin: string, timeMax: string): Promise<{ events: GoogleEvent[]; connected: boolean }> {
+  if (!isAuthenticated) return { events: [], connected: false };
 
   try {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -23,7 +23,7 @@ export async function fetchGoogleCalendarEvents(token: string | null, timeMin: s
     // URL+date-range from a PREVIOUS user's session on the same tab/device, silently
     // showing one employee's calendar under another's login.
     const res = await fetch(`${baseUrl}/api/google/calendar/events?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
       cache: 'no-store',
     });
 
