@@ -155,7 +155,7 @@ export default function DashboardPage() {
           >
             {/* Module 1: Tasks Overview */}
             <div key="tasksoverview">
-              <TasksOverviewWidget compactMode={compactMode} activeTasks={activeTasks} tasksDueToday={tasksDueToday} tasksOverdue={tasksOverdue} tasksInReview={tasksInReview} />
+              <TasksOverviewWidget compactMode={compactMode} activeTasks={activeTasks} tasksDueToday={tasksDueToday} tasksOverdue={tasksOverdue} tasksInReview={tasksInReview} totalTasks={tasks} />
             </div>
             {/* Module 2: Team-wise Task Overview */}
             <div key="teamtasks">

@@ -109,6 +109,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
     deadline: '',
     estimatedHours: '',
+    estimatedMinutes: '',
     description: '',
     tags: '',
     driveLink: '',
@@ -132,6 +133,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
         deadline: '',
         estimatedHours: '',
+        estimatedMinutes: '',
         description: '',
         tags: '',
         driveLink: '',
@@ -276,7 +278,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
           assignedTo: form.assignedTo,
           createdBy: state.currentUserId,
           deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-          estimatedHours: parseFloat(form.estimatedHours) || 0,
+          estimatedHours: (parseFloat(form.estimatedHours) || 0) + (parseFloat(form.estimatedMinutes) || 0) / 60,
           description: form.description.trim(),
           tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
           assets: assets.length > 0 ? assets : undefined,
@@ -303,7 +305,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         assignedTo: form.assignedTo,
         createdBy: state.currentUserId,
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-        estimatedHours: parseFloat(form.estimatedHours) || 0,
+        estimatedHours: (parseFloat(form.estimatedHours) || 0) + (parseFloat(form.estimatedMinutes) || 0) / 60,
         description: form.description.trim(),
         tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
         assets: assets.length > 0 ? assets : undefined,
@@ -350,7 +352,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
 
     setSubmitting(false);
     setBatchTitles('');
-    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
+    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
     setErrors({});
     onClose();
   };
@@ -625,9 +627,13 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               {errors.deadline && <p className="text-[11px] mt-1 text-red-500">{errors.deadline}</p>}
             </div>
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Estimate (hours)</label>
-              <input type="number" min="0.5" step="0.5" className="input-base" placeholder="e.g. 4" value={form.estimatedHours}
-                onChange={e => set('estimatedHours', e.target.value)} />
+              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Estimate</label>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="number" min="0" step="1" className="input-base" placeholder="Hours" value={form.estimatedHours}
+                  onChange={e => set('estimatedHours', e.target.value)} />
+                <input type="number" min="0" max="59" step="1" className="input-base" placeholder="Minutes" value={form.estimatedMinutes}
+                  onChange={e => set('estimatedMinutes', e.target.value)} />
+              </div>
             </div>
           </div>
 

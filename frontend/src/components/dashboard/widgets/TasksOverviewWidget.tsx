@@ -9,6 +9,7 @@ interface Props {
   tasksDueToday: any[];
   tasksOverdue: any[];
   tasksInReview: any[];
+  totalTasks: any[];
 }
 
 const TasksOverviewWidget = React.memo(function TasksOverviewWidget({
@@ -17,6 +18,7 @@ const TasksOverviewWidget = React.memo(function TasksOverviewWidget({
   tasksDueToday,
   tasksOverdue,
   tasksInReview,
+  totalTasks,
 }: Props) {
   return (
     <div
@@ -64,39 +66,45 @@ const TasksOverviewWidget = React.memo(function TasksOverviewWidget({
           </div>
         </div>
       )}
-      <div
-        className={`grid grid-cols-2 mt-auto ${compactMode ? "gap-2" : "gap-3"}`}
-      >
-        <Link href="/tasks?status=active" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+      <div className={`flex flex-col mt-auto overflow-y-auto custom-scrollbar min-h-0 ${compactMode ? "gap-2" : "gap-3"}`}>
+        <Link href="/tasks" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
           <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-            Active
+            Total
           </div>
-          <div className="text-2xl font-bold">{activeTasks.length}</div>
+          <div className="text-2xl font-bold">{totalTasks.length}</div>
         </Link>
-        <Link href="/tasks?status=due-today" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-            Due Today
-          </div>
-          <div className="text-2xl font-bold text-amber-500">
-            {tasksDueToday.length}
-          </div>
-        </Link>
-        <Link href="/tasks?status=overdue" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-            Overdue
-          </div>
-          <div className="text-2xl font-bold text-red-500">
-            {tasksOverdue.length}
-          </div>
-        </Link>
-        <Link href="/tasks?status=in-review" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
-          <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
-            In Review
-          </div>
-          <div className="text-2xl font-bold text-blue-500">
-            {tasksInReview.length}
-          </div>
-        </Link>
+        <div className={`grid grid-cols-2 ${compactMode ? "gap-2" : "gap-3"}`}>
+          <Link href="/tasks?status=active" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+              In Progress
+            </div>
+            <div className="text-2xl font-bold">{activeTasks.length}</div>
+          </Link>
+          <Link href="/tasks?status=due-today" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+              Due Today
+            </div>
+            <div className="text-2xl font-bold text-amber-500">
+              {tasksDueToday.length}
+            </div>
+          </Link>
+          <Link href="/tasks?status=overdue" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+              Overdue
+            </div>
+            <div className="text-2xl font-bold text-red-500">
+              {tasksOverdue.length}
+            </div>
+          </Link>
+          <Link href="/tasks?status=in-review" className="block bg-[var(--c-surface)] p-3 rounded-lg border border-[var(--c-border)] shadow-sm hover:border-[var(--c-text-3)] transition-colors">
+            <div className="text-[var(--c-text-2)] text-xs font-semibold uppercase mb-1">
+              In Review
+            </div>
+            <div className="text-2xl font-bold text-blue-500">
+              {tasksInReview.length}
+            </div>
+          </Link>
+        </div>
       </div>
     </div>
   );

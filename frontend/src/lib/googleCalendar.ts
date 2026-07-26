@@ -13,7 +13,7 @@ export interface GoogleEvent {
 // instead of calling googleapis.com directly from the browser — the browser never sees a
 // Google access token now. `token` here is this app's own auth JWT, not a Google token.
 export async function fetchGoogleCalendarEvents(token: string | null, timeMin: string, timeMax: string): Promise<{ events: GoogleEvent[]; connected: boolean }> {
-  if (!token) return { events: getMockEvents(timeMin), connected: false };
+  if (!token) return { events: [], connected: false };
 
   try {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -28,8 +28,8 @@ export async function fetchGoogleCalendarEvents(token: string | null, timeMin: s
     });
 
     if (res.status === 404) {
-      // No Google account connected yet — fall back to mock data rather than an empty page.
-      return { events: getMockEvents(timeMin), connected: false };
+      // No Google account connected yet — show an honest empty state, not fabricated events.
+      return { events: [], connected: false };
     }
     if (!res.ok) throw new Error('Failed to fetch Google Calendar events');
 
@@ -49,41 +49,6 @@ export async function fetchGoogleCalendarEvents(token: string | null, timeMin: s
     };
   } catch (error) {
     console.error('Error fetching calendar events:', error);
-    return { events: getMockEvents(timeMin), connected: false };
+    return { events: [], connected: false };
   }
-}
-
-function getMockEvents(baseDateIso: string): GoogleEvent[] {
-  const base = new Date(baseDateIso);
-  // Create an event for today
-  const today = new Date();
-
-  const m1Start = new Date(today);
-  m1Start.setHours(10, 0, 0, 0);
-  const m1End = new Date(today);
-  m1End.setHours(11, 0, 0, 0);
-
-  const m2Start = new Date(today);
-  m2Start.setHours(14, 30, 0, 0);
-  const m2End = new Date(today);
-  m2End.setHours(15, 30, 0, 0);
-
-  return [
-    {
-      id: 'mock-evt-1',
-      summary: 'Weekly Sync with HAGGLE',
-      description: 'Discuss Q3 marketing roadmap and deliverables.',
-      start: { dateTime: m1Start.toISOString() },
-      end: { dateTime: m1End.toISOString() },
-      meetLink: 'https://meet.google.com/abc-defg-hij',
-      attendees: [{ email: 'client@haggle.com' }, { email: 'sushil@invictus.com' }]
-    },
-    {
-      id: 'mock-evt-2',
-      summary: 'Internal Team Standup',
-      start: { dateTime: m2Start.toISOString() },
-      end: { dateTime: m2End.toISOString() },
-      meetLink: 'https://meet.google.com/xyz-uvwx-qrs'
-    }
-  ];
 }

@@ -2,7 +2,12 @@
 
 import React from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { GitCommit, Plus, Minus } from 'lucide-react';
+import { GitCommit, Plus, Minus, Building2 } from 'lucide-react';
+
+// GitHub authors known to be the shared org account (attributed to whoever/whatever merges
+// a PR via GitHub's web UI) rather than any single employee — shown with a distinct label
+// instead of a blank "??", since these will never match a real teamMembers entry.
+const ORG_ACCOUNT_NAMES = new Set(['contact-igt', 'invictus global tech pvt ltd', 'invictus global tech']);
 
 function getRelativeTime(dateString: string) {
   const date = new Date(dateString);
@@ -52,18 +57,19 @@ export default function DevActivityFeed() {
           <tbody className="divide-y border-app-border">
             {sortedCommits.map(commit => {
               const author = teamMembers.find(m => m.id === commit.userId);
+              const isOrgAccount = !author && !!commit.authorName && ORG_ACCOUNT_NAMES.has(commit.authorName.trim().toLowerCase());
               return (
                 <tr key={commit.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
-                      <div 
+                      <div
                         className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm"
-                        style={{ backgroundColor: author?.color || '#9ca3af' }}
+                        style={{ backgroundColor: author?.color || (isOrgAccount ? '#64748B' : '#9ca3af') }}
                       >
-                        {author?.initials || '??'}
+                        {isOrgAccount ? <Building2 size={14} /> : (author?.initials || '??')}
                       </div>
                       <span className="font-medium" style={{ color: 'var(--c-text)' }}>
-                        {author?.name || commit.userId}
+                        {author?.name || commit.authorName || 'Unknown'}
                       </span>
                     </div>
                   </td>

@@ -401,7 +401,7 @@ export default function MyProfilePage() {
               </div>
               <div>
                 <label className="text-xs font-bold text-app-text3 uppercase tracking-wider mb-1 block">Email</label>
-                <div className="text-app-text font-medium">{currentUser.email}</div>
+                <div className="text-app-text font-medium break-all">{currentUser.email}</div>
               </div>
               <div>
                 <label className="text-xs font-bold text-app-text3 uppercase tracking-wider mb-1 block">Phone Number</label>

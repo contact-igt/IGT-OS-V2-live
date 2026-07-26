@@ -70,7 +70,7 @@ const TeamTasksWidget = React.memo(function TeamTasksWidget({
                 </span>
                 <div className="flex gap-2 text-xs font-medium">
                   <span className="text-[var(--c-text-2)]">
-                    {mTasks.length} Active
+                    {mTasks.length} In Progress
                   </span>
                   {mDueToday.length > 0 && (
                     <span className="text-amber-500">

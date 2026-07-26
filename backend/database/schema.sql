@@ -248,6 +248,11 @@ CREATE TABLE public.attendance_logs (
 
 -- 16. GitHub App Integration
 ALTER TABLE public.users ADD COLUMN github_username TEXT UNIQUE;
+-- Some developers have committed under more than one GitHub identity over time (old
+-- personal account, renamed handle, etc.) — this holds the extra ones so their commits
+-- still resolve to the right person without turning github_username itself into a list
+-- (which would break the single-value assumption in My Profile / Admin).
+ALTER TABLE public.users ADD COLUMN github_username_aliases TEXT[] DEFAULT '{}';
 ALTER TABLE public.tasks ADD COLUMN display_code TEXT UNIQUE;
 
 CREATE TABLE public.github_installations (
@@ -424,6 +429,10 @@ CREATE TABLE public.meetings (
 CREATE TABLE public.google_accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  -- The connected Google account's own email — shown in the UI so a mismatched OAuth
+  -- consent (wrong Google account picked at sign-in) is immediately visible to the user,
+  -- rather than silently surfacing another employee's calendar under their login.
+  email TEXT,
   encrypted_access_token BYTEA NOT NULL,
   access_token_iv BYTEA NOT NULL,
   encrypted_refresh_token BYTEA NOT NULL,

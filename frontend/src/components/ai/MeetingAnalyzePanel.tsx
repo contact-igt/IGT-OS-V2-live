@@ -22,17 +22,24 @@ export default function MeetingAnalyzePanel({ event, onClose, onSaved }: Props) 
   const [analysisPreference, setAnalysisPreference] = useState<'general' | 'sales' | 'project-management' | 'technical'>('general');
   const [models, setModels] = useState<{ name: string; displayName: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/gemini-models')
-      .then(r => r.json())
+      .then(async r => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+        return data;
+      })
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
           setModels(data);
           setSelectedModel(data[0].name);
+        } else {
+          setModelsError('Gemini returned an empty model list.');
         }
       })
-      .catch(() => {});
+      .catch(err => setModelsError(err.message || 'Failed to load models.'));
   }, []);
 
   const handleAudioUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,6 +172,9 @@ export default function MeetingAnalyzePanel({ event, onClose, onSaved }: Props) 
             >
               {models.length === 0 ? <option>No models available</option> : models.map(m => <option key={m.name} value={m.name}>{m.displayName}</option>)}
             </select>
+            {modelsError && (
+              <span className="text-[12px] font-medium text-red-500 w-full basis-full">{modelsError}</span>
+            )}
           </div>
 
           <div className="flex gap-3">

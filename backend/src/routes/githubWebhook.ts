@@ -53,7 +53,10 @@ async function getOrCreateRepo(pool: Pool, fullName: string, repoId?: string) {
 
 async function resolveUserByGithubUsername(pool: Pool, username: string | null | undefined): Promise<string | null> {
   if (!username) return null;
-  const result = await pool.query('SELECT id FROM public.users WHERE github_username = $1', [username]);
+  const result = await pool.query(
+    'SELECT id FROM public.users WHERE github_username = $1 OR $1 = ANY(github_username_aliases)',
+    [username]
+  );
   return result.rows[0]?.id || null;
 }
 
