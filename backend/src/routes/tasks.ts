@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
+import multer from 'multer';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { postDevTaskAssignmentAlert } from '../lib/googleChat';
+import { postDepartmentTaskAssignmentAlert, ALERTING_DEPARTMENTS } from '../lib/googleChat';
 
 const router = Router();
 
@@ -28,6 +29,8 @@ function serializeTask(row: any) {
     status: row.status,
     deadline,
     estimatedHours: row.time_estimate_minutes ? row.time_estimate_minutes / 60 : 0,
+    // goal | task | subtask — drives the Goals view and the goal→subtask nesting.
+    type: row.type || 'task',
     parentId: row.parent_task_id,
     dependencies: row.dependencies || [],
     tags: row.tags || [],
@@ -36,7 +39,73 @@ function serializeTask(row: any) {
     // Total minutes actually logged across all completed time_logs sessions for this task —
     // defaults to 0 for a task with no sessions yet, never undefined/NaN.
     loggedMinutes: row.logged_minutes != null ? Number(row.logged_minutes) : 0,
+    // Free-text — the New Task form offers common types as suggestions but allows any value.
+    taskType: row.task_type || undefined,
+    // When this task was marked done; drives the 7-day archive window on the boards.
+    // Omitted (rather than null) for anything not currently done, matching the optional
+    // completedAt the frontend's Task type already declares.
+    completedAt: row.completed_at || undefined,
+    // Attachments on this task: either an external link (url) or an uploaded file stored in
+    // Postgres (isFile: true, fetched via the download endpoint below).
+    assets: row.assets || [],
   };
+}
+
+// Aggregates task_assets into the { name, url } array shape serializeTask expects. Kept as
+// a correlated subquery (rather than a LEFT JOIN) so a task with several assets doesn't
+// multiply the task row and skew the logged_minutes join alongside it.
+// file_data is deliberately NOT selected — only whether it exists — so listing tasks never
+// drags every uploaded file's bytes through the query. Files are fetched on demand from the
+// download endpoint instead.
+const ASSETS_SUBQUERY = `
+  (SELECT COALESCE(json_agg(json_build_object(
+      'id', a.id,
+      'name', a.file_name,
+      'url', a.file_url,
+      'isFile', (a.file_data IS NOT NULL),
+      'sizeBytes', a.file_size_bytes,
+      'mimeType', a.mime_type
+    ) ORDER BY a.created_at), '[]'::json)
+   FROM public.task_assets a WHERE a.task_id = t.id) AS assets
+`;
+
+// Replaces a task's asset rows wholesale. Both the NewTaskModal (create) and the
+// TaskDrawer/StopTimerModal (update) send the full intended list rather than a delta, so a
+// delete-then-insert keeps the table in step with exactly what the client submitted.
+async function replaceTaskAssets(pool: Pool, taskId: string, assets: any, userId: string | null) {
+  if (!Array.isArray(assets)) return; // undefined = "not editing assets", leave existing rows alone
+
+  // Only link-style rows are replaced. Uploaded files (file_data IS NOT NULL) are managed
+  // through the dedicated upload/delete endpoints, so a link edit must never delete someone's
+  // attached file as a side effect.
+  await pool.query('DELETE FROM public.task_assets WHERE task_id = $1 AND file_data IS NULL', [taskId]);
+
+  const valid = assets.filter((a: any) => a && !a.isFile && typeof a.url === 'string' && a.url.trim());
+  for (const asset of valid) {
+    await pool.query(
+      `INSERT INTO public.task_assets (task_id, uploaded_by, file_name, file_url) VALUES ($1, $2, $3, $4)`,
+      [taskId, userId, (asset.name || 'Link').toString().slice(0, 255), asset.url.trim()]
+    );
+  }
+}
+
+// { development: ['Naveen', 'Veeravel'], design: ['Karan'] } — so a task spanning two
+// departments posts one alert per Space, each naming only that Space's own assignees.
+function groupNamesByDepartment(rows: { name: string; department: string }[]): Record<string, string[]> {
+  return rows.reduce((acc, row) => {
+    (acc[row.department] ||= []).push(row.name);
+    return acc;
+  }, {} as Record<string, string[]>);
+}
+
+async function fetchTaskAssets(pool: Pool, taskId: string) {
+  const result = await pool.query(
+    `SELECT id, file_name AS name, file_url AS url, (file_data IS NOT NULL) AS "isFile",
+            file_size_bytes AS "sizeBytes", mime_type AS "mimeType"
+     FROM public.task_assets WHERE task_id = $1 ORDER BY created_at`,
+    [taskId]
+  );
+  return result.rows;
 }
 
 function splitDeadline(deadline?: string | null): { date: string | null; time: string | null } {
@@ -66,9 +135,9 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     `;
 
     if (role === 'admin' || role === 'super_admin' || role === 'ops') {
-      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
+      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
     } else {
-      query = `SELECT t.*, tl.logged_minutes FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) OR t.created_by = $1 ORDER BY t.created_at DESC`;
+      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) OR t.created_by = $1 ORDER BY t.created_at DESC`;
       params = [id];
     }
 
@@ -88,7 +157,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
       title, description, clientId, assignedTo, category, priority, status,
-      deadline, estimatedHours, parentId, dependencies, tags,
+      deadline, estimatedHours, parentId, dependencies, tags, assets, taskType, type,
     } = req.body;
 
     if (!title || !clientId || !category) {
@@ -100,8 +169,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     const query = `
       INSERT INTO public.tasks
         (title, description, client_id, category, assigned_to, created_by, priority, status,
-         deadline_date, deadline_time, time_estimate_minutes, parent_task_id, dependencies, tags)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         deadline_date, deadline_time, time_estimate_minutes, parent_task_id, dependencies, tags, task_type,
+         type, completed_at)
+      -- $8 is pinned to text and cast up to task_status here, rather than being inferred as
+      -- the enum and cast down to text in the CASE below. Mixing the two directions on one
+      -- parameter makes Postgres bail with "inconsistent types deduced for parameter $8".
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::task_status, $9, $10, $11, $12, $13, $14, $15,
+              $16, CASE WHEN $8 = 'done' THEN now() ELSE NULL END)
       RETURNING *
     `;
     const params = [
@@ -119,10 +193,17 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       parentId || null,
       dependencies || [],
       tags || [],
+      taskType ? String(taskType).trim().slice(0, 100) || null : null,
+      // A task carrying a parent is a subtask regardless of what the client claimed, which
+      // keeps the hierarchy self-consistent.
+      ['goal', 'task', 'subtask'].includes(type) ? type : (parentId ? 'subtask' : 'task'),
     ];
 
     const result = await pool.query(query, params);
     const createdTask = result.rows[0];
+
+    await replaceTaskAssets(pool, createdTask.id, assets, req.user.id);
+    createdTask.assets = await fetchTaskAssets(pool, createdTask.id);
 
     // Log task creation in public.audit_log table
     try {
@@ -148,24 +229,30 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       console.error('Failed to log task creation audit entry:', auditErr);
     }
 
-    // Fire-and-forget: alert the Web Development Chat space if any assignee is in that
-    // department. Not awaited so a slow/failing webhook never delays the task-create response.
+    // Fire-and-forget: alert each department's Chat space that has an assignee on this task
+    // (Development and Design today — see DEPARTMENT_WEBHOOK_ENV). Not awaited so a slow or
+    // failing webhook never delays the task-create response.
     if (assignedTo && assignedTo.length > 0) {
       (async () => {
         try {
-          const devRes = await pool.query(
-            `SELECT name FROM public.users WHERE id = ANY($1) AND department = 'development'`,
-            [assignedTo]
+          const deptRes = await pool.query(
+            `SELECT name, department FROM public.users WHERE id = ANY($1) AND department = ANY($2)`,
+            [assignedTo, ALERTING_DEPARTMENTS]
           );
-          if (devRes.rows.length === 0) return;
+          if (deptRes.rows.length === 0) return;
 
           const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [clientId]);
-          await postDevTaskAssignmentAlert(
-            { title, priority: priority || 'medium', deadline, clientName: clientRes.rows[0]?.name },
-            devRes.rows.map((r: any) => r.name)
-          );
+          const byDepartment = groupNamesByDepartment(deptRes.rows);
+
+          for (const [department, names] of Object.entries(byDepartment)) {
+            await postDepartmentTaskAssignmentAlert(
+              department,
+              { title, priority: priority || 'medium', deadline, clientName: clientRes.rows[0]?.name },
+              names
+            );
+          }
         } catch (err) {
-          console.error('Failed to post dev task assignment alert:', err);
+          console.error('Failed to post task assignment alerts:', err);
         }
       })();
     }
@@ -184,7 +271,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const { id } = req.params;
-    const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags } = req.body;
+    const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags, assets, taskType } = req.body;
 
     // Capture the pre-update assignee list so the Chat alert below fires only for genuinely
     // *new* dev-department assignees — without this, re-saving the same assignedTo array on
@@ -205,12 +292,22 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
         description = COALESCE($2, description),
         category = COALESCE($3, category),
         priority = COALESCE($4, priority),
-        status = COALESCE($5, status),
+        status = COALESCE($5::task_status, status),
         assigned_to = COALESCE($6, assigned_to),
         deadline_date = CASE WHEN $7 THEN $8 ELSE deadline_date END,
         deadline_time = CASE WHEN $7 THEN $9 ELSE deadline_time END,
         time_estimate_minutes = COALESCE($10, time_estimate_minutes),
         tags = COALESCE($11, tags),
+        task_type = COALESCE($13, task_type),
+        -- Stamped the moment a task becomes done, and cleared if it's reopened, so the
+        -- 7-day archive window measures actual completion rather than last edit. Re-saving
+        -- an already-done task keeps its original timestamp instead of resetting the clock.
+        -- $5 stays text here (cast up to task_status above) for the same reason as the INSERT.
+        completed_at = CASE
+          WHEN $5 = 'done' AND status <> 'done' THEN now()
+          WHEN $5 IS NOT NULL AND $5 <> 'done' THEN NULL
+          ELSE completed_at
+        END,
         updated_at = now()
       WHERE id = $12
       RETURNING *
@@ -228,10 +325,16 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       estimatedHours !== undefined ? Math.round(estimatedHours * 60) : null,
       tags || null,
       id,
+      taskType !== undefined ? (String(taskType).trim().slice(0, 100) || null) : null,
     ];
     const result = await pool.query(query, params);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+    // Only touches task_assets when the caller actually sent an assets array — an unrelated
+    // edit (status change, rename) leaves existing links untouched.
+    await replaceTaskAssets(pool, id, assets, req.user.id);
+    result.rows[0].assets = await fetchTaskAssets(pool, id);
 
     // Authoritative safety net: close out ANY still-running timer on this task whenever its
     // status moves away from 'in_progress' — regardless of which user made this request. The
@@ -254,27 +357,33 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       }
     }
 
-    // Fire-and-forget: alert the Web Development Chat space about newly added dev-department
-    // assignees only (see previousAssignedTo above) — mirrors the same check on task creation.
+    // Fire-and-forget: alert each department's Chat space about *newly added* assignees only
+    // (see previousAssignedTo above) — mirrors the same check on task creation, so re-saving
+    // an unchanged assignee list never re-posts the same alert.
     if (assignedTo) {
       const newlyAdded = assignedTo.filter((uid: string) => !previousAssignedTo.includes(uid));
       if (newlyAdded.length > 0) {
         (async () => {
           try {
-            const devRes = await pool.query(
-              `SELECT name FROM public.users WHERE id = ANY($1) AND department = 'development'`,
-              [newlyAdded]
+            const deptRes = await pool.query(
+              `SELECT name, department FROM public.users WHERE id = ANY($1) AND department = ANY($2)`,
+              [newlyAdded, ALERTING_DEPARTMENTS]
             );
-            if (devRes.rows.length === 0) return;
+            if (deptRes.rows.length === 0) return;
 
             const updatedTask = serializeTask(result.rows[0]);
             const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [updatedTask.clientId]);
-            await postDevTaskAssignmentAlert(
-              { title: updatedTask.title, priority: updatedTask.priority, deadline: updatedTask.deadline, clientName: clientRes.rows[0]?.name },
-              devRes.rows.map((r: any) => r.name)
-            );
+            const byDepartment = groupNamesByDepartment(deptRes.rows);
+
+            for (const [department, names] of Object.entries(byDepartment)) {
+              await postDepartmentTaskAssignmentAlert(
+                department,
+                { title: updatedTask.title, priority: updatedTask.priority, deadline: updatedTask.deadline, clientName: clientRes.rows[0]?.name },
+                names
+              );
+            }
           } catch (err) {
-            console.error('Failed to post dev task reassignment alert:', err);
+            console.error('Failed to post task reassignment alerts:', err);
           }
         })();
       }
@@ -287,6 +396,101 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
     res.json(serializeTask({ ...result.rows[0], logged_minutes: loggedResult.rows[0].logged_minutes }));
   } catch (error: any) {
     console.error('Error updating task:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── File attachments ────────────────────────────────────────────────────────
+// Files are stored as bytes in Postgres (task_assets.file_data) rather than on disk, since
+// the app runs on ephemeral container storage where an uploaded file would vanish on the
+// next deploy. MAX_UPLOAD_BYTES is deliberately conservative — Postgres is a workable home
+// for briefs/mockups/spreadsheets, not for raw video.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+});
+
+// POST /api/tasks/:id/assets — upload one file and attach it to this task.
+router.post('/:id/assets', requireAuth, (req: Request, res: Response) => {
+  upload.single('file')(req, res, async (err: any) => {
+    // Multer surfaces the size cap as an error code rather than a rejected promise, so it's
+    // translated here into a message the UI can show verbatim.
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `File is too large. Maximum size is ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+      }
+      console.error('Upload error:', err);
+      return res.status(400).json({ error: 'Upload failed' });
+    }
+
+    const pool: Pool = req.app.locals.pool;
+    if (!pool) return res.status(500).json({ error: 'Database not configured' });
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ error: 'No file provided' });
+
+    try {
+      const taskExists = await pool.query('SELECT id FROM public.tasks WHERE id = $1', [req.params.id]);
+      if (taskExists.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+      const result = await pool.query(
+        `INSERT INTO public.task_assets (task_id, uploaded_by, file_name, file_data, file_size_bytes, mime_type)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, file_name AS name, NULL AS url, true AS "isFile",
+                   file_size_bytes AS "sizeBytes", mime_type AS "mimeType"`,
+        [
+          req.params.id,
+          req.user.id,
+          file.originalname.slice(0, 255),
+          file.buffer,
+          file.size,
+          file.mimetype || 'application/octet-stream',
+        ]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      console.error('Error saving uploaded file:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+});
+
+// GET /api/tasks/assets/:assetId/download — streams an uploaded file back. requireAuth keeps
+// attachments behind the same login as the task itself; there are no public file URLs.
+router.get('/assets/:assetId/download', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  try {
+    const result = await pool.query(
+      'SELECT file_name, file_data, mime_type FROM public.task_assets WHERE id = $1',
+      [req.params.assetId]
+    );
+    if (result.rows.length === 0 || !result.rows[0].file_data) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const { file_name, file_data, mime_type } = result.rows[0];
+    res.setHeader('Content-Type', mime_type || 'application/octet-stream');
+    // Quotes + encodeURIComponent so filenames with spaces or non-ASCII survive the header.
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file_name)}"`);
+    res.send(file_data);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/tasks/assets/:assetId — removes an attachment (link or uploaded file).
+router.delete('/assets/:assetId', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+
+  try {
+    const result = await pool.query('DELETE FROM public.task_assets WHERE id = $1 RETURNING id', [req.params.assetId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Attachment not found' });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting attachment:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

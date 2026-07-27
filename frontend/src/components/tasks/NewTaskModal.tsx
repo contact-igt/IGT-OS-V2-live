@@ -6,7 +6,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import DateTimePicker from '@/components/ui/DateTimePicker';
 
-import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS } from '@/lib/data';
+import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS, TASK_TYPE_LABELS } from '@/lib/data';
 
 interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; }
 
@@ -16,6 +16,14 @@ const CATEGORIES = Object.keys(CATEGORY_LABELS) as TaskCategory[];
 const PRIORITY_COLORS = {
   critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#94A3B8'
 };
+
+// Mirrors MAX_UPLOAD_BYTES in backend/src/routes/tasks.ts — checked here too so an
+// oversized file is rejected before it's sent rather than after a wasted round trip.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+// Sentinel for the "+ New task type…" entry at the bottom of the Task Type dropdown. Kept
+// distinct from any real type so picking it can never be mistaken for a genuine value.
+const NEW_TASK_TYPE_OPTION = '__new_task_type__';
 
 const isLeadershipMember = (m?: { role?: string; roleTag?: string } | null) =>
   m?.role === 'super_admin' || m?.role === 'admin' || m?.roleTag === 'leadership';
@@ -100,10 +108,17 @@ function ClientPicker({ value, onChange }: { value: string; onChange: (id: strin
 }
 
 export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
-  const { createTask, state, requestApproval, notifyUser } = useApp();
+  const { createTask, state, requestApproval, notifyUser, uploadTaskFile, reloadData } = useApp();
   const confirm = useConfirm();
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const scope = getAssignmentScope(currentUser, state.teamMembers);
+
+  // Held until the task exists — a file can only be attached to a task that has a real
+  // backend id, so the upload happens right after createTask() resolves.
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // True once "+ New task type…" is picked, which swaps in a text box for the custom value.
+  const [isCustomTaskType, setIsCustomTaskType] = useState(false);
 
   const [form, setForm] = useState({
     title: '',
@@ -152,6 +167,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
       setIsBatchMode(false);
       setBatchTitles('');
       setErrors({});
+      setIsCustomTaskType(false);
+      setAttachedFile(null);
+      setUploadError(null);
       setActiveTab('manual');
       setAiPrompt('');
     }
@@ -242,7 +260,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     return e;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setSubmitting(true);
@@ -299,7 +317,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
       });
     } else {
       const newTaskId = `TSK-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-      createTask({
+      const createdIdPromise = createTask({
         id: newTaskId,
         title: form.title.trim(),
         type: form.type,
@@ -321,11 +339,35 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
       });
       applyThariqSideEffect(newTaskId, form.title.trim());
 
+      // Upload only once the task actually exists in Postgres — there's nothing to attach a
+      // file to before that. Failures are surfaced and stop the modal from closing, so a
+      // dropped attachment is never silently swallowed.
+      if (attachedFile) {
+        const realId = await createdIdPromise;
+        if (!realId) {
+          setUploadError('Task was created, but the file could not be attached (task not saved to the server).');
+          setSubmitting(false);
+          return;
+        }
+        const { error } = await uploadTaskFile(realId, attachedFile);
+        if (error) {
+          setUploadError(`Task created, but the file failed to upload: ${error}`);
+          setSubmitting(false);
+          return;
+        }
+        reloadData();
+      }
+
       if (needsSelfAssignApproval && ceo && form.assignedTo.includes(state.currentUserId)) {
         requestApproval(newTaskId, ceo.id, 'self_assignment', 'User self-assigned a new task');
       }
 
       if (form.type === 'goal' && form.subtasksBatch.trim()) {
+        // Wait for the goal's real backend id before creating its children — Postgres needs
+        // a genuine parent UUID, and the local "TSK-…" placeholder isn't one. Falls back to
+        // the local id if the goal never reached the server, so the subtasks still appear
+        // locally rather than being dropped.
+        const realParentId = (await createdIdPromise) || newTaskId;
         const subtasks = form.subtasksBatch.split('\n').map(s => s.trim()).filter(Boolean);
         subtasks.forEach(title => {
           const newSubtaskId = `TSK-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
@@ -333,7 +375,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             id: newSubtaskId,
             title: title,
             type: 'subtask',
-            parentId: newTaskId,
+            parentId: realParentId,
             clientId: form.clientId,
             category: form.category,
             priority: form.priority,
@@ -358,6 +400,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
 
     setSubmitting(false);
     setBatchTitles('');
+    setAttachedFile(null);
+    setUploadError(null);
+    setIsCustomTaskType(false);
     setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
     setErrors({});
     onClose();
@@ -586,15 +631,39 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             </div>
           </div>
 
-          {/* Task Type */}
+          {/* Task Type — the usual dropdown, plus a "New task type" entry at the bottom that
+              reveals a text box, so the assigner can add a type that isn't on the list yet. */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Task Type (Optional)</label>
-            <select className="input-base" value={form.taskType} onChange={e => set('taskType', e.target.value)}>
+            <select
+              className="input-base"
+              value={isCustomTaskType ? NEW_TASK_TYPE_OPTION : form.taskType}
+              onChange={e => {
+                if (e.target.value === NEW_TASK_TYPE_OPTION) {
+                  setIsCustomTaskType(true);
+                  set('taskType', ''); // start blank so the box below is theirs to fill
+                } else {
+                  setIsCustomTaskType(false);
+                  set('taskType', e.target.value);
+                }
+              }}
+            >
               <option value="">None</option>
               {Object.keys(DEFAULT_BENCHMARKS).map(t => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>{TASK_TYPE_LABELS[t] || t}</option>
               ))}
+              <option value={NEW_TASK_TYPE_OPTION}>+ New task type…</option>
             </select>
+
+            {isCustomTaskType && (
+              <input
+                className="input-base mt-2"
+                placeholder="Enter the new task type"
+                autoFocus
+                value={form.taskType}
+                onChange={e => set('taskType', e.target.value)}
+              />
+            )}
           </div>
 
           {/* Priority */}
@@ -771,15 +840,34 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                 <input className="input-base" placeholder="https://drive.google.com/..." value={form.driveLink}
                   onChange={e => set('driveLink', e.target.value)} />
                 <div className="flex items-center gap-2">
-                  <button type="button" className="btn-outline text-[11px] py-1 px-2 flex-1 border-dashed" onClick={() => setForm(p => ({...p, fileName: 'mock_asset_file.zip'}))}>
-                    <span className="material-symbols-outlined text-[14px]">upload_file</span> {form.fileName || 'Attach File'}
-                  </button>
-                  {form.fileName && (
-                    <button type="button" className="text-red-500 hover:bg-red-500/10 p-1 rounded" onClick={() => setForm(p => ({...p, fileName: ''}))}>
+                  <label className="btn-outline text-[11px] py-1 px-2 flex-1 border-dashed cursor-pointer flex items-center justify-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">upload_file</span>
+                    <span className="truncate">{attachedFile ? attachedFile.name : 'Attach File'}</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0] || null;
+                        e.target.value = ''; // let the same file be re-picked after removing it
+                        setUploadError(null);
+                        if (f && f.size > MAX_UPLOAD_BYTES) {
+                          setUploadError(`"${f.name}" is ${(f.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
+                          return;
+                        }
+                        setAttachedFile(f);
+                      }}
+                    />
+                  </label>
+                  {attachedFile && (
+                    <button type="button" className="text-red-500 hover:bg-red-500/10 p-1 rounded" onClick={() => { setAttachedFile(null); setUploadError(null); }}>
                       <span className="material-symbols-outlined text-[16px]">close</span>
                     </button>
                   )}
                 </div>
+                {attachedFile && !uploadError && (
+                  <p className="text-[10px] text-text-3">{(attachedFile.size / 1024).toFixed(0)} KB · uploaded when the task is created</p>
+                )}
+                {uploadError && <p className="text-[11px] text-red-500">{uploadError}</p>}
               </div>
             </div>
             <div>

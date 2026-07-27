@@ -164,7 +164,7 @@ function SideNavBarInner() {
                 {groupItems.map((item) => {
                   const isActive = pathname === item.href
                     || (item.href !== '/dashboard' && pathname.startsWith(item.href))
-                    || (item.href === '/team' && pathname.startsWith('/people/attendance'));
+                    || (item.href === '/team' && (pathname.startsWith('/people/attendance') || pathname.startsWith('/people/leave-requests')));
                   
                   const IconComponent = ICON_MAP[item.icon] ?? LayoutDashboard;
                   return (
@@ -222,11 +222,12 @@ function SideNavBarInner() {
                       )}
 
                       {/* SUB NAVIGATION FOR TEAM */}
-                      {item.href === '/team' && (pathname.startsWith('/team') || pathname.startsWith('/people/attendance')) && !collapsed && (
+                      {item.href === '/team' && (pathname.startsWith('/team') || pathname.startsWith('/people/attendance') || pathname.startsWith('/people/leave-requests')) && !collapsed && (
                         <div className="flex flex-col gap-1 mx-3 mb-4 pl-10 pr-3 border-l border-app-border/30 ml-7 mt-1">
                           <Link href="/team" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Team Overview</Link>
                           <Link href="/team/workload" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Workload</Link>
                           <Link href="/people/attendance" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Attendance</Link>
+                          <Link href="/people/leave-requests" className="text-[12px] font-medium text-app-text2 hover:text-primary py-1">Leave Requests</Link>
                         </div>
                       )}
                     </div>

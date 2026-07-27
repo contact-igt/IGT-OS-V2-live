@@ -54,16 +54,44 @@ export async function postMeetingSummaryAlert(meeting: { title: string; summary?
   }
 }
 
-// Posts to the Web Development Space (webhook saved as IGT_OS, not GOOGLE_CHAT_* — Google
-// Chat's own naming validation rejected the more descriptive names used for the other two
-// webhooks above) whenever a task is assigned to at least one Development-department member.
-export async function postDevTaskAssignmentAlert(
+// Which Google Chat Space each department's task-assignment alerts go to. Add a department
+// here (plus its env var) to give that team its own channel — nothing else needs changing.
+//
+// Named GCHAT_* rather than GOOGLE_CHAT_* to match the variables configured on the host.
+// Development previously read from IGT_OS, which had drifted to holding an OpenAI API key
+// instead of a webhook URL — every dev alert was failing silently as a result.
+const DEPARTMENT_WEBHOOK_ENV: Record<string, string> = {
+  development: 'GCHAT_DEV_WEBHOOK_URL',
+  design: 'GCHAT_DESIGN_WEBHOOK_URL',
+};
+
+export const ALERTING_DEPARTMENTS = Object.keys(DEPARTMENT_WEBHOOK_ENV);
+
+// Announces a task assignment in the given department's Space. Silently no-ops (with a
+// warning) when that department has no webhook configured, so adding a department to the
+// map above before its URL exists is harmless.
+export async function postDepartmentTaskAssignmentAlert(
+  department: string,
   task: { title: string; priority: string; deadline?: string | null; clientName?: string },
   assigneeNames: string[]
 ): Promise<void> {
-  const webhookUrl = process.env.IGT_OS;
+  const envVar = DEPARTMENT_WEBHOOK_ENV[department];
+  if (!envVar) return;
+
+  const webhookUrl = process.env[envVar];
   if (!webhookUrl) {
-    console.warn('[googleChat] IGT_OS webhook not configured, skipping dev task alert:', task.title);
+    console.warn(`[googleChat] ${envVar} not configured, skipping ${department} task alert:`, task.title);
+    return;
+  }
+  // Guards against the value having drifted to something that isn't a webhook at all (an API
+  // key was sitting in this slot at one point, and every alert failed silently as an opaque
+  // fetch error). Says plainly what's wrong instead of leaving it to be noticed months later.
+  if (!/^https:\/\/chat\.googleapis\.com\//.test(webhookUrl)) {
+    console.error(
+      `[googleChat] ${envVar} does not look like a Google Chat webhook URL ` +
+      `(expected it to start with https://chat.googleapis.com/). Skipping the ${department} alert — ` +
+      `check that this variable holds the Space's webhook URL and not some other secret.`
+    );
     return;
   }
 
@@ -88,6 +116,6 @@ export async function postDevTaskAssignmentAlert(
       console.error('[googleChat] Webhook responded with', res.status, await res.text());
     }
   } catch (error: any) {
-    console.error('[googleChat] Failed to post dev task assignment alert:', error);
+    console.error(`[googleChat] Failed to post ${department} task assignment alert:`, error);
   }
 }

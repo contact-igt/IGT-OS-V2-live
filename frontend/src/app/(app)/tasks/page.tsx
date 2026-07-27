@@ -22,12 +22,30 @@ import { Suspense } from 'react';
 
 const STATUSES: Task['status'][] = ['todo', 'in_progress', 'paused', 'in_review', 'blocked', 'done'];
 
+// How long a completed task stays on the boards before being archived out of view.
+const DONE_VISIBLE_DAYS = 7;
+
+// A done task counts as archived once it's been finished for more than DONE_VISIBLE_DAYS.
+// Tasks completed before completed_at existed fall back to updatedAt; if neither is present
+// the task is kept visible rather than being hidden on a guess.
+function isArchivedDone(t: Task): boolean {
+  const finishedAt = t.completedAt || t.updatedAt;
+  if (!finishedAt) return false;
+  const ms = new Date(finishedAt).getTime();
+  if (Number.isNaN(ms)) return false;
+  return Date.now() - ms > DONE_VISIBLE_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function TasksPageInner() {
   const { state, setTaskStatus, updateTask, startTimer, requestStopTimer } = useApp();
   const searchParams = useSearchParams();
   const defaultView = (searchParams.get('view') as any) || 'board';
   const [view, setView] = useState<'board' | 'list' | 'calendar' | 'gantt' | 'team' | 'goals'>(defaultView);
   const [calendarView, setCalendarView] = useState<'month' | 'year'>('month');
+  // Which task type the New Task modal should open on. "Create Goal" has to preset this —
+  // without it the button opened a form defaulted to Standard Task, so unless you noticed
+  // the Type dropdown you'd create an ordinary task that never showed up under Goals.
+  const [modalDefaultType, setModalDefaultType] = useState<'goal' | 'task' | 'subtask' | undefined>(undefined);
 
   // Update view when URL changes
   useEffect(() => {
@@ -61,14 +79,32 @@ function TasksPageInner() {
     return () => window.removeEventListener('keydown', handler);
   }, [ganttModalDate]);
 
-  // Sorting state for list view
-  const [sortField, setSortField] = useState<'title'|'client'|'status'|'priority'|'deadline'>('deadline');
-  const [sortOrder, setSortOrder] = useState<'asc'|'desc'>('asc');
+  // Sorting state for list view. Defaults to newest-created first so a task you've just
+  // added is always the top row — sorting by deadline (the old default) buried it wherever
+  // its due date happened to fall, which in a long list meant it looked like nothing happened.
+  const [sortField, setSortField] = useState<'title'|'client'|'status'|'priority'|'deadline'|'created'>('created');
+  const [sortOrder, setSortOrder] = useState<'asc'|'desc'>('desc');
+  // Opt-in escape hatch so archived-out completed work is still reachable from the UI,
+  // not just from the database.
+  const [showArchivedDone, setShowArchivedDone] = useState(false);
+
+  // Counted off the unfiltered list so the toggle reports the true total, independent of
+  // whichever client/priority/member filters happen to be applied.
+  const archivedDoneCount = useMemo(
+    () => state.tasks.filter(t => t.type !== 'goal' && t.status === 'done' && isArchivedDone(t)).length,
+    [state.tasks]
+  );
 
   const tasks = useMemo(() => state.tasks.filter(t => {
     // Exclude goals from standard views, only show in "goals" view
     if (view === 'goals' && t.type !== 'goal') return false;
     if (view !== 'goals' && t.type === 'goal') return false;
+
+    // Completed work drops off the boards a week after it was finished, so the list stays
+    // about what's live. Nothing is deleted — the rows remain in Postgres and still count
+    // towards dashboards, analytics and the audit trail; they're only hidden here. Ticking
+    // "Show archived" below brings them back into view.
+    if (!showArchivedDone && t.status === 'done' && isArchivedDone(t)) return false;
 
     if (clientFilter && t.clientId !== clientFilter) return false;
     if (priorityFilter && t.priority !== priorityFilter) return false;
@@ -106,7 +142,7 @@ function TasksPageInner() {
     }
     
     return true;
-  }), [state.tasks, view, clientFilter, priorityFilter, memberFilter, statusFilter, state.currentUserId, state.teamMembers]);
+  }), [state.tasks, view, clientFilter, priorityFilter, memberFilter, statusFilter, state.currentUserId, state.teamMembers, showArchivedDone]);
 
   const sortedTasks = useMemo(() => [...tasks].sort((a, b) => {
     let cmp = 0;
@@ -117,6 +153,12 @@ function TasksPageInner() {
       const da = a.deadline ? new Date(a.deadline).getTime() : 0;
       const db = b.deadline ? new Date(b.deadline).getTime() : 0;
       cmp = da - db;
+    } else if (sortField === 'created') {
+      // Optimistically-created tasks carry a client-side createdAt until the backend row
+      // comes back, so a brand new task sorts to the top immediately rather than after a refetch.
+      const ca2 = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const cb2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      cmp = ca2 - cb2;
     } else if (sortField === 'client') {
       const ca = getClientById(a.clientId)?.name || '';
       const cb = getClientById(b.clientId)?.name || '';
@@ -217,7 +259,7 @@ function TasksPageInner() {
             </button>
 
           </div>
-          <button onClick={() => setModalOpen(true)} className="btn-primary">
+          <button onClick={() => { setModalDefaultType(undefined); setModalOpen(true); }} className="btn-primary">
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span> New Task
           </button>
         </div>
@@ -244,6 +286,23 @@ function TasksPageInner() {
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
             </button>
           </span>
+        )}
+
+        {/* Completed work older than a week is hidden by default; this brings it back. Only
+            offered when there's actually something archived to show. */}
+        {archivedDoneCount > 0 && (
+          <label
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer select-none"
+            style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}
+            title={`${archivedDoneCount} completed task(s) finished more than ${DONE_VISIBLE_DAYS} days ago`}
+          >
+            <input
+              type="checkbox"
+              checked={showArchivedDone}
+              onChange={e => setShowArchivedDone(e.target.checked)}
+            />
+            Show archived ({archivedDoneCount})
+          </label>
         )}
       </div>
 
@@ -297,9 +356,9 @@ function TasksPageInner() {
                         ))}
                         {provided.placeholder}
                         {s === 'todo' && (
-                          <button 
-                            onClick={() => setModalOpen(true)} 
-                            className="flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed transition-colors hover:bg-[var(--c-surface)] mt-2" 
+                          <button
+                            onClick={() => { setModalDefaultType(undefined); setModalOpen(true); }}
+                            className="flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed transition-colors hover:bg-[var(--c-surface)] mt-2"
                             style={{ borderColor: 'var(--c-border)', color: 'var(--c-text-3)' }}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span> <span className="font-semibold text-[13px]">Add task</span>
@@ -326,7 +385,8 @@ function TasksPageInner() {
                   { id: 'client', label: 'Client' },
                   { id: 'status', label: 'Status' },
                   { id: 'priority', label: 'Priority' },
-                  { id: 'deadline', label: 'Deadline' }
+                  { id: 'deadline', label: 'Deadline' },
+                  { id: 'created', label: 'Created' }
                 ].map(col => (
                   <th 
                     key={col.id}
@@ -335,7 +395,8 @@ function TasksPageInner() {
                         setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                       } else {
                         setSortField(col.id as any);
-                        setSortOrder('asc');
+                        // "Created" reads naturally as newest-first; the rest as A→Z / soonest-first.
+                        setSortOrder(col.id === 'created' ? 'desc' : 'asc');
                       }
                     }}
                     className="p-4 text-[11px] font-bold uppercase tracking-wider cursor-pointer hover:bg-[var(--c-hover)] transition-colors select-none" 
@@ -372,12 +433,15 @@ function TasksPageInner() {
                     <td className="p-4 text-[13px] font-medium w-[15%]" style={{ color: 'var(--c-text-2)' }}>
                       {t.deadline ? new Date(t.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
                     </td>
+                    <td className="p-4 text-[13px] font-medium whitespace-nowrap" style={{ color: 'var(--c-text-3)' }}>
+                      {t.createdAt ? new Date(t.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
                   </tr>
                 );
               })}
               {sortedTasks.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-[14px]" style={{ color: 'var(--c-text-3)' }}>No tasks found matching criteria.</td>
+                  <td colSpan={6} className="p-8 text-center text-[14px]" style={{ color: 'var(--c-text-3)' }}>No tasks found matching criteria.</td>
                 </tr>
               )}
             </tbody>
@@ -587,8 +651,8 @@ function TasksPageInner() {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-[var(--c-text)]">Project Goals</h2>
-              <button 
-                onClick={() => setModalOpen(true)} 
+              <button
+                onClick={() => { setModalDefaultType('goal'); setModalOpen(true); }}
                 className="flex items-center gap-2 bg-[var(--c-text)] text-[var(--c-surface)] px-4 py-2 rounded-xl font-semibold text-[13px] hover:opacity-90 transition-opacity"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span> Create Goal
@@ -732,7 +796,7 @@ function TasksPageInner() {
       )}
 
       <TaskDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
-      <NewTaskModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+      <NewTaskModal isOpen={modalOpen} onClose={() => setModalOpen(false)} defaultType={modalDefaultType} />
       <RevertToTodoModal taskId={revertTaskId} onClose={() => setRevertTaskId(null)} />
     </div>
   );

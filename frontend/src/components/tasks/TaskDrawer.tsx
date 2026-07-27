@@ -19,7 +19,7 @@ const STATUSES: Task['status'][] = ['todo', 'in_progress', 'rework', 'in_review'
 
 
 export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
-  const { state, setTaskStatus, updateTask, deleteTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser } = useApp();
+  const { state, setTaskStatus, updateTask, deleteTask, startTimer, requestStopTimer, isTimerRunning, dispatch, addReviewComment, resolveApproval, requestApproval, notifyUser, uploadTaskFile, deleteTaskAsset, taskAssetDownloadUrl, reloadData, createTask } = useApp();
   const confirm = useConfirm();
   const [tab, setTab] = useState<'details' | 'timelog' | 'audit'>('details');
   const [manualHours, setManualHours] = useState('');
@@ -27,6 +27,10 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const [logNote, setLogNote] = useState('');
   const [comment, setComment] = useState('');
   const [newAssetUrl, setNewAssetUrl] = useState('');
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [addingSubtask, setAddingSubtask] = useState(false);
   const [newAssetName, setNewAssetName] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [reassignTarget, setReassignTarget] = useState('');
@@ -60,6 +64,36 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const isLeadership = currentUser?.role === "super_admin" || currentUser?.role === "admin" || currentUser?.roleTag === "leadership";
+
+  // Creates a child task under this goal. Inherits the goal's client, category, priority and
+  // deadline so a subtask can be added with nothing but a title, and reloads afterwards so
+  // the new row carries its real backend id rather than the local placeholder.
+  const handleAddSubtask = async () => {
+    const title = newSubtaskTitle.trim();
+    if (!title || !task) return;
+    setAddingSubtask(true);
+    try {
+      await createTask({
+        title,
+        type: 'subtask',
+        parentId: task.id,
+        clientId: task.clientId,
+        category: task.category,
+        priority: task.priority,
+        status: 'todo',
+        assignedTo: task.assignedTo || [],
+        createdBy: state.currentUserId,
+        deadline: task.deadline || null,
+        estimatedHours: 0,
+        description: '',
+        tags: [],
+      } as any);
+      setNewSubtaskTitle('');
+      reloadData();
+    } finally {
+      setAddingSubtask(false);
+    }
+  };
   const isAssigned = task?.assignedTo.includes(state.currentUserId) || task?.createdBy === state.currentUserId;
   const isReadOnly = !isLeadership && !isAssigned;
   // Edit permission: task creator (assigner) OR leadership/admin
@@ -378,27 +412,73 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                 </div>
               )}
 
-              {/* Relative Assets (Drive Links) */}
+              {/* Relative Assets (Drive Links + uploaded files) */}
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-2 text-app-text3">Relative Assets / Drive Links</label>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider mb-2 text-app-text3">Attachments</label>
                 <div className="flex flex-col gap-2">
-                  {(task.assets || []).map((asset, i) => (
-                    <div key={i} className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-surface-2 group">
+                  {(task.assets || []).map((asset: any, i: number) => (
+                    <div key={asset.id || i} className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-surface-2 group">
                       <div className="flex items-center gap-2 overflow-hidden">
                         <div className="w-8 h-8 rounded bg-surface flex items-center justify-center flex-shrink-0 text-primary">
-                          <span className="material-symbols-outlined text-[16px]">link</span>
+                          <span className="material-symbols-outlined text-[16px]">{asset.isFile ? 'attach_file' : 'link'}</span>
                         </div>
                         <div className="min-w-0">
                           <p className="text-[12px] font-bold text-text truncate">{asset.name}</p>
-                          <a href={asset.url} target="_blank" rel="noreferrer" className="text-[11px] text-text-3 hover:text-primary hover:underline truncate block">
-                            {asset.url}
-                          </a>
+                          {asset.isFile ? (
+                            <a
+                              href={taskAssetDownloadUrl(asset.id)}
+                              className="text-[11px] text-text-3 hover:text-primary hover:underline truncate block"
+                            >
+                              Download{asset.sizeBytes ? ` · ${(asset.sizeBytes / 1024).toFixed(0)} KB` : ''}
+                            </a>
+                          ) : (
+                            <a href={asset.url} target="_blank" rel="noreferrer" className="text-[11px] text-text-3 hover:text-primary hover:underline truncate block">
+                              {asset.url}
+                            </a>
+                          )}
                         </div>
                       </div>
+                      {asset.id && (
+                        <button
+                          className="text-red-500 hover:bg-red-500/10 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                          title="Remove attachment"
+                          onClick={async () => {
+                            if (await deleteTaskAsset(asset.id)) reloadData();
+                          }}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
+                      )}
                     </div>
                   ))}
-                  
-                  {(!task.assets || task.assets.length < 3) ? (
+
+                  {/* Real file upload — stored in the database, not a placeholder. */}
+                  <div className="flex items-center gap-2 mt-1">
+                    <label className="btn-outline text-[12px] py-1.5 px-3 border-dashed cursor-pointer flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px]">upload_file</span>
+                      {uploadingFile ? 'Uploading…' : 'Upload file'}
+                      <input
+                        type="file"
+                        className="hidden"
+                        disabled={uploadingFile}
+                        onChange={async e => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          if (!f) return;
+                          setFileError(null);
+                          setUploadingFile(true);
+                          const { error } = await uploadTaskFile(task.id, f);
+                          setUploadingFile(false);
+                          if (error) setFileError(error);
+                          else reloadData();
+                        }}
+                      />
+                    </label>
+                    <span className="text-[10px] text-text-3">Max 10 MB</span>
+                  </div>
+                  {fileError && <p className="text-[11px] text-red-500">{fileError}</p>}
+
+                  {(!task.assets || task.assets.filter((a: any) => !a.isFile).length < 3) ? (
                     <div className="flex gap-2 mt-1">
                       <input 
                         type="text" 
@@ -450,8 +530,38 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
                              {STATUS_CONFIG[st.status].label}
                            </div>
                         </div>
+                        {/* Quick status flip so a subtask can be ticked off without leaving the goal */}
+                        <button
+                          className="text-[11px] font-bold px-2.5 py-1 rounded transition-colors flex-shrink-0"
+                          style={{ background: 'var(--c-surface)', color: st.status === 'done' ? 'var(--c-text-3)' : 'var(--c-primary)', border: '1px solid var(--c-border)' }}
+                          onClick={() => setTaskStatus(st.id, st.status === 'done' ? 'todo' : 'done')}
+                        >
+                          {st.status === 'done' ? 'Reopen' : 'Done'}
+                        </button>
                       </div>
                     ))}
+
+                    {/* Inline add — keeps you inside the goal instead of opening the full
+                        New Task modal. Client/category/priority are inherited from the goal,
+                        so only a title is needed. */}
+                    <div className="flex gap-2 mt-1">
+                      <input
+                        type="text"
+                        className="input-base text-[12px] flex-1"
+                        placeholder="Add a subtask…"
+                        value={newSubtaskTitle}
+                        disabled={addingSubtask}
+                        onChange={e => setNewSubtaskTitle(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddSubtask(); }}
+                      />
+                      <button
+                        className="btn-primary px-3 text-[12px] disabled:opacity-40"
+                        disabled={!newSubtaskTitle.trim() || addingSubtask}
+                        onClick={handleAddSubtask}
+                      >
+                        {addingSubtask ? 'Adding…' : 'Add'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
