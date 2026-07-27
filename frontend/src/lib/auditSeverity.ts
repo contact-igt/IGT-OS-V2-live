@@ -31,8 +31,6 @@ export const MODULE_LABELS: Record<string, string> = {
   Task: 'Tasks',
   Employee: 'Employees',
   Attendance: 'Attendance',
-  Client: 'Clients',
-  Meeting: 'Meetings',
   Leave: 'Leave',
 };
 

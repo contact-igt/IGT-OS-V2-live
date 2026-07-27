@@ -20,8 +20,6 @@ const TABS: { key: string; label: string }[] = [
   { key: 'Task', label: 'Tasks' },
   { key: 'Employee', label: 'Employees' },
   { key: 'Attendance', label: 'Attendance' },
-  { key: 'Client', label: 'Clients' },
-  { key: 'Meeting', label: 'Meetings' },
   { key: 'Leave', label: 'Leave' },
   { key: 'security', label: 'Security' },
 ];

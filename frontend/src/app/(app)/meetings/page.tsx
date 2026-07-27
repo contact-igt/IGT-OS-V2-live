@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 import MeetingAnalyzePanel from '@/components/ai/MeetingAnalyzePanel';
 import MeetingNotesTab from '@/components/ai/MeetingNotesTab';
-import { ArrowLeft, Check, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, Sparkles, Calendar as CalendarIcon } from 'lucide-react';
 
 interface MeetingCard {
   id: string;
@@ -45,9 +45,6 @@ function MeetingsPageInner() {
     }
     load();
 
-    // Surfaced so a mismatched Google account (wrong one picked at the OAuth consent
-    // screen) is immediately visible here, instead of silently showing someone else's
-    // calendar under this login.
     async function loadGoogleStatus() {
       if (!user) return;
       try {
@@ -96,6 +93,43 @@ function MeetingsPageInner() {
 
     return [...eventCards, ...manualNoteCards].sort((a, b) => new Date(b.start).getTime() - new Date(a.start).getTime());
   }, [events, state.meetingNotes, state.clients]);
+
+  // Group cards by date for clear segregation
+  const groupedCards = useMemo(() => {
+    const groups: { [dateStr: string]: { dateStr: string; label: string; isToday: boolean; isYesterday: boolean; cards: MeetingCard[] } } = {};
+
+    const now = new Date();
+    const todayStr = now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toDateString();
+
+    for (const card of cards) {
+      const cardDate = new Date(card.start);
+      if (isNaN(cardDate.getTime())) continue;
+
+      const dateStr = cardDate.toDateString();
+      const isToday = dateStr === todayStr;
+      const isYesterday = dateStr === yesterdayStr;
+
+      let label = '';
+      if (isToday) {
+        label = `Today — ${cardDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`;
+      } else if (isYesterday) {
+        label = `Yesterday — ${cardDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`;
+      } else {
+        label = cardDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+      }
+
+      if (!groups[dateStr]) {
+        groups[dateStr] = { dateStr, label, isToday, isYesterday, cards: [] };
+      }
+      groups[dateStr].cards.push(card);
+    }
+
+    // Return array sorted by newest date first
+    return Object.values(groups).sort((a, b) => new Date(b.cards[0].start).getTime() - new Date(a.cards[0].start).getTime());
+  }, [cards]);
 
   const handleCardClick = useCallback((card: MeetingCard) => {
     if (card.analyzed && card.noteId) {
@@ -159,54 +193,81 @@ function MeetingsPageInner() {
           <p className="text-[13px]" style={{ color: 'var(--c-text-3)' }}>Connect Google Calendar, or click "New Meeting Note" to paste a transcript directly.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {cards.map(card => (
-            <button
-              key={card.id}
-              onClick={() => handleCardClick(card)}
-              className="text-left card-surface2 p-4 rounded-xl border border-border hover:border-primary/50 transition-all hover:-translate-y-0.5"
-            >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <h3 className="font-bold text-[14px] leading-snug" style={{ color: 'var(--c-text)' }}>{card.title}</h3>
-                {card.analyzed ? (
-                  <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(42,177,130,0.1)', color: '#2AB182' }}>
-                    <Check className="w-3 h-3" /> Analyzed
-                  </span>
-                ) : (
-                  <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--c-surface-3)', color: 'var(--c-text-3)' }}>
-                    Not analyzed
-                  </span>
+        /* Segregated Meeting Cards by Date */
+        <div className="space-y-8">
+          {groupedCards.map(group => (
+            <div key={group.dateStr} className="space-y-3">
+              {/* Date Group Header */}
+              <div className="flex items-center gap-3 border-b pb-2" style={{ borderColor: 'var(--c-border)' }}>
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-primary" />
+                  <h2 className="text-[14px] font-bold" style={{ color: 'var(--c-text)', fontFamily: 'var(--font-syne-var)' }}>
+                    {group.label}
+                  </h2>
+                </div>
+                {group.isToday && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Today" />
                 )}
+                <span
+                  className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--c-surface-2)', color: 'var(--c-text-3)' }}
+                >
+                  {group.cards.length} {group.cards.length === 1 ? 'meeting' : 'meetings'}
+                </span>
               </div>
 
-              <p className="text-[12px] mb-3" style={{ color: 'var(--c-text-3)' }}>
-                {new Date(card.start).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-              </p>
-
-              {card.clientName && (
-                <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary mb-2">{card.clientName}</span>
-              )}
-
-              {card.attendees && card.attendees.length > 0 && (
-                <div className="flex -space-x-1.5 mt-2">
-                  {card.attendees.slice(0, 4).map((a, i) => (
-                    <div
-                      key={i}
-                      title={a.email}
-                      className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold"
-                      style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}
-                    >
-                      {a.email.slice(0, 2).toUpperCase()}
+              {/* Cards Grid for this Date */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {group.cards.map(card => (
+                  <button
+                    key={card.id}
+                    onClick={() => handleCardClick(card)}
+                    className="text-left card-surface2 p-4 rounded-xl border border-border hover:border-primary/50 transition-all hover:-translate-y-0.5"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h3 className="font-bold text-[14px] leading-snug" style={{ color: 'var(--c-text)' }}>{card.title}</h3>
+                      {card.analyzed ? (
+                        <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(42,177,130,0.1)', color: '#2AB182' }}>
+                          <Check className="w-3 h-3" /> Analyzed
+                        </span>
+                      ) : (
+                        <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--c-surface-3)', color: 'var(--c-text-3)' }}>
+                          Not analyzed
+                        </span>
+                      )}
                     </div>
-                  ))}
-                  {card.attendees.length > 4 && (
-                    <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold" style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}>
-                      +{card.attendees.length - 4}
-                    </div>
-                  )}
-                </div>
-              )}
-            </button>
+
+                    <p className="text-[12px] mb-3" style={{ color: 'var(--c-text-3)' }}>
+                      {new Date(card.start).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </p>
+
+                    {card.clientName && (
+                      <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary mb-2">{card.clientName}</span>
+                    )}
+
+                    {card.attendees && card.attendees.length > 0 && (
+                      <div className="flex -space-x-1.5 mt-2">
+                        {card.attendees.slice(0, 4).map((a, i) => (
+                          <div
+                            key={i}
+                            title={a.email}
+                            className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold"
+                            style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}
+                          >
+                            {a.email.slice(0, 2).toUpperCase()}
+                          </div>
+                        ))}
+                        {card.attendees.length > 4 && (
+                          <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center text-[9px] font-bold" style={{ borderColor: 'var(--c-surface)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}>
+                            +{card.attendees.length - 4}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
