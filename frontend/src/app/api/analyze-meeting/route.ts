@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
 
 const DEFAULT_MODEL = 'gemini-2.0-flash';
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
 function buildPrompt(transcript: string, context: { clients: string[]; team: string[] }, analysisPreference?: string): string {
   let roleInstruction = '';
@@ -107,7 +108,7 @@ Analyze the following meeting transcript and return ONLY a valid JSON object wit
     "nextStepsClient": ["string"],
     "nextMeetingNote": "string or null",
     "closingPara": "professional warm close",
-    "signoff": "Warm regards,\\nSushil Athithiyaa\\nFounder & CEO, Invictus Global Tech"
+    "signoff": "Warm regards,\nSushil Athithiyaa\nFounder & CEO, Invictus Global Tech"
   },
   "momTeam": {
     "heading": "CLIENT — Meeting Type · Date",
@@ -153,41 +154,46 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    const selectedModel = model || DEFAULT_MODEL;
+    // Try requested model first, then fallback models if it fails
+    const candidateModels = Array.from(new Set([model, ...FALLBACK_MODELS].filter(Boolean)));
+    let lastError: string = '';
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: 'You are a highly analytical meeting assistant. Always output purely valid JSON with no markdown formatting or extra text.' }],
-          },
-          contents: [{ parts: [{ text: buildPrompt(transcript, context || { clients: [], team: [] }, analysisPreference) }] }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: 'application/json',
-          },
-        }),
+    for (const modelToTry of candidateModels) {
+      try {
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: buildPrompt(transcript, context || { clients: [], team: [] }, analysisPreference) }] }],
+              generationConfig: {
+                temperature: 0.2,
+                responseMimeType: 'application/json',
+              },
+            }),
+          }
+        );
+
+        const data: any = await geminiRes.json();
+
+        if (!geminiRes.ok) {
+          console.error(`[analyze-meeting] Model '${modelToTry}' failed (${geminiRes.status}):`, data.error?.message || data);
+          lastError = data.error?.message || `API error ${geminiRes.status}`;
+          continue; // Try next model
+        }
+
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(clean);
+        return NextResponse.json(parsed);
+      } catch (err: any) {
+        console.error(`[analyze-meeting] Exception on model '${modelToTry}':`, err.message);
+        lastError = err.message;
       }
-    );
-
-    const data: any = await geminiRes.json();
-
-    if (!geminiRes.ok) {
-      return NextResponse.json({ error: data.error?.message || 'Gemini API error' }, { status: 500 });
     }
 
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-
-    try {
-      const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const parsed = JSON.parse(clean);
-      return NextResponse.json(parsed);
-    } catch {
-      return NextResponse.json({ error: 'Failed to parse AI response', raw }, { status: 500 });
-    }
+    return NextResponse.json({ error: lastError || 'Gemini API call failed for all models' }, { status: 500 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
