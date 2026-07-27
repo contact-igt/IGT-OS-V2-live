@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { encrypt } from '../lib/crypto';
+import { buildRedirectUri } from '../lib/oauthRedirect';
 
 const router = Router();
 
@@ -8,7 +9,7 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 function redirectUri(): string {
-  return `${process.env.BACKEND_URL}/api/auth/youtube/callback`;
+  return buildRedirectUri('/api/auth/youtube/callback');
 }
 
 // Step 1: kick off the OAuth flow

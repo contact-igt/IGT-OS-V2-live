@@ -35,7 +35,7 @@ import googleAuthRoutes from './routes/googleAuth';
 import appSecretsRoutes from './routes/appSecrets';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import authRoutes from './routes/auth';
-import { requireAuth, requirePageAccess } from './middleware/auth';
+import { requireAuth, requirePageAccess, requireRole } from './middleware/auth';
 import { logAudit } from './lib/auditLog';
 import { setAuthCookies, signAccessToken, generateRefreshToken } from './lib/tokens';
 import { getDestination } from './lib/destination';
@@ -492,6 +492,82 @@ app.get('/api/leave-requests/me', requireAuth, async (req: Request, res: Respons
     res.json(result.rows);
   } catch (err: any) {
     console.error('[leave] Error fetching own leave requests:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/leave-requests — the whole team's requests, for the Leave Requests page under
+// Team. Restricted to the same people the submission notifies (admin/ops leadership); anyone
+// else gets only their own rows rather than a 403, so the page still works for everyone.
+app.get('/api/leave-requests', requireAuth, async (req: Request, res: Response) => {
+  if (!pool) return res.json([]);
+  const { id, role } = (req as any).user;
+  const canSeeAll = ['admin', 'super_admin', 'ops'].includes(role);
+
+  try {
+    const result = canSeeAll
+      ? await pool.query(
+          `SELECT l.id, l.user_id, l.user_name, l.type, l.from_date, l.to_date, l.reason,
+                  l.reporting_manager, l.status, l.created_at, u.department, u.avatar_url
+           FROM leave_requests l
+           LEFT JOIN public.users u ON u.id = l.user_id
+           ORDER BY l.created_at DESC`
+        )
+      : await pool.query(
+          `SELECT l.id, l.user_id, l.user_name, l.type, l.from_date, l.to_date, l.reason,
+                  l.reporting_manager, l.status, l.created_at, u.department, u.avatar_url
+           FROM leave_requests l
+           LEFT JOIN public.users u ON u.id = l.user_id
+           WHERE l.user_id = $1
+           ORDER BY l.created_at DESC`,
+          [id]
+        );
+    res.json({ canSeeAll, requests: result.rows });
+  } catch (err: any) {
+    console.error('[leave] Error fetching leave requests:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /api/leave-requests/:id — approve/reject. Until now every request stayed 'pending'
+// forever because nothing could ever change it, which is why My Profile has to say
+// "Requested" rather than "Taken".
+app.patch('/api/leave-requests/:id', requireAuth, requireRole('admin', 'ops'), async (req: Request, res: Response) => {
+  if (!pool) return res.status(500).json({ error: 'Database is not configured.' });
+  const { status } = req.body;
+  if (!['approved', 'rejected', 'pending'].includes(status)) {
+    return res.status(400).json({ error: 'status must be approved, rejected, or pending' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE leave_requests SET status = $1 WHERE id = $2 RETURNING *`,
+      [status, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Leave request not found' });
+
+    const row = result.rows[0];
+    const actor = (req as any).user;
+
+    // Tell the submitter what happened — previously they'd never hear back at all.
+    pool.query(
+      `INSERT INTO public.notifications (user_id, actor_id, type, message)
+       VALUES ($1, $2, 'status_change', $3)`,
+      [row.user_id, actor.id, `Your ${row.type} leave request (${row.from_date} to ${row.to_date}) was ${status}.`]
+    ).catch(err => console.error('[leave] Failed to notify submitter:', err));
+
+    logAudit(pool, {
+      actorId: actor.id,
+      actorName: actor.name || actor.email,
+      action: `leave_${status}`,
+      entity: 'Leave',
+      entityRef: `${row.user_name} — ${row.type} (${row.from_date} to ${row.to_date})`,
+      entityId: String(row.id),
+    });
+
+    res.json(row);
+  } catch (err: any) {
+    console.error('[leave] Error updating leave request:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

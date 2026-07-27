@@ -104,7 +104,8 @@ export interface Task {
   estimatedHours: number;
   loggedMinutes: number;    // cached display total; ledger is source of truth
 
-  // Completion tracking (v3 — set ONCE on → done; cleared on reopen)
+  // Completion tracking (v3 — set ONCE on → done; cleared on reopen). Now backed by
+  // tasks.completed_at in Postgres, and used to archive done tasks off the boards after a week.
   completedAt?: string;     // ISO timestamp
   completedBy?: string;     // userId
 

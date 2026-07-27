@@ -986,7 +986,12 @@ interface AppContextValue {
   stopTimer: (taskId: string) => void; // Immediate stop
   requestStopTimer: (taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => void; // Opens modal
   setTaskStatus: (taskId: string, status: Task['status'], note?: string) => void;
-  createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => void;
+  createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => Promise<string | null>;
+  // Uploads a real file and attaches it to a task. Returns an error string on failure so the
+  // caller can surface it (e.g. the 10 MB size cap) rather than failing silently.
+  uploadTaskFile: (taskId: string, file: File) => Promise<{ error?: string }>;
+  deleteTaskAsset: (assetId: string) => Promise<boolean>;
+  taskAssetDownloadUrl: (assetId: string) => string;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => Promise<boolean>;
   createClient: (name: string, shortCode: string) => Promise<{ id: string } | { error: string }>;
@@ -1633,16 +1638,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.currentUserId, state.tasks, state.teamMembers, user]);
 
-  const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => {
+  // Resolves to the real backend task id (or null if it couldn't be created there), so
+  // callers that need to act on the persisted task — e.g. uploading a file attachment, which
+  // requires a task to attach to — can await it instead of guessing.
+  const createTask = useCallback(async (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }): Promise<string | null> => {
     dispatch({ type: 'CREATE_TASK', payload: data });
 
     if (user) {
-      (async () => {
+      return await (async () => {
         try {
           const dbClientId = clientIdMapRef.current.toDb[data.clientId];
           if (!dbClientId) {
             console.warn('No backend client mapping for', data.clientId, '— task created locally only.');
-            return;
+            return null;
           }
           const dbAssignedTo = data.assignedTo || [];
 
@@ -1661,6 +1669,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               deadline: data.deadline,
               estimatedHours: data.estimatedHours,
               tags: data.tags,
+              // Drive/deliverable links — without this they only ever lived in local state
+              // and silently vanished on the next fetchData() re-hydration.
+              assets: data.assets,
+              taskType: (data as any).taskType,
+              // goal/task/subtask and the parent link — without these a goal came back from
+              // the next fetch as a plain task, and subtasks lost their parent entirely.
+              // parentId is mapped through taskIdMapRef because callers pass the local
+              // placeholder id, while Postgres needs the real parent UUID.
+              type: data.type || 'task',
+              parentId: data.parentId ? (taskIdMapRef.current[data.parentId] || data.parentId) : null,
             }),
           });
           const created = await res.json();
@@ -1705,12 +1723,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               body: JSON.stringify({ userId: dbUserId, type: 'assignment', taskId: created.id, message: `You have been assigned a new task: ${data.title}` }),
             }).catch(err => console.error('Failed to sync assignment notification:', err));
           }
+          return created.id as string;
         } catch (err) {
           console.error('Failed to sync new task to backend:', err);
+          return null;
         }
       })();
     }
+    return null;
   }, [user]);
+
+  // File attachments. Uploaded bytes live in Postgres (task_assets.file_data) and are served
+  // back through an authenticated download endpoint — there are no public file URLs.
+  const uploadTaskFile = useCallback(async (taskId: string, file: File): Promise<{ error?: string }> => {
+    if (!user) return { error: 'Not authenticated' };
+    try {
+      const dbTaskId = taskIdMapRef.current[taskId] || taskId;
+      const formData = new FormData();
+      formData.append('file', file);
+      // No Content-Type header here on purpose — the browser has to set the multipart
+      // boundary itself, and setting it manually breaks the upload.
+      const res = await fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}/assets`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { error: data.error || 'Upload failed' };
+      }
+      return {};
+    } catch (err) {
+      return { error: 'Could not connect to the server' };
+    }
+  }, [user, apiBaseUrl]);
+
+  const deleteTaskAsset = useCallback(async (assetId: string): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/tasks/assets/${assetId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, [user, apiBaseUrl]);
+
+  const taskAssetDownloadUrl = useCallback(
+    (assetId: string) => `${apiBaseUrl}/api/tasks/assets/${assetId}/download`,
+    [apiBaseUrl]
+  );
 
   // Quick-add client (name + short code only — see backend POST /api/clients). Registers
   // the new client into both state.clients and clientIdMapRef so createTask's mock->real
@@ -1956,6 +2020,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     requestStopTimer,
     setTaskStatus,
     createTask,
+    uploadTaskFile,
+    deleteTaskAsset,
+    taskAssetDownloadUrl,
     updateTask,
     deleteTask,
     createClient,

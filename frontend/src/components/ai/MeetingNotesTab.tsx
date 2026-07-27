@@ -12,6 +12,7 @@ import {
 import TalkTimeBar from './TalkTimeBar';
 import MeetingQualityBadge from './MeetingQualityBadge';
 import TaskApprovalCard from './TaskApprovalCard';
+import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,33 @@ function resolveClientId(clientName: string | null, clients: any[]): string {
   if (!clientName) return clients[0]?.id || '';
   const lower = clientName.toLowerCase();
   return clients.find(c => c.name.toLowerCase().includes(lower) || lower.includes(c.name.toLowerCase().split(' ')[0].toLowerCase()))?.id || clients[0]?.id || '';
+}
+
+// Fathom/Gemini send their recap email shortly after a meeting ends — measured against
+// real recaps here, consistently 39-48 min after the event's start. Matching a recap back
+// to its calendar event is what lets the saved note carry a googleEventId, so the Meetings
+// page shows ONE card (flipped to "Analyzed") instead of the imported note and the original
+// calendar event sitting side by side as two permanently-unlinked cards.
+const RECAP_MATCH_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+export function matchRecapToEvent(recapDate: string, events: GoogleEvent[]): string | null {
+  const emailMs = new Date(recapDate).getTime();
+  if (Number.isNaN(emailMs)) return null;
+
+  let bestId: string | null = null;
+  let bestGap = Infinity;
+  for (const ev of events) {
+    const startMs = new Date(ev.start?.dateTime || '').getTime();
+    if (Number.isNaN(startMs)) continue;
+    const gap = emailMs - startMs; // recap always arrives after the meeting starts
+    if (gap >= 0 && gap <= RECAP_MATCH_WINDOW_MS && gap < bestGap) {
+      bestGap = gap;
+      bestId = ev.id;
+    }
+  }
+  // No nearby event (ad-hoc meeting that was never on the calendar) — deliberately left
+  // unlinked rather than force-attached to whatever happened to be closest.
+  return bestId;
 }
 
 // ─── Gmail Import Modal ─────────────────────────────────────────────────────
@@ -32,7 +60,7 @@ interface GmailRecap {
   body: string;
 }
 
-function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect: (body: string) => void }) {
+function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect: (body: string, recapDate: string) => void }) {
   const { user } = useAuth();
   const [recaps, setRecaps] = useState<GmailRecap[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +110,7 @@ function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect
               {recaps.map(r => (
                 <button
                   key={r.id}
-                  onClick={() => { onSelect(r.body); onClose(); }}
+                  onClick={() => { onSelect(r.body, r.date); onClose(); }}
                   className="w-full text-left rounded-xl p-4 transition-all hover:-translate-y-0.5"
                   style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-border)' }}
                 >
@@ -107,6 +135,7 @@ function GmailImportModal({ onClose, onSelect }: { onClose: () => void; onSelect
 
 export default function MeetingNotesTab() {
   const { state, dispatch, saveMeetingNote, createTask } = useApp();
+  const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -122,6 +151,14 @@ export default function MeetingNotesTab() {
   const [analysisPreference, setAnalysisPreference] = useState<'general' | 'sales' | 'project-management' | 'technical'>('general');
   const [models, setModels] = useState<{ name: string; displayName: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  // Calendar event this transcript belongs to, when it came from a Gmail recap that could be
+  // matched to one. Carried into every save below so re-saving updates the same row (the
+  // backend upserts on google_event_id) instead of spawning duplicates.
+  const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
+  const [linkedEventTitle, setLinkedEventTitle] = useState<string | null>(null);
+  // Set once this analysis has been persisted, so the "Create Tasks" step reuses that row
+  // rather than saving a second copy of the same meeting.
+  const [savedMeetingId, setSavedMeetingId] = useState<string | null>(null);
 
   // Model list comes from Gemini's own API (not hardcoded) so it stays correct as Google
   // renames/deprecates model versions over time.
@@ -136,6 +173,32 @@ export default function MeetingNotesTab() {
       })
       .catch(() => {});
   }, []);
+
+  // Pulls the transcript in from a Gmail recap and, where possible, ties it back to the
+  // calendar event it came from — see matchRecapToEvent above for why that link matters.
+  const handleRecapSelected = useCallback(async (body: string, recapDate: string) => {
+    setTranscript(body);
+    setLinkedEventId(null);
+    setLinkedEventTitle(null);
+    setSavedMeetingId(null);
+    if (!user || !recapDate) return;
+
+    try {
+      // Narrow window around the recap — enough to cover the meeting itself without
+      // pulling the whole calendar just to find one event.
+      const from = new Date(new Date(recapDate).getTime() - 24 * 60 * 60 * 1000);
+      const to = new Date(new Date(recapDate).getTime() + 24 * 60 * 60 * 1000);
+      const { events } = await fetchGoogleCalendarEvents(true, from.toISOString(), to.toISOString());
+      const eventId = matchRecapToEvent(recapDate, events);
+      if (eventId) {
+        setLinkedEventId(eventId);
+        setLinkedEventTitle(events.find(e => e.id === eventId)?.summary || null);
+      }
+    } catch (err) {
+      // Matching is a convenience — a failure here just means the note saves unlinked.
+      console.error('Could not match this recap to a calendar event:', err);
+    }
+  }, [user]);
 
   // Handle ?prefill= query param for Calendar deep-linking
   useEffect(() => {
@@ -213,15 +276,21 @@ export default function MeetingNotesTab() {
         transcriptSnippet: transcript,
         result: data,
         tasksCreated: [],
+        // Carries the matched calendar event through, so this note lands on the same
+        // Meetings card as the event instead of appearing as a second, unlinked one.
+        googleEventId: linkedEventId,
       };
-      saveMeetingNote(newNote);
+      // Awaited and remembered so handleCreateTasks below can update this exact meeting
+      // rather than saving a duplicate of it.
+      const savedId = await saveMeetingNote(newNote);
+      setSavedMeetingId(savedId);
       alert(`Meeting Analyzed! Found ${tasks.length} action items to review.`);
     } catch (err: any) {
       setAnalyzeError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setAnalyzing(false);
     }
-  }, [transcript, state.clients, state.teamMembers, analysisPreference, selectedModel]);
+  }, [transcript, state.clients, state.teamMembers, analysisPreference, selectedModel, linkedEventId, saveMeetingNote]);
 
   const handleAudioUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -297,12 +366,16 @@ export default function MeetingNotesTab() {
     const approved = proposedTasks.filter(t => t.status === 'approved' && t.ownerSide === 'invictus');
     if (approved.length === 0) return;
 
-    // Save the meeting first (and wait for its real backend id) so every approved task can
-    // be tagged with meeting-<id> — that tag is what makes a re-analysis of the same
-    // meeting traceable back to the tasks it already created, instead of silently
-    // duplicating them.
-    let meetingId: string | null = null;
-    if (result) {
+    // Every approved task gets tagged with meeting-<id> — that tag is what makes a
+    // re-analysis of the same meeting traceable back to the tasks it already created,
+    // instead of silently duplicating them.
+    //
+    // handleAnalyze already persisted this meeting, so reuse that id. Saving again here
+    // (as this used to) created a second row for the same meeting every time someone went
+    // on to create tasks, since an unlinked note has no google_event_id for the backend
+    // to upsert on.
+    let meetingId: string | null = savedMeetingId;
+    if (!meetingId && result) {
       const matchedClient = state.clients.find(c => c.name.toLowerCase() === (result.meetingMeta?.clientName || '').toLowerCase());
       const note: MeetingNote = {
         id: crypto.randomUUID(),
@@ -311,8 +384,10 @@ export default function MeetingNotesTab() {
         transcriptSnippet: transcript,
         result,
         tasksCreated: [],
+        googleEventId: linkedEventId || undefined,
       };
       meetingId = await saveMeetingNote(note);
+      setSavedMeetingId(meetingId);
     }
     const tags = meetingId ? ['meeting-generated', `meeting-${meetingId}`] : ['meeting-generated'];
 
@@ -339,7 +414,7 @@ export default function MeetingNotesTab() {
     setCreatedCount(approved.length);
     // Mark as approved so button shows success
     setTimeout(() => router.push('/tasks'), 1800);
-  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, createTask, saveMeetingNote, router]);
+  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, createTask, saveMeetingNote, router, savedMeetingId, linkedEventId]);
 
   const handleSendClientMOM = useCallback(() => {
     if (!result) return;
@@ -444,6 +519,16 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
             onChange={e => setTranscript(e.target.value)}
           />
         </div>
+
+        {linkedEventTitle && (
+          <div
+            className="rounded-xl px-4 py-3 mb-4 text-[13px] flex items-center gap-2"
+            style={{ background: 'rgba(42,177,130,0.08)', border: '1px solid rgba(42,177,130,0.25)', color: 'var(--c-text-2)' }}
+          >
+            <span style={{ color: '#2AB182' }}>🔗</span>
+            <span>Will be linked to your calendar event <strong style={{ color: 'var(--c-text)' }}>{linkedEventTitle}</strong></span>
+          </div>
+        )}
 
         {analyzeError && (
           <div
@@ -552,7 +637,7 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
         {showGmailModal && (
           <GmailImportModal
             onClose={() => setShowGmailModal(false)}
-            onSelect={body => setTranscript(body)}
+            onSelect={handleRecapSelected}
           />
         )}
 
@@ -601,7 +686,10 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
       <div className="flex items-start justify-between mb-6">
         <div>
           <button
-            onClick={() => { setResult(null); setTranscript(''); }}
+            onClick={() => {
+              setResult(null); setTranscript('');
+              setLinkedEventId(null); setLinkedEventTitle(null); setSavedMeetingId(null);
+            }}
             className="flex items-center gap-1.5 text-[12px] font-bold mb-3 hover:opacity-70 transition-opacity"
             style={{ color: 'var(--c-text-3)' }}
           >

@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { encrypt } from '../lib/crypto';
 import { requireAuth } from '../middleware/auth';
 import { getValidAccessToken } from '../lib/googleAccount';
+import { buildRedirectUri } from '../lib/oauthRedirect';
 
 const router = Router();
 
@@ -10,7 +11,7 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 function redirectUri(): string {
-  return `${process.env.BACKEND_URL}/api/google/callback`;
+  return buildRedirectUri('/api/google/callback');
 }
 
 // Step 1: kick off a combined Calendar + Gmail OAuth grant for the caller's own Google
@@ -21,9 +22,19 @@ router.get('/connect', (req: Request, res: Response) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).send('Missing userId');
 
+  let callbackUri: string;
+  try {
+    callbackUri = redirectUri();
+  } catch (err: any) {
+    // Surfaced as a readable page rather than bouncing the user to Google only for Google
+    // to reject the request with an opaque 400 they can't act on.
+    console.error('Google connect misconfigured:', err.message);
+    return res.status(500).send('Google sign-in is not configured on the server yet. Please contact your administrator.');
+  }
+
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || '',
-    redirect_uri: redirectUri(),
+    redirect_uri: callbackUri,
     response_type: 'code',
     access_type: 'offline',
     prompt: 'consent select_account',

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { encrypt } from '../lib/crypto';
+import { buildRedirectUri } from '../lib/oauthRedirect';
 
 const router = Router();
 
@@ -11,7 +12,7 @@ const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
 const FB_OAUTH_DIALOG_URL = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 
 function redirectUri(): string {
-  return `${process.env.BACKEND_URL}/api/auth/instagram/callback`;
+  return buildRedirectUri('/api/auth/instagram/callback');
 }
 
 // Step 1: kick off the OAuth flow
