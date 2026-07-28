@@ -21,7 +21,10 @@ async function autoCloseStaleSessions(pool: Pool) {
   }
 }
 
-function serializeAttendance(row: any, breaks: any[] = []) {
+// `breaks` defaults to row.breaks (populated by the BREAKS_SUBQUERY list query below) so
+// callers that already batched breaks via SQL don't need to pass them again; single-row
+// routes (clock-in/break-start/etc.) still pass their own freshly-queried array explicitly.
+function serializeAttendance(row: any, breaks: any[] = row.breaks || []) {
   return {
     id: row.id,
     userId: row.user_id,
@@ -32,12 +35,21 @@ function serializeAttendance(row: any, breaks: any[] = []) {
     lateReturn: row.late_return,
     breaks: breaks.map((b: any) => ({
       id: b.id,
-      breakStart: b.break_start,
-      breakEnd: b.break_end,
+      breakStart: b.break_start ?? b.breakStart,
+      breakEnd: b.break_end ?? b.breakEnd,
     })),
-    isOnBreak: breaks.some((b: any) => !b.break_end),
+    isOnBreak: breaks.some((b: any) => !(b.break_end ?? b.breakEnd)),
   };
 }
+
+// Aggregates attendance_breaks per log in one query, same pattern as tasks.ts's
+// ASSETS_SUBQUERY — avoids an N+1 query per row for what used to be a hardcoded breaks: [].
+const BREAKS_SUBQUERY = `
+  (SELECT COALESCE(json_agg(json_build_object(
+      'id', ab.id, 'breakStart', ab.break_start, 'breakEnd', ab.break_end
+    ) ORDER BY ab.break_start), '[]'::json)
+   FROM public.attendance_breaks ab WHERE ab.attendance_id = al.id) AS breaks
+`;
 
 // GET /active-session — returns current user's open clock-in session and break status
 router.get('/active-session', requireAuth, async (req: Request, res: Response) => {
@@ -238,9 +250,13 @@ router.post('/clock-out', requireAuth, async (req: Request, res: Response) => {
       [session.id]
     );
 
-    const hour = new Date().getHours();
+    // Was new Date().getHours() — the server's clock, which runs in UTC, not the
+    // employee's IST workday. That made this fire on completely normal 6-9 PM IST
+    // clock-outs (server UTC 12:30-15:30 lands inside "9am-6pm" on the wrong clock) while
+    // also being able to miss genuinely early ones. Force Asia/Kolkata explicitly.
+    const hour = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }));
     if (hour >= 9 && hour < 18) {
-      const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
       const message = `⚠️ ${req.user.name} clocked out at ${timeStr} — before 6 PM.`;
 
       pool.query(
@@ -295,10 +311,10 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     let params: any[] = [];
 
     if (role === 'admin' || role === 'super_admin' || role === 'ops') {
-      query = `SELECT * FROM public.attendance_logs WHERE date >= CURRENT_DATE - $1::int ORDER BY date DESC, clock_in DESC`;
+      query = `SELECT al.*, ${BREAKS_SUBQUERY} FROM public.attendance_logs al WHERE date >= CURRENT_DATE - $1::int ORDER BY date DESC, clock_in DESC`;
       params = [days];
     } else {
-      query = `SELECT * FROM public.attendance_logs WHERE user_id = $1 AND date >= CURRENT_DATE - $2::int ORDER BY date DESC, clock_in DESC`;
+      query = `SELECT al.*, ${BREAKS_SUBQUERY} FROM public.attendance_logs al WHERE user_id = $1 AND date >= CURRENT_DATE - $2::int ORDER BY date DESC, clock_in DESC`;
       params = [id, days];
     }
 

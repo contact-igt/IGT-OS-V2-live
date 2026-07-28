@@ -4,6 +4,24 @@ import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
+// Retention window: read notifications are cleaned up after READ_RETENTION_DAYS; anything
+// still unread gets a longer hard cap (MAX_RETENTION_DAYS) so a notification nobody ever
+// looked at doesn't sit in the DB forever either. Fired opportunistically on GET (same
+// non-blocking prune-on-request pattern already used for expired refresh tokens on login),
+// scoped to the requesting user's own rows only — no cron/worker needed for this scale.
+const READ_RETENTION_DAYS = 14;
+const MAX_RETENTION_DAYS = 60;
+
+function pruneOldNotifications(pool: Pool, userId: string) {
+  pool.query(
+    `DELETE FROM public.notifications
+     WHERE user_id = $1
+       AND ((read = true AND created_at < NOW() - ($2 || ' days')::interval)
+         OR created_at < NOW() - ($3 || ' days')::interval)`,
+    [userId, READ_RETENTION_DAYS, MAX_RETENTION_DAYS]
+  ).catch(err => console.error('Failed to prune old notifications:', err));
+}
+
 function serializeNotification(row: any) {
   return {
     id: row.id,
@@ -28,6 +46,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       [req.user.id]
     );
     res.json(result.rows.map(serializeNotification));
+    pruneOldNotifications(pool, req.user.id);
   } catch (error: any) {
     console.error('Error fetching notifications:', error);
     res.status(500).json({ error: 'Internal server error' });

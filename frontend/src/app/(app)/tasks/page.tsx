@@ -724,6 +724,39 @@ function TasksPageInner() {
                         ) : null;
                       })()}
                     </div>
+
+                    {/* Subtask preview on the card itself, so opening "View Details" isn't
+                        required just to see what's inside the goal. */}
+                    {totalSubtasks > 0 && (
+                      <div className="ml-9 mb-1 flex flex-col gap-1.5">
+                        {goalSubtasks.slice(0, 4).map(st => (
+                          <div
+                            key={st.id}
+                            className="flex items-center gap-2 text-[12px] cursor-pointer hover:text-[var(--c-primary)] transition-colors"
+                            style={{ color: st.status === 'done' ? 'var(--c-text-3)' : 'var(--c-text-2)' }}
+                            onClick={() => setSelectedTaskId(st.id)}
+                          >
+                            <span
+                              className="material-symbols-outlined flex-shrink-0"
+                              style={{ fontSize: 16, color: st.status === 'done' ? '#22C55E' : 'var(--c-text-3)' }}
+                            >
+                              {st.status === 'done' ? 'check_circle' : 'radio_button_unchecked'}
+                            </span>
+                            <span style={{ textDecoration: st.status === 'done' ? 'line-through' : 'none' }}>{st.title}</span>
+                          </div>
+                        ))}
+                        {totalSubtasks > 4 && (
+                          <button
+                            onClick={() => setSelectedTaskId(t.id)}
+                            className="text-[11px] font-semibold text-left"
+                            style={{ color: 'var(--c-text-3)' }}
+                          >
+                            +{totalSubtasks - 4} more
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-5 ml-9 border-t border-[var(--c-border)] pt-4 flex justify-between items-center">
                       <div className="flex -space-x-2">
                          {t.assignedTo.map((memberId, i) => {

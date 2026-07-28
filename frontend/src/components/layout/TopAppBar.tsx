@@ -30,13 +30,34 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
     [myNotifications, systemAlerts]
   );
 
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
   const handleClearNotifications = () => {
     dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS', payload: { userId: state.currentUserId } });
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
     fetch(`${baseUrl}/api/notifications`, {
       method: 'DELETE',
       credentials: 'include',
     }).catch(err => console.error('Failed to clear notifications on backend:', err));
+  };
+
+  // Both of these previously only ever updated the local reducer — the backend row's `read`
+  // column never changed, so the very next fetchData() (next login, next page load) pulled
+  // the same notification back in as unread again. That's why a dismissed warning kept
+  // reappearing every login even after being "marked read".
+  const handleMarkOneRead = (id: string) => {
+    dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { id } });
+    fetch(`${baseUrl}/api/notifications/${id}/read`, {
+      method: 'PATCH',
+      credentials: 'include',
+    }).catch(err => console.error('Failed to mark notification read on backend:', err));
+  };
+
+  const handleMarkAllRead = () => {
+    dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { userId: state.currentUserId } });
+    fetch(`${baseUrl}/api/notifications/read-all`, {
+      method: 'PATCH',
+      credentials: 'include',
+    }).catch(err => console.error('Failed to mark all notifications read on backend:', err));
   };
 
   useEffect(() => {
@@ -214,7 +235,7 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
               <h2 className="font-bold text-lg text-text">Notifications</h2>
               <div className="flex gap-2 items-center">
                 {unreadCount > 0 && (
-                  <button onClick={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { userId: state.currentUserId } })} className="text-[11px] font-bold text-primary hover:underline px-2">Mark all read</button>
+                  <button onClick={handleMarkAllRead} className="text-[11px] font-bold text-primary hover:underline px-2">Mark all read</button>
                 )}
                 {myNotifications.length > 0 && (
                   <button onClick={handleClearNotifications} className="text-[11px] font-bold text-text-3 hover:text-red-500 hover:underline px-2">Clear</button>
@@ -259,7 +280,7 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
                     <div 
                       key={n.id} 
                       onClick={() => {
-                        dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { id: n.id } });
+                        handleMarkOneRead(n.id);
                         setNotificationsOpen(false);
                         if (n.taskId) window.dispatchEvent(new CustomEvent('open-task-drawer', { detail: { taskId: n.taskId } }));
                       }}
