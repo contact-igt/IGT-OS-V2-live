@@ -111,7 +111,11 @@ router.post('/clock-in', requireAuth, async (req: Request, res: Response) => {
     );
 
     const isFirstSessionToday = lastSession.rows.length === 0;
-    const status = isFirstSessionToday && new Date().getHours() >= 10 ? 'late' : 'present';
+    // Same bug as the clock-out warning below: server runs UTC, employees clock in on IST
+    // wall-clock time. Explicit Asia/Kolkata rather than relying on the container's TZ env
+    // var, so this stays correct regardless of how the server is configured/redeployed.
+    const clockInHourIST = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }));
+    const status = isFirstSessionToday && clockInHourIST >= 10 ? 'late' : 'present';
 
     let lateReturn = false;
     if (!isFirstSessionToday && lastSession.rows[0].clock_out) {

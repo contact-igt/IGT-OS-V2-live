@@ -987,6 +987,10 @@ interface AppContextValue {
   requestStopTimer: (taskId: string, targetStatus?: 'paused' | 'in_review' | 'blocked') => void; // Opens modal
   setTaskStatus: (taskId: string, status: Task['status'], note?: string) => void;
   createTask: (data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'loggedMinutes'> & { id?: string }) => Promise<string | null>;
+  createLoopTask: (data: {
+    title: string; description?: string; clientId: string; category: Task['category'];
+    priority: Task['priority']; assignedTo: string[]; frequency: 'daily' | 'every_15_days' | 'monthly';
+  }) => Promise<{ firstOccurrenceId: string | null; error?: string }>;
   // Uploads a real file and attaches it to a task. Returns an error string on failure so the
   // caller can surface it (e.g. the 10 MB size cap) rather than failing silently.
   uploadTaskFile: (taskId: string, file: File) => Promise<{ error?: string }>;
@@ -1733,6 +1737,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return null;
   }, [user]);
 
+  // Creates a LoopTask recurrence template (Daily / Every 15 days / Monthly) and its first
+  // occurrence. Unlike createTask, this always talks to the backend — a recurrence with no
+  // server-side template to regenerate from tomorrow wouldn't mean anything, so there's no
+  // local-only fallback path. Returns the first generated task's real id so the caller can
+  // reveal it immediately without waiting on the next fetchData().
+  const createLoopTask = useCallback(async (data: {
+    title: string;
+    description?: string;
+    clientId: string;
+    category: Task['category'];
+    priority: Task['priority'];
+    assignedTo: string[];
+    frequency: 'daily' | 'every_15_days' | 'monthly';
+  }): Promise<{ firstOccurrenceId: string | null; error?: string }> => {
+    if (!user) return { firstOccurrenceId: null, error: 'Not authenticated' };
+
+    const dbClientId = clientIdMapRef.current.toDb[data.clientId];
+    if (!dbClientId) return { firstOccurrenceId: null, error: 'No backend client mapping for this client' };
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/loop-tasks`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: data.title,
+          description: data.description,
+          clientId: dbClientId,
+          category: data.category,
+          priority: data.priority,
+          assignedTo: data.assignedTo,
+          frequency: data.frequency,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        return { firstOccurrenceId: null, error: errBody.error || 'Failed to create LoopTask' };
+      }
+      const { firstOccurrence } = await res.json();
+      return { firstOccurrenceId: firstOccurrence?.id || null };
+    } catch (err) {
+      return { firstOccurrenceId: null, error: 'Could not connect to the server' };
+    }
+  }, [user, apiBaseUrl]);
+
   // File attachments. Uploaded bytes live in Postgres (task_assets.file_data) and are served
   // back through an authenticated download endpoint — there are no public file URLs.
   const uploadTaskFile = useCallback(async (taskId: string, file: File): Promise<{ error?: string }> => {
@@ -2020,6 +2069,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     requestStopTimer,
     setTaskStatus,
     createTask,
+    createLoopTask,
     uploadTaskFile,
     deleteTaskAsset,
     taskAssetDownloadUrl,

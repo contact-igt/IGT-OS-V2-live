@@ -108,7 +108,7 @@ function ClientPicker({ value, onChange }: { value: string; onChange: (id: strin
 }
 
 export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
-  const { createTask, state, requestApproval, notifyUser, uploadTaskFile, reloadData } = useApp();
+  const { createTask, createLoopTask, state, requestApproval, notifyUser, uploadTaskFile, reloadData } = useApp();
   const confirm = useConfirm();
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
   const scope = getAssignmentScope(currentUser, state.teamMembers);
@@ -139,6 +139,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     fileName: '',
     taskType: '',
     dependencies: [] as string[],
+    // 'none' | 'daily' | 'every_15_days' | 'monthly' — a LoopTask template, not a one-off
+    // task, when set to anything other than 'none'.
+    repeat: 'none' as 'none' | 'daily' | 'every_15_days' | 'monthly',
   });
 
   // Reset form when opened
@@ -163,6 +166,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         fileName: '',
         taskType: '',
         dependencies: [],
+        repeat: 'none',
       });
       setIsBatchMode(false);
       setBatchTitles('');
@@ -315,6 +319,29 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
           requestApproval(newTaskId, ceo.id, 'self_assignment', 'User self-assigned a new batch task');
         }
       });
+    } else if (form.repeat !== 'none') {
+      // LoopTask path — always backend-first (see createLoopTask), no optimistic local id,
+      // since a recurrence only means something with a server-side template to regenerate
+      // from tomorrow.
+      const { firstOccurrenceId, error } = await createLoopTask({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        clientId: form.clientId,
+        category: form.category,
+        priority: form.priority,
+        assignedTo: form.assignedTo,
+        frequency: form.repeat,
+      });
+      if (error) {
+        setUploadError(`Could not create the LoopTask: ${error}`);
+        setSubmitting(false);
+        return;
+      }
+      if (attachedFile && firstOccurrenceId) {
+        const { error: uploadErr } = await uploadTaskFile(firstOccurrenceId, attachedFile);
+        if (uploadErr) setUploadError(`LoopTask created, but the file failed to upload: ${uploadErr}`);
+      }
+      reloadData();
     } else {
       const newTaskId = `TSK-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
       const createdIdPromise = createTask({
@@ -403,7 +430,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     setAttachedFile(null);
     setUploadError(null);
     setIsCustomTaskType(false);
-    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
+    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [], repeat: 'none' });
     setErrors({});
     onClose();
   };
@@ -665,6 +692,30 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               />
             )}
           </div>
+
+          {/* Repeat — a LoopTask template rather than a one-off task. Only offered for a
+              single Standard Task; goals/subtasks/batch mode don't have a sensible meaning
+              for "this recurs". */}
+          {!isBatchMode && form.type === 'task' && (
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Repeat</label>
+              <select
+                className="input-base"
+                value={form.repeat}
+                onChange={e => set('repeat', e.target.value)}
+              >
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="every_15_days">Every 15 days</option>
+                <option value="monthly">Monthly</option>
+              </select>
+              {form.repeat !== 'none' && (
+                <p className="text-[11px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
+                  A new copy of this task will be created automatically on that schedule. Deadline below sets the first occurrence's due date only.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Priority */}
           <div>

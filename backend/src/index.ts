@@ -14,6 +14,7 @@ types.setTypeParser(1082, (val) => val);
 
 import userRoutes from './routes/users';
 import taskRoutes from './routes/tasks';
+import loopTaskRoutes from './routes/loopTasks';
 import notificationRoutes from './routes/notifications';
 import clientRoutes from './routes/clients';
 import campaignRoutes from './routes/campaigns';
@@ -355,6 +356,7 @@ app.get('/api/data', async (req: Request, res: Response) => {
 // Mount Loop 1 API routes
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/loop-tasks', loopTaskRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/campaigns', campaignRoutes);
