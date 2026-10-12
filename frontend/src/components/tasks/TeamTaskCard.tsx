@@ -106,7 +106,7 @@ export default function TeamTaskCard({ task, onClick }: TeamTaskCardProps) {
               </button>
             )}
             <span className="text-xs font-bold px-2 py-0.5 rounded text-white" style={{ backgroundColor: clientColor }}>
-              {client?.id.substring(0,4).toUpperCase() || 'CLNT'}
+              {client?.code || 'CLNT'}
             </span>
             <span className="text-sm font-semibold text-text-2">{client?.name || 'Unknown Client'}</span>
           </div>

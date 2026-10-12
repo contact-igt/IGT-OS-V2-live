@@ -59,7 +59,7 @@ export default function AttentionQueue() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <section aria-labelledby="attention-heading" className="mx-6 mt-4 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)]">
+    <section aria-labelledby="attention-heading" className="mx-6 mt-4 mb-4 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)]">
       <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-[var(--c-border)]">
         <h2 id="attention-heading" className="flex items-center gap-2 text-sm font-bold text-[var(--c-text)]">
           <AlertTriangle size={16} style={{ color: 'var(--c-warning)' }} aria-hidden /> Attention required

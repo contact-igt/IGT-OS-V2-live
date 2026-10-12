@@ -7,7 +7,7 @@ const router = Router();
 export type AttentionTier = 'critical' | 'action_today' | 'watch';
 export interface AttentionItem {
   id: string;
-  kind: 'overdue_task' | 'blocked_task' | 'due_today' | 'review_waiting' | 'unowned_task' | 'leave_pending';
+  kind: 'overdue_task' | 'blocked_task' | 'due_today' | 'review_waiting' | 'unowned_task' | 'leave_pending' | 'open_blocker' | 'change_request';
   tier: AttentionTier;
   what: string;          // what happened
   why: string;           // why it matters
@@ -91,9 +91,52 @@ router.get('/attention', requireAuth, requireRole('admin', 'ops'), async (req: R
       });
     }
 
+    // Structured blockers: severity + blocking party + expected resolution decide the tier; a critical blocker
+    // (or a high one that is 3+ days past its expected resolution) needs the CEO.
+    const blockers = await pool.query(
+      `SELECT b.id, b.title, b.reason, b.severity, b.blocking_party, b.expected_resolution, b.next_action, c.name AS client_name,
+              ou.name AS owner_name, eu.name AS escalation_name
+       FROM public.blockers b LEFT JOIN public.clients c ON c.id = b.client_id
+       LEFT JOIN public.users ou ON ou.id = b.owner_id LEFT JOIN public.users eu ON eu.id = b.escalation_owner_id
+       WHERE b.status = 'open' LIMIT 200`
+    );
+    const todayMs = new Date(now.toISOString().slice(0, 10)).getTime();
+    for (const b of blockers.rows) {
+      const due = b.expected_resolution ? String(b.expected_resolution).slice(0, 10) : null;
+      const late = due ? Math.floor((todayMs - new Date(due).getTime()) / DAY) : 0;
+      const hot = b.severity === 'critical' || b.severity === 'high';
+      const ceo = b.severity === 'critical' || (b.severity === 'high' && late >= 3);
+      items.push({
+        id: `blocker:${b.id}`, kind: 'open_blocker', tier: hot || late > 0 ? 'critical' : 'action_today',
+        what: `Blocker (${b.severity}): ${b.title}`,
+        why: `${b.reason.slice(0, 160)} - waiting on ${b.blocking_party}${late > 0 ? `; expected resolution ${late}d ago` : ''}`,
+        owners: b.owner_name ? [b.owner_name] : [], client: b.client_name || null, deadline: due, route: ceo ? 'ceo' : 'operations',
+        ceoAction: ceo ? `Unblock or escalate${b.escalation_name ? ` (escalation owner: ${b.escalation_name})` : ''}${b.next_action ? `; planned next action: ${b.next_action.slice(0, 100)}` : ''}` : null,
+        link: '/delivery',
+      });
+    }
+
+    // Client change requests awaiting a decision: material ones are leadership decisions (the roadmap changes only on explicit acceptance).
+    const crs = await pool.query(
+      `SELECT cr.id, cr.title, cr.classification, cr.priority, cr.timeline_impact_days, cr.commercial_impact_inr, cr.received_at, c.name AS client_name
+       FROM public.change_requests cr JOIN public.clients c ON c.id = cr.client_id WHERE cr.decision = 'pending' LIMIT 200`
+    );
+    for (const cr of crs.rows) {
+      const material = ['scope_change', 'new_feature', 'integration_change'].includes(cr.classification) || (cr.timeline_impact_days ?? 0) > 0 || (cr.commercial_impact_inr ?? 0) > 0;
+      const ageDays = Math.floor((todayMs - new Date(String(cr.received_at).slice(0, 10)).getTime()) / DAY);
+      const urgent = cr.priority === 'critical' || cr.classification === 'production_issue';
+      items.push({
+        id: `cr:${cr.id}`, kind: 'change_request', tier: urgent ? 'critical' : ageDays >= 2 ? 'action_today' : 'watch',
+        what: `Client change request awaiting decision: ${cr.title}`,
+        why: `${cr.classification.replace('_', ' ')} from ${cr.client_name}, ${ageDays}d old${material ? ' - material change: roadmap/timeline/commercials affected' : ''}`,
+        owners: [], client: cr.client_name, deadline: null, route: material || urgent ? 'ceo' : 'operations',
+        ceoAction: material || urgent ? 'Accept, defer or reject (impact analysis on the request)' : null, link: '/delivery',
+      });
+    }
+
     items.sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || (a.deadline || '9999').localeCompare(b.deadline || '9999'));
     res.json({
-      provenance: { classification: 'DATABASE', derivedFrom: ['tasks', 'leave_requests'], generatedAt: now.toISOString(),
+      provenance: { classification: 'DATABASE', derivedFrom: ['tasks', 'leave_requests', 'blockers', 'change_requests'], generatedAt: now.toISOString(),
         note: 'Computed on request from current rows; nothing here is manually entered or seeded.' },
       counts: { critical: items.filter(i => i.tier === 'critical').length, actionToday: items.filter(i => i.tier === 'action_today').length,
         watch: items.filter(i => i.tier === 'watch').length, needsCeo: items.filter(i => i.route === 'ceo').length },

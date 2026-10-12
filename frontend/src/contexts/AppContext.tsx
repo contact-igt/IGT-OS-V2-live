@@ -1034,11 +1034,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Refs are synced after commit (never during render); handlers/timers read them fresh without `state`/`user` in every dep array.
   useEffect(() => { stateRef.current = state; userRef.current = user; });
 
-  // Mock client ids ('c1', ...) used throughout the app's hierarchy/permission logic
-  // don't match the real backend's UUIDs. This map (built from /api/clients by matching
-  // short code) translates between the two so tasks actually persist to Postgres under
-  // real foreign keys. User ids no longer need an equivalent map — team members are keyed
-  // directly by the real backend id everywhere (see updatedTeamMembers in fetchData below).
+  // Client ids are the database ids (clients are hydrated from GET /api/clients). These maps are kept as identity
+  // maps so older call sites (createTask etc.) keep working; an id missing from them means 'not in the database'.
   const clientIdMapRef = useRef<{ toDb: Record<string, string>; toMock: Record<string, string> }>({ toDb: {}, toMock: {} });
   // Maps a freshly-created task's local id to the real id Postgres assigned it, until
   // the next fetchData() makes the real id the task's id everywhere.
