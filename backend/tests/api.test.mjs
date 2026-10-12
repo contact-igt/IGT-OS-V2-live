@@ -211,3 +211,26 @@ describe('account takeover paths are closed', () => {
     assert.deepEqual(await a.json(), await b.json());
   });
 });
+
+describe('password policy (server-enforced)', () => {
+  test('set-password rejects weak passwords and leaves the current one working', async () => {
+    const u = await login(TEAM);
+    for (const weak of ['short1', 'alllettersonly', '1234567890123', 'aiswarya.saiju1']) {
+      assert.equal((await u.call('/api/users/set-password', { method: 'POST', body: JSON.stringify({ password: weak }) })).status, 400, weak);
+    }
+    await login(TEAM); // original credentials still valid
+  });
+  test('admin account creation enforces the policy; weak supplied password is refused', async () => {
+    const admin = await login(ADMIN);
+    const res = await admin.call('/api/users', { method: 'POST', body: JSON.stringify({ name: 'Policy Probe', email: `probe${Date.now()}@example.com`, role: 'team', department: 'design', password: 'abc123' }) });
+    assert.equal(res.status, 400);
+  });
+  test('a compliant password is accepted for a throwaway account, and then works', async () => {
+    const admin = await login(ADMIN);
+    const email = `probe${Date.now()}@example.com`; const pw = `Zz-${Date.now()}-ok-pw`;
+    const created = await admin.call('/api/users', { method: 'POST', body: JSON.stringify({ name: 'Policy Probe', email, role: 'team', department: 'design', password: pw }) });
+    assert.equal(created.status, 201, await created.clone().text());
+    const r = await fetch(`${API}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pw }) });
+    assert.equal(r.status, 200);
+  });
+});

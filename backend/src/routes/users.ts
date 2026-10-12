@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import { validatePassword } from '../lib/passwordPolicy';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
 import { getDestination } from '../lib/destination';
@@ -87,11 +89,35 @@ router.patch('/me', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// users.id is a short VARCHAR key with no DB default (a fresh schema cannot generate one), so allocate the next
+// numeric id here. The advisory lock serialises concurrent creates; works whether or not a DB default exists.
+async function insertUserWithNextId(pool: Pool, v: [string, string, string, string | null, string]) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(7001)');
+    const next = await client.query(`SELECT COALESCE(MAX(id::int), 100) + 1 AS n FROM public.users WHERE id ~ '^[0-9]{1,9}$'`);
+    const result = await client.query(
+      `INSERT INTO public.users (id, name, email, role, department, password_hash, must_change_password, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true, true)
+       RETURNING id, name, email, role, department, must_change_password`,
+      [String(next.rows[0].n), ...v]
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let pass = '';
   for (let i = 0; i < 12; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    pass += chars.charAt(crypto.randomInt(chars.length)); // CSPRNG - these are credentials
   }
   return pass;
 }
@@ -123,15 +149,14 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
       return res.status(400).json({ error: `department must be one of: ${VALID_DEPARTMENTS.join(', ')}` });
     }
 
+    if (password) {
+      const policyError = validatePassword(password, email);
+      if (policyError) return res.status(400).json({ error: policyError });
+    }
     const tempPassword = password || generateTempPassword();
     const hash = await bcrypt.hash(tempPassword, 12);
 
-    const result = await pool.query(
-      `INSERT INTO public.users (name, email, role, department, password_hash, must_change_password, is_active)
-       VALUES ($1, $2, $3, $4, $5, true, true)
-       RETURNING id, name, email, role, department, must_change_password`,
-      [name, email.toLowerCase(), role || 'team', department || null, hash]
-    );
+    const result = await insertUserWithNextId(pool, [name, email.toLowerCase(), role || 'team', department || null, hash]);
 
     logAudit(pool, {
       actorId: req.user.id,
@@ -284,9 +309,8 @@ router.post('/set-password', requireAuth, async (req: Request, res: Response) =>
   const { password } = req.body;
   const userId = (req as any).user.id;
 
-  if (!password || password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
+  const policyError = validatePassword(password, (req as any).user.email);
+  if (policyError) return res.status(400).json({ error: policyError });
 
   try {
     const hash = await bcrypt.hash(password, 12);
