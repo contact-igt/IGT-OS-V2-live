@@ -175,6 +175,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
+    // The app-state cache holds tasks, client commercials, roster and attendance - it must not
+    // survive into the next person's session on a shared browser.
+    try { localStorage.removeItem('invictus_app_state_v2'); } catch { /* storage unavailable */ }
     setUser(null);
     router.push('/login');
   };

@@ -150,3 +150,46 @@ describe('audit log + meeting confidentiality', () => {
     assert.equal((await (await login(ADMIN)).call(`/api/meetings/${id}`)).status, 200);
   });
 });
+
+describe('command center attention queue (derived from DB, role-gated)', () => {
+  const ids = {};
+  const day = n => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  test('seed exception tasks', async () => {
+    const admin = await login(ADMIN);
+    const clients = await (await admin.call('/api/clients')).json();
+    const mk = async (key, body) => {
+      const r = await admin.call('/api/tasks', { method: 'POST', body: JSON.stringify({ clientId: clients[0].id, category: 'operations', ...body }) });
+      assert.equal(r.status, 201, await r.clone().text()); ids[key] = (await r.json()).id;
+    };
+    await mk('overdueCritical', { title: 'CC overdue critical', priority: 'critical', status: 'in_progress', assignedTo: ['111'], deadline: day(-5) });
+    await mk('blockedMedium', { title: 'CC blocked medium', priority: 'medium', status: 'blocked', assignedTo: ['113'], deadline: day(3) });
+    await mk('unowned', { title: 'CC unowned low', priority: 'low', status: 'todo', assignedTo: [], deadline: day(10) });
+    await mk('doneOld', { title: 'CC done long ago', priority: 'critical', status: 'done', assignedTo: ['111'], deadline: day(-9) });
+  });
+  test('queue classifies, routes and explains each exception', async () => {
+    const body = await (await (await login(ADMIN)).call('/api/command-center/attention')).json();
+    assert.equal(body.provenance.classification, 'DATABASE');
+    const all = [...body.ceoQueue, ...body.operationsQueue];
+    const byId = id => all.find(i => i.id === `task:${ids[id]}`);
+    const oc = byId('overdueCritical');
+    assert.ok(body.ceoQueue.includes(oc), 'critical task 5d late goes to the CEO queue');
+    assert.equal(oc.tier, 'critical'); assert.deepEqual(oc.owners, ['Aiswarya Saiju']); assert.ok(oc.ceoAction && oc.why && oc.deadline);
+    const bm = byId('blockedMedium');
+    assert.ok(body.operationsQueue.includes(bm), 'medium blocker is operations work, not CEO noise');
+    assert.equal(bm.ceoAction, null);
+    const un = byId('unowned'); assert.equal(un.tier, 'watch'); assert.deepEqual(un.owners, []);
+    assert.equal(byId('doneOld'), undefined, 'completed work never appears');
+    assert.equal(body.counts.needsCeo, body.ceoQueue.length);
+  });
+  test('team role and anonymous callers are rejected', async () => {
+    assert.equal((await (await login(TEAM)).call('/api/command-center/attention')).status, 403);
+    assert.equal((await fetch(`${API}/api/command-center/attention`)).status, 401);
+  });
+  test('resolving the task removes it from the queue after refetch', async () => {
+    const admin = await login(ADMIN);
+    assert.equal((await admin.call(`/api/tasks/${ids.overdueCritical}`, { method: 'PUT', body: JSON.stringify({ status: 'done' }) })).status, 200);
+    const body = await (await (await login(ADMIN)).call('/api/command-center/attention')).json();
+    assert.ok(![...body.ceoQueue, ...body.operationsQueue].find(i => i.id === `task:${ids.overdueCritical}`));
+    for (const k of Object.keys(ids)) await admin.call(`/api/tasks/${ids[k]}`, { method: 'DELETE' });
+  });
+});

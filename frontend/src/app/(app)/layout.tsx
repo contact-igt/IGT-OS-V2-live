@@ -17,6 +17,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { state, setCurrentUser } = useApp();
   const { user, grantedPagesReady } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Close the drawer after navigating, and on Escape.
+  useEffect(() => { setMobileNavOpen(false); }, [pathname]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   
   useEffect(() => {
     if (user) {
@@ -58,17 +66,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname, user, router, grantedPagesReady]);
 
   return (
-    <div className="h-screen overflow-hidden" style={{ background: 'var(--c-bg)' }}>
-      <SideNavBar />
-      <TopAppBar sidebarWidth={sw} />
+    <div className="h-screen overflow-hidden" style={{ background: 'var(--c-bg)', ['--sw' as string]: `${sw}px` }}>
+      {mobileNavOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setMobileNavOpen(false)} aria-hidden />
+      )}
+      <SideNavBar collapsed={collapsed} onToggleCollapsed={() => setCollapsed(c => !c)} mobileOpen={mobileNavOpen} />
+      <TopAppBar sidebarWidth={sw} onMenuClick={() => setMobileNavOpen(true)} />
       <main
-        className={`page-enter overflow-y-auto ${isTeamMember ? 'md:ml-[240px] mb-[64px] md:mb-0' : ''}`}
+        className={`page-enter overflow-y-auto ml-0 md:ml-[var(--sw)] p-3 md:px-8 md:py-7 transition-[margin-left] duration-300 ${isTeamMember ? 'mb-[64px] md:mb-0' : ''}`}
         style={{
-          marginLeft: isTeamMember ? undefined : sw,
           marginTop: 56,
           height: isTeamMember ? 'calc(100vh - 56px - 64px)' : 'calc(100vh - 56px)', // Adjust height on mobile for bottom bar
-          padding: '28px 32px',
-          transition: 'margin-left 0.3s',
         }}
       >
         {state.globalError ? (
