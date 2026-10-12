@@ -2,7 +2,7 @@
 
 import { useApp } from '@/contexts/AppContext';
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import MeetingQualityBadge from '@/components/ai/MeetingQualityBadge';
 import TalkTimeBar from '@/components/ai/TalkTimeBar';
 import { ArrowLeft } from 'lucide-react';
@@ -72,7 +72,7 @@ export default function MeetingDetailPage() {
     }
   };
 
-  const handleCreateTask = useCallback((item: any) => {
+  const handleCreateTask = (item: any) => {
     createTask({
       title: item.title,
       description: item.description || '',
@@ -87,7 +87,7 @@ export default function MeetingDetailPage() {
       tags: ['meeting-generated', `meeting-${meeting.id}`],
     } as any);
     setCreatedTitles(prev => new Set(prev).add(item.title));
-  }, [createTask, meeting, state.clients, state.currentUserId]);
+  };
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },

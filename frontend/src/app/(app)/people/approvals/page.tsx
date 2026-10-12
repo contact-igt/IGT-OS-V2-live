@@ -50,7 +50,7 @@ export default function ApprovalsPage() {
           </div>
           <div>
             <div className="font-semibold text-sm">{requester.name}</div>
-            <div className="text-xs text-text-3">{new Date(approval.createdAt || Date.now()).toLocaleDateString()}</div>
+            <div className="text-xs text-text-3">{approval.createdAt ? new Date(approval.createdAt).toLocaleDateString() : '—'}</div>
           </div>
         </div>
         

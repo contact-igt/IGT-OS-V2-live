@@ -6,9 +6,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { useState, useEffect, use } from 'react';
 import TaskCard from '@/components/tasks/TaskCard';
-import { MOCK_CAMPAIGNS } from '@/lib/seed_campaigns';
-import { AD_ACCOUNT_BALANCES } from '@/lib/seed_meetings';
-import { Activity, TrendingUp, AlertTriangle } from 'lucide-react';
+import { useMarketingData } from '@/lib/useMarketingData';
+import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
+import { Activity, TrendingUp } from 'lucide-react';
 
 export default function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { state } = useApp();
@@ -19,6 +19,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [activeServices, setActiveServices] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'tasks' | 'marketing'>('tasks');
+  const marketing = useMarketingData();
 
   useEffect(() => {
     const fetchClientData = async () => {
@@ -64,9 +66,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const doneTasks = relatedTasks.filter(t => t.status === 'done');
 
   // Marketing Data
-  const clientCampaigns = MOCK_CAMPAIGNS.filter(c => c.clientId === id);
-  const clientBalances = AD_ACCOUNT_BALANCES.filter(b => b.clientId === id);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'marketing'>('tasks');
+  const clientCampaigns = marketing.campaigns.filter(c => c.client_id === id);
+  const clientBalances = marketing.balances.filter(b => b.clientId === id);
 
   return (
     <div className="p-8 max-w-6xl mx-auto flex flex-col gap-8 min-h-[calc(100vh-4rem)]">
@@ -204,19 +205,23 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                   Marketing Performance
                 </h3>
                 
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--c-text-2)]">
+                  <ProvenanceBadge kind="DATABASE" note="Entered in IGT OS; not verified against the ad platform" /> manually recorded figures
+                  <ProvenanceBadge kind="ACCESS REQUIRED" note="Meta / Google Ads sync not connected" /> live platform sync
+                </div>
+                {marketing.error && <div role="alert" className="text-sm" style={{ color: 'var(--c-error)' }}>Unavailable: {marketing.error}. This is not an empty result.</div>}
+
                 {/* Account Balances */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {clientBalances.length === 0 && <div className="text-[var(--c-text-3)] text-sm col-span-2">No ad accounts linked.</div>}
+                  {!marketing.error && clientBalances.length === 0 && <div className="text-[var(--c-text-3)] text-sm col-span-2">No ad account balances recorded.</div>}
                   {clientBalances.map(acc => {
-                    const isCritical = acc.balanceINR < 1000;
-                    const isWarning = acc.balanceINR >= 1000 && acc.balanceINR < 2000;
-                    const colorClass = isCritical ? 'text-red-500 border-red-500/30 bg-red-500/5' : isWarning ? 'text-yellow-500 border-yellow-500/30 bg-yellow-500/5' : 'text-green-500 border-green-500/30 bg-green-500/5';
-                    
+                    const days = acc.daysRemaining;
+                    const tone = days == null ? 'var(--c-warning)' : days < 3 ? 'var(--c-error)' : days < 7 ? 'var(--c-warning)' : 'var(--c-success)';
                     return (
-                      <div key={acc.id} className={`p-4 rounded-xl border ${colorClass}`}>
-                        <div className="text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{acc.platform} Ads</div>
-                        <div className="font-bold text-lg">₹{acc.balanceINR.toLocaleString()}</div>
-                        <div className="text-xs opacity-70 mt-1">~{(acc.balanceINR / 1000).toFixed(1)} days remaining</div>
+                      <div key={acc.id} className="p-4 rounded-xl border" style={{ borderColor: tone }}>
+                        <div className="text-xs font-bold uppercase tracking-wider mb-1 text-[var(--c-text-2)]">{acc.platform || 'Platform n/a'} Ads</div>
+                        <div className="font-bold text-lg">{acc.balance != null ? `₹${Number(acc.balance).toLocaleString('en-IN')}` : '—'}</div>
+                        <div className="text-xs mt-1" style={{ color: tone }}>{days != null ? `${days} days remaining` : 'days remaining unknown'}</div>
                       </div>
                     )
                   })}
@@ -228,56 +233,35 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                     <h4 className="font-bold text-sm">Active Campaigns</h4>
                   </div>
                   {clientCampaigns.length === 0 ? (
-                    <div className="p-4 text-sm text-[var(--c-text-3)]">No campaigns running.</div>
+                    <div className="p-4 text-sm text-[var(--c-text-3)]">No campaigns recorded.</div>
                   ) : (
                     <div className="divide-y divide-[var(--c-border)]">
-                      {clientCampaigns.map(camp => (
-                        <div key={camp.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div>
-                            <div className="font-bold text-sm">{camp.name}</div>
-                            <div className="flex gap-2 items-center mt-1">
-                              <span className="text-[10px] uppercase font-bold bg-[var(--c-surface-3)] px-2 py-0.5 rounded">{camp.platform}</span>
-                              <span className="text-[10px] uppercase font-bold bg-green-500/10 text-green-500 px-2 py-0.5 rounded">{camp.status}</span>
-                            </div>
-                            {camp.policyIssues && camp.policyIssues.length > 0 && (
-                              <div className="text-xs text-red-500 mt-2 flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" /> {camp.policyIssues[0]}
+                      {clientCampaigns.map(camp => {
+                        const sp = camp.spend_inr, ld = camp.leads;
+                        return (
+                          <div key={camp.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                              <div className="font-bold text-sm">{camp.campaign_name}</div>
+                              <div className="flex gap-2 items-center mt-1">
+                                <span className="text-[10px] uppercase font-bold bg-[var(--c-surface-3)] px-2 py-0.5 rounded">{camp.campaign_type}</span>
+                                <span className="text-[10px] uppercase font-bold bg-[var(--c-surface-3)] px-2 py-0.5 rounded">{camp.status}</span>
                               </div>
-                            )}
-                          </div>
-                          
-                          <div className="flex gap-6 text-right">
-                            <div>
-                              <div className="text-[10px] text-[var(--c-text-3)] uppercase">CPL</div>
-                              <div className="font-mono font-bold text-sm">₹{camp.cpl || '-'}</div>
                             </div>
-                            <div>
-                              <div className="text-[10px] text-[var(--c-text-3)] uppercase">Conv.</div>
-                              <div className="font-mono font-bold text-sm">{camp.conversions || '-'}</div>
+                            <div className="flex gap-6 text-right">
+                              <div>
+                                <div className="text-[10px] text-[var(--c-text-3)] uppercase" title="Derived: spend ÷ leads">CPL</div>
+                                <div className="font-mono font-bold text-sm">{sp != null && ld ? `₹${Math.round(sp / ld).toLocaleString('en-IN')}` : '—'}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-[var(--c-text-3)] uppercase">Conv.</div>
+                                <div className="font-mono font-bold text-sm">{camp.conversions ?? '—'}</div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
-                </div>
-                
-                {/* Numerical & Graph View Dummy */}
-                <div className="bg-[var(--c-surface)] border border-[var(--c-border)] rounded-xl p-6 mt-6">
-                  <h4 className="font-bold text-sm mb-4">CPL Trend (Last 7 Days)</h4>
-                  <div className="h-40 flex items-end justify-between gap-2">
-                    {[65, 45, 75, 50, 40, 60, 55].map((h, i) => (
-                      <div key={i} className="w-full bg-[var(--c-primary)]/20 hover:bg-[var(--c-primary)] rounded-t-sm transition-colors relative group" style={{ height: `${h}%` }}>
-                        <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-[var(--c-surface-3)] text-xs px-2 py-1 rounded shadow pointer-events-none transition-opacity">
-                          ₹{h * 4}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between text-xs text-[var(--c-text-3)] mt-2">
-                    <span>Mon</span>
-                    <span>Sun</span>
-                  </div>
                 </div>
 
               </div>

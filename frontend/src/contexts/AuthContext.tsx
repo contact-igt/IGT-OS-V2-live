@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const userRef = useRef<User | null>(null);
-  userRef.current = user;
+  useEffect(() => { userRef.current = user; }); // synced after commit, not during render
 
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 

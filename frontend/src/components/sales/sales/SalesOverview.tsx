@@ -1,5 +1,5 @@
 'use client';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import type { Lead } from '@/lib/seed_meetings';
 
@@ -32,6 +32,7 @@ export default function SalesOverview({ onStageClick }: { onStageClick: (stage: 
 
   const snapshotLabel = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
   const today = new Date().toISOString().split('T')[0];
+  const [nowMs] = useState(() => Date.now()); // fixed at mount: render stays pure
 
   const openLeads = leads.filter(l => !['won', 'lost', 'paused'].includes(l.stage));
   const pipelineValue = openLeads.reduce((acc, l) => acc + (l.monthlyValueINR || 0), 0);
@@ -49,7 +50,7 @@ export default function SalesOverview({ onStageClick }: { onStageClick: (stage: 
 
   const followUps = openLeads.filter(l => {
     if (l.nextFollowUp === today) return true;
-    const diffDays = (Date.now() - new Date(l.lastContactDate).getTime()) / 86400000;
+    const diffDays = (nowMs - new Date(l.lastContactDate).getTime()) / 86400000;
     return diffDays > 5;
   });
 

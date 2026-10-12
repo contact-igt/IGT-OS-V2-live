@@ -25,15 +25,9 @@ export default function CostEfficiency() {
           return updatedTime >= startOfMonth;
         });
 
-        // Use mock data if our local DB doesn't have enough to show the CEO's requested insight
-        let tasksDone = completedTasks.length;
-        let taskLabel = 'tasks';
-        
-        if (m.id === 'u-basheer') { tasksDone = 12; taskLabel = 'reels'; }
-        else if (m.id === 'u-pranesh') { tasksDone = 5; taskLabel = 'reels'; }
-        else if (m.id === 'u-karan') { tasksDone = 18; taskLabel = 'creatives'; }
-        else if (m.id === 'u-iyyappan') { tasksDone = 8; taskLabel = 'features'; }
-        else if (m.id === 'u-veeravel') { tasksDone = 3; taskLabel = 'pages'; }
+        // Counts come only from real completed tasks (no per-person overrides).
+        const tasksDone = completedTasks.length;
+        const taskLabel = 'tasks';
 
         const costPerDay = Math.round(m.monthlySalaryINR / 26); // Assumed 26 working days
         const costPerHr = Math.round(costPerDay / 8); // Assumed 8 hrs/day

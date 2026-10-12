@@ -8,21 +8,9 @@ export async function POST(req: Request) {
   try {
     const { prompt, clients, teamMembers, categories } = await req.json();
     
-    // Simulate or use real OpenAI depending on env var
+    // No fake "parsed" task when AI isn't configured: that would let a user save invented data as a real task.
     if (!process.env.OPENAI_API_KEY) {
-      // Dummy logic for testing without API key
-      return NextResponse.json({
-        title: "Mock AI Parsed Task",
-        type: "task",
-        clientId: clients[0]?.id || "",
-        category: "performance_marketing",
-        priority: "high",
-        assignedTo: [teamMembers[0]?.id],
-        estimatedHours: "4",
-        description: prompt,
-        tags: "ai-generated",
-        deadline: new Date(Date.now() + 86400000).toISOString().slice(0, 16)
-      });
+      return NextResponse.json({ error: 'AI task parsing is not configured. Create the task manually.' }, { status: 503 });
     }
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

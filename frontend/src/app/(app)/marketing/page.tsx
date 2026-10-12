@@ -1,232 +1,140 @@
 'use client';
 
-import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  AlertCircle, 
-  CheckCircle2, 
-  Activity, 
-  PieChart,
-  BarChart3,
-  Calendar,
-  AlertTriangle,
-  Megaphone
-} from 'lucide-react';
-import { AD_ACCOUNT_BALANCES } from '@/lib/seed_meetings';
-import { MOCK_CAMPAIGNS } from '@/lib/seed_campaigns';
-import { CLIENTS } from '@/lib/data';
+import React, { useMemo, useState } from 'react';
+import { Megaphone } from 'lucide-react';
+import { useApp } from '@/contexts/AppContext';
+import { useMarketingData, DbCampaign } from '@/lib/useMarketingData';
+import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
 
-// Helper function to get account status based on balance assuming 1000 INR/day spend
-const getAccountStatus = (balance: number) => {
-  if (balance < 1000) return { color: 'bg-red-500/20 text-red-500 border-red-500/30', label: 'CRITICAL', icon: AlertCircle };
-  if (balance < 2000) return { color: 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30', label: 'WARNING', icon: AlertTriangle };
-  return { color: 'bg-green-500/20 text-green-500 border-green-500/30', label: 'HEALTHY', icon: CheckCircle2 };
-};
+// Pacing thresholds (days of balance remaining). Operational policy, kept in one place so they can be made configurable.
+const BALANCE_CRITICAL_DAYS = 3;
+const BALANCE_WARNING_DAYS = 7;
+
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+const PLATFORMS = ['overview', 'google', 'meta'] as const;
+
+function balanceStatus(days: number | null) {
+  if (days == null) return { label: 'UNKNOWN', color: 'var(--c-warning)' };
+  if (days < BALANCE_CRITICAL_DAYS) return { label: 'CRITICAL', color: 'var(--c-error)' };
+  if (days < BALANCE_WARNING_DAYS) return { label: 'LOW', color: 'var(--c-warning)' };
+  return { label: 'OK', color: 'var(--c-success)' };
+}
+
+function Kpi({ label, value, kind, hint }: { label: string; value: string; kind: 'DATABASE' | 'DERIVED'; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4 flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-3)]">{label}</span>
+      <span className="text-2xl font-bold text-[var(--c-text)]">{value}</span>
+      <span className="flex items-center gap-2"><ProvenanceBadge kind={kind} note={hint} />{hint && <span className="text-[11px] text-[var(--c-text-3)]">{hint}</span>}</span>
+    </div>
+  );
+}
 
 export default function MarketingDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'google' | 'meta'>('overview');
+  const { state } = useApp();
+  const { campaigns, balances, loading, error, canSeeBalances } = useMarketingData();
+  const [tab, setTab] = useState<(typeof PLATFORMS)[number]>('overview');
 
-  const filteredBalances = AD_ACCOUNT_BALANCES.filter(
-    (b) => activeTab === 'overview' || b.platform === activeTab
-  );
+  const clientName = (id: string) => state.clients.find(c => c.id === id)?.name || 'Unknown client';
+  const rows = useMemo(() => campaigns.filter((c: DbCampaign) => tab === 'overview' || c.campaign_type === tab), [campaigns, tab]);
+  const bal = useMemo(() => balances.filter(b => tab === 'overview' || (b.platform || '').toLowerCase() === tab), [balances, tab]);
 
-  const filteredCampaigns = MOCK_CAMPAIGNS.filter(
-    (c) => activeTab === 'overview' || c.platform === activeTab
-  );
-
-  // Quick stats calculations
-  const totalBalance = filteredBalances.reduce((acc, curr) => acc + curr.balanceINR, 0);
-  const totalSpend = filteredBalances.reduce((acc, curr) => acc + curr.allocatedINR, 0);
-  const totalConversions = filteredCampaigns.reduce((acc, curr) => acc + (curr.conversions || 0), 0);
-  const avgCpl = filteredCampaigns.reduce((acc, curr) => acc + (curr.cpl || 0), 0) / (filteredCampaigns.filter(c => c.cpl).length || 1);
+  const withSpend = rows.filter(c => num(c.spend_inr) != null);
+  const spend = withSpend.reduce((a, c) => a + (num(c.spend_inr) || 0), 0);
+  const leadsAll = rows.reduce((a, c) => a + (num(c.leads) || 0), 0);
+  // CPL only over campaigns that have BOTH spend and leads recorded; otherwise it would be a mismatched ratio.
+  const both = rows.filter(c => num(c.spend_inr) != null && (num(c.leads) || 0) > 0);
+  const cpl = both.length ? both.reduce((a, c) => a + (num(c.spend_inr) || 0), 0) / both.reduce((a, c) => a + (num(c.leads) || 0), 0) : null;
 
   return (
-    <div className="min-h-screen p-8" style={{ backgroundColor: 'var(--c-bg)' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-app-text font-syne flex items-center gap-3">
-            <Megaphone className="w-8 h-8 text-primary" />
-            Performance Marketing Dashboard
-          </h1>
-          <p className="text-app-text3 mt-2 text-sm max-w-xl">
-            Monitor real-time ad account balances, campaign performance metrics, and policy issues across Google and Meta.
-          </p>
+          <h1 className="flex items-center gap-3 text-2xl font-bold text-[var(--c-text)]"><Megaphone className="h-7 w-7 text-[var(--c-primary)]" aria-hidden /> Performance Marketing</h1>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--c-text-2)]">Campaign figures recorded in IGT OS. Nothing on this page is pulled live from Meta or Google Ads yet.</p>
         </div>
-        
-        {/* Quick Tabs */}
-        <div className="flex p-1 bg-app-surface border border-app-border rounded-lg">
-          {(['overview', 'google', 'meta'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
-                activeTab === tab 
-                  ? 'bg-[var(--c-primary)] bg-opacity-10 text-[var(--c-primary)]' 
-                  : 'text-app-text3 hover:text-app-text'
-              }`}
-            >
-              {tab}
-            </button>
+        <div role="tablist" aria-label="Platform" className="flex rounded-lg border border-[var(--c-border)] bg-[var(--c-surface)] p-1">
+          {PLATFORMS.map(p => (
+            <button key={p} role="tab" aria-selected={tab === p} onClick={() => setTab(p)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize ${tab === p ? 'bg-[var(--c-primary)] text-white' : 'text-[var(--c-text-2)] hover:text-[var(--c-text)]'}`}>{p}</button>
           ))}
         </div>
-      </div>
+      </header>
 
-      {/* Top Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="p-6 bg-app-surface border border-app-border rounded-2xl flex flex-col gap-2">
-          <span className="text-app-text3 text-xs font-semibold tracking-wider uppercase">Total Ad Balance</span>
-          <div className="text-2xl font-bold text-app-text">₹{totalBalance.toLocaleString()}</div>
-        </div>
-        <div className="p-6 bg-app-surface border border-app-border rounded-2xl flex flex-col gap-2">
-          <span className="text-app-text3 text-xs font-semibold tracking-wider uppercase">Total Allocated</span>
-          <div className="text-2xl font-bold text-app-text">₹{totalSpend.toLocaleString()}</div>
-        </div>
-        <div className="p-6 bg-app-surface border border-app-border rounded-2xl flex flex-col gap-2">
-          <span className="text-app-text3 text-xs font-semibold tracking-wider uppercase">Total Conversions</span>
-          <div className="text-2xl font-bold text-app-text">{totalConversions}</div>
-        </div>
-        <div className="p-6 bg-app-surface border border-app-border rounded-2xl flex flex-col gap-2">
-          <span className="text-app-text3 text-xs font-semibold tracking-wider uppercase">Avg CPL</span>
-          <div className="text-2xl font-bold text-app-text">₹{avgCpl.toFixed(2)}</div>
-        </div>
-      </div>
+      <section aria-label="Data sources" className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-3 text-xs text-[var(--c-text-2)]">
+        <span className="flex items-center gap-2">Campaign figures <ProvenanceBadge kind="DATABASE" note="Entered in IGT OS by the team; not verified against the ad platform" /> manually entered</span>
+        <span className="flex items-center gap-2">Meta Ads sync <ProvenanceBadge kind="ACCESS REQUIRED" note="No Meta Marketing API credentials/approval configured" /></span>
+        <span className="flex items-center gap-2">Google Ads sync <ProvenanceBadge kind="ACCESS REQUIRED" note="No Google Ads API credentials/approval configured" /></span>
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Account Balances */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="flex items-center gap-2">
-            <PieChart className="w-5 h-5 text-app-text2" />
-            <h2 className="text-lg font-semibold text-app-text">Account Balances</h2>
-          </div>
-          
-          <div className="space-y-4">
-            {filteredBalances.map(acc => {
-              const status = getAccountStatus(acc.balanceINR);
-              const StatusIcon = status.icon;
-              
-              return (
-                <div key={acc.id} className={`p-4 rounded-xl border bg-app-surface ${status.color.split(' ')[2]}`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="font-semibold text-app-text text-sm">{acc.accountName}</h3>
-                      <p className="text-xs text-app-text3 capitalize">{acc.platform} • {acc.accountId}</p>
-                    </div>
-                    <div className={`px-2 py-1 rounded text-[10px] font-bold ${status.color}`}>
-                      {status.label}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <div className="text-xs text-app-text3 mb-1">Current Balance</div>
-                      <div className="text-lg font-bold text-app-text flex items-center gap-2">
-                        ₹{acc.balanceINR.toLocaleString()}
-                        <StatusIcon className={`w-4 h-4 ${status.color.split(' ')[1]}`} />
+      {loading && <p className="text-sm text-[var(--c-text-2)]">Loading…</p>}
+      {error && <p role="alert" className="rounded-lg border px-4 py-3 text-sm" style={{ color: 'var(--c-error)', borderColor: 'var(--c-error)' }}>Unavailable: {error}. These figures are not zero - they could not be loaded.</p>}
+
+      {!loading && !error && (
+        <>
+          <section aria-label="Summary" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Kpi label="Recorded spend" value={withSpend.length ? inr(spend) : '—'} kind="DATABASE" hint={`${withSpend.length} of ${rows.length} campaigns have spend`} />
+            <Kpi label="Recorded leads" value={rows.some(c => num(c.leads) != null) ? leadsAll.toLocaleString('en-IN') : '—'} kind="DATABASE" />
+            <Kpi label="Cost per lead" value={cpl != null ? inr(cpl) : '—'} kind="DERIVED" hint="spend ÷ leads, campaigns with both" />
+            <Kpi label="Campaigns" value={String(rows.length)} kind="DATABASE" />
+          </section>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <section aria-labelledby="bal-h" className="lg:col-span-1">
+              <h2 id="bal-h" className="mb-3 text-base font-semibold text-[var(--c-text)]">Ad account balances</h2>
+              {!canSeeBalances ? (
+                <p className="text-sm text-[var(--c-text-2)]">Balances are visible to operations and leadership.</p>
+              ) : bal.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-[var(--c-border)] p-4 text-sm text-[var(--c-text-2)]">No balances recorded. Live balances need a connected ad account (ACCESS REQUIRED).</p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {bal.map(b => { const s = balanceStatus(b.daysRemaining); return (
+                    <li key={b.id} className="rounded-xl border bg-[var(--c-surface)] p-4" style={{ borderColor: s.color }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div><div className="text-sm font-semibold text-[var(--c-text)]">{clientName(b.clientId)}</div><div className="text-xs capitalize text-[var(--c-text-3)]">{b.platform || 'platform n/a'}</div></div>
+                        <span className="text-[10px] font-bold" style={{ color: s.color }}>{s.label}</span>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-app-text3 mb-1">Est. Days Left</div>
-                      <div className="text-sm font-medium text-app-text">
-                        {(acc.balanceINR / 1000).toFixed(1)} Days
+                      <div className="mt-3 flex items-end justify-between text-sm text-[var(--c-text)]">
+                        <span>{b.balance != null ? inr(Number(b.balance)) : '—'}</span>
+                        <span className="text-xs text-[var(--c-text-2)]">{b.daysRemaining != null ? `${b.daysRemaining} days left` : 'days left unknown'}</span>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                      <div className="mt-2 text-[11px] text-[var(--c-text-3)]">{b.updated_at ? `Updated ${new Date(b.updated_at).toLocaleDateString()}` : 'No update date'}</div>
+                    </li>); })}
+                </ul>
+              )}
+            </section>
 
-        {/* Right Column: Campaigns & Insights */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-app-text2" />
-            <h2 className="text-lg font-semibold text-app-text">Campaign Insights</h2>
-          </div>
-          
-          <div className="bg-app-surface border border-app-border rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-app-surface-2 border-b border-app-border text-xs text-app-text3 uppercase tracking-wider">
-                    <th className="p-4 font-semibold">Campaign</th>
-                    <th className="p-4 font-semibold">Client</th>
-                    <th className="p-4 font-semibold text-right">CPL</th>
-                    <th className="p-4 font-semibold text-right">CPM</th>
-                    <th className="p-4 font-semibold text-right">Conv.</th>
-                    <th className="p-4 font-semibold text-right">Impressions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-app-border">
-                  {filteredCampaigns.map(camp => {
-                    const client = CLIENTS.find(c => c.id === camp.clientId);
-                    return (
-                      <tr key={camp.id} className="hover:bg-app-hover/50 transition-colors">
-                        <td className="p-4">
-                          <div className="font-medium text-app-text text-sm">{camp.name}</div>
-                          <div className="text-xs flex items-center gap-2 mt-1">
-                            <span className={`px-2 py-0.5 rounded-full ${
-                              camp.status === 'live' ? 'bg-green-500/10 text-green-500' : 'bg-app-surface-3 text-app-text3'
-                            }`}>
-                              {camp.status}
-                            </span>
-                            {camp.policyIssues && camp.policyIssues.length > 0 && (
-                              <span className="flex items-center gap-1 text-red-500 bg-red-500/10 px-2 py-0.5 rounded-full">
-                                <AlertTriangle className="w-3 h-3" /> Policy Issue
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-4 text-sm text-app-text2">{client?.name || 'Unknown'}</td>
-                        <td className="p-4 text-sm text-right font-mono text-app-text">₹{camp.cpl || '-'}</td>
-                        <td className="p-4 text-sm text-right font-mono text-app-text">₹{camp.cpm || '-'}</td>
-                        <td className="p-4 text-sm text-right font-mono text-app-text">{camp.conversions || '-'}</td>
-                        <td className="p-4 text-sm text-right font-mono text-app-text">{camp.impressions?.toLocaleString() || '-'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Upcoming Campaign Plans */}
-          <div className="mt-8">
-            <div className="flex items-center gap-2 mb-4">
-              <Calendar className="w-5 h-5 text-app-text2" />
-              <h2 className="text-lg font-semibold text-app-text">Upcoming Campaign Plans & Pauses</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredCampaigns.filter(c => c.pausedAt).map(camp => (
-                <div key={camp.id} className="p-4 border border-app-border bg-app-surface rounded-xl flex items-start gap-4">
-                  <div className="p-3 bg-red-500/10 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 text-red-500" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-app-text text-sm">{camp.name}</h4>
-                    <p className="text-xs text-app-text3 mt-1">Scheduled to pause on <strong className="text-app-text2">{camp.pausedAt}</strong></p>
-                  </div>
+            <section aria-labelledby="camp-h" className="lg:col-span-2">
+              <h2 id="camp-h" className="mb-3 text-base font-semibold text-[var(--c-text)]">Campaigns</h2>
+              {rows.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-[var(--c-border)] p-4 text-sm text-[var(--c-text-2)]">No campaigns recorded{tab !== 'overview' ? ` for ${tab}` : ''}.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)]">
+                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <thead><tr className="border-b border-[var(--c-border)] text-xs uppercase tracking-wide text-[var(--c-text-3)]">
+                      <th className="p-3 font-semibold">Campaign</th><th className="p-3 font-semibold">Client</th><th className="p-3 text-right font-semibold">Spend</th>
+                      <th className="p-3 text-right font-semibold">Leads</th><th className="p-3 text-right font-semibold" title="Derived: spend ÷ leads">CPL</th><th className="p-3 text-right font-semibold">Impr.</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-[var(--c-border)]">
+                      {rows.map(c => { const sp = num(c.spend_inr), ld = num(c.leads);
+                        return (
+                          <tr key={c.id}>
+                            <td className="p-3"><div className="font-medium text-[var(--c-text)]">{c.campaign_name}</div><div className="text-xs capitalize text-[var(--c-text-3)]">{c.campaign_type} · {c.status}</div></td>
+                            <td className="p-3 text-[var(--c-text-2)]">{clientName(c.client_id)}</td>
+                            <td className="p-3 text-right">{sp != null ? inr(sp) : '—'}</td>
+                            <td className="p-3 text-right">{ld != null ? ld : '—'}</td>
+                            <td className="p-3 text-right">{sp != null && ld ? inr(sp / ld) : '—'}</td>
+                            <td className="p-3 text-right">{c.impressions != null ? Number(c.impressions).toLocaleString('en-IN') : '—'}</td>
+                          </tr>); })}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-              {filteredCampaigns.filter(c => !c.pausedAt).slice(0, 1).map(camp => (
-                <div key={camp.id} className="p-4 border border-app-border bg-app-surface rounded-xl flex items-start gap-4 opacity-50">
-                  <div className="p-3 bg-app-surface-3 rounded-lg">
-                    <TrendingUp className="w-5 h-5 text-app-text2" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-app-text text-sm">No other upcoming plans</h4>
-                    <p className="text-xs text-app-text3 mt-1">All other campaigns running as expected.</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+              )}
+            </section>
           </div>
-        </div>
-
-      </div>
+        </>
+      )}
     </div>
   );
 }

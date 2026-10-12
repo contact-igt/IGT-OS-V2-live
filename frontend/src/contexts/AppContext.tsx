@@ -14,7 +14,7 @@ import {
 } from '@/lib/seed_index';
 import {
   Task, Client, TeamMember, AuditEntry, TaskApproval, ClientCredential, SocialMetric, Notification, TimeEntry,
-  INITIAL_TASKS, CLIENTS, TEAM_MEMBERS, INITIAL_AUDIT_LOG, CREDENTIALS, SOCIAL_METRICS, SEED_TIME_ENTRIES,
+  INITIAL_TASKS, TEAM_MEMBERS, INITIAL_AUDIT_LOG, CREDENTIALS, SOCIAL_METRICS, SEED_TIME_ENTRIES,
   isOverdue, isDueToday, formatMinutes, canApproveOrCompleteTask, parseHexColor,
   type AttendanceLog, type AdAccountBalance, type GitHubDevActivity, type GitHubRepo,
   type Lead, type CampaignLog, type MeetingEvent,
@@ -125,7 +125,7 @@ type AppAction =
 // ─────────────────────────────────────────────────────────────
 const initialState: AppState = {
   tasks: [],
-  clients: CLIENTS,
+  clients: [], // hydrated from the database (GET /api/clients) - never the mock roster
   teamMembers: TEAM_MEMBERS,
   credentials: [],
   socialMetrics: [],
@@ -652,7 +652,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
       const approval = task?.approvals?.find(a => a.id === approvalId);
       
-      let nextState = { ...state };
+      const nextState = { ...state };
       
       nextState.tasks = nextState.tasks.map(t => {
         if (t.id === taskId) {
@@ -909,7 +909,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       });
 
       const h = new Date(time).getHours();
-      let newNotifications = [...state.notifications];
+      const newNotifications = [...state.notifications];
       if (h >= 9 && h < 18) {
         newNotifications.push({ id: `NOTIF-${crypto.randomUUID().slice(0, 8)}`, userId, actorId: 'system', type: 'status_change', taskId: 'system', message: 'Warning: You have been clocked out before 6 PM. A Google Chat notification has been sent.', read: false, createdAt: new Date().toISOString() });
       }
@@ -1025,13 +1025,14 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { logout, user } = useAuth();
   const confirm = useConfirm();
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   const [state, dispatch] = useReducer(appReducer, initialState);
   const prevUserRef = useRef<string | undefined>(user?.id);
   const stateRef = useRef(state);
-  stateRef.current = state; // inline ref sync — no useEffect needed
   const userRef = useRef(user);
-  userRef.current = user; // read fresh in timers/callbacks without adding `user` to every dep array
+  // Refs are synced after commit (never during render); handlers/timers read them fresh without `state`/`user` in every dep array.
+  useEffect(() => { stateRef.current = state; userRef.current = user; });
 
   // Mock client ids ('c1', ...) used throughout the app's hierarchy/permission logic
   // don't match the real backend's UUIDs. This map (built from /api/clients by matching
@@ -1070,14 +1071,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const handleBeforeUnload = () => {
       if (user?.id) {
         const today = new Date().toISOString().split('T')[0];
-        let updatedState = { ...stateRef.current };
+        const updatedState = { ...stateRef.current };
 
         // Save active task timers on unload (do NOT clock out attendance)
         const userTimers = updatedState.activeTimers.filter(t => t.userId === user.id);
         if (userTimers.length > 0) {
           const nowMs = Date.now();
           let newTasks = [...updatedState.tasks];
-          let newEntries = [...updatedState.timeEntries];
+          const newEntries = [...updatedState.timeEntries];
           
           userTimers.forEach(timer => {
              const elapsedMin = Math.floor((nowMs - timer.startedAt) / 60000);
@@ -1114,16 +1115,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const opts: RequestInit = { credentials: 'include' };
 
+      // Don't call endpoints this role is known to be forbidden from (the server still enforces it): avoids a
+      // wall of expected 403s per page load. Mirrors backend gates: github/social = admin/ops or a page grant; audit = admin/ops.
+      const isStaff = ['admin', 'ops', 'super_admin'].includes(user.role);
+      const granted = (page: string) => (user.grantedPages || []).some(p => p === page || page.startsWith(`${p}/`));
+      const fetchIf = (allowed: boolean, url: string, emptyBody: string) =>
+        allowed ? fetch(url, opts) : Promise.resolve(new Response(emptyBody, { status: 200 }));
+
       const [usersRes, clientsRes, tasksRes, notificationsRes, attendanceRes, githubRes, socialRes, activeTimersRes, auditLogRes, meetingsRes] = await Promise.all([
         fetch(`${baseUrl}/api/users`, opts),
         fetch(`${baseUrl}/api/clients`, opts),
         fetch(`${baseUrl}/api/tasks`, opts),
         fetch(`${baseUrl}/api/notifications`, opts),
         fetch(`${baseUrl}/api/attendance`, opts),
-        fetch(`${baseUrl}/api/github/live`, opts),
-        fetch(`${baseUrl}/api/social/accounts`, opts),
+        fetchIf(isStaff || granted('/development'), `${baseUrl}/api/github/live`, '{}'),
+        fetchIf(isStaff || granted('/social'), `${baseUrl}/api/social/accounts`, '{}'),
         fetch(`${baseUrl}/api/time-logs?active=true`, opts),
-        fetch(`${baseUrl}/api/audit-log`, opts),
+        fetchIf(isStaff, `${baseUrl}/api/audit-log`, '[]'),
         fetch(`${baseUrl}/api/meetings`, opts),
       ]);
 
@@ -1203,13 +1211,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-      // Build the mock-id <-> real-id maps for clients
+      // Clients come from the database; the DB id IS the client id everywhere (no mock-id translation layer).
+      const CLIENT_COLORS = ['#2AB182', '#6366F1', '#F59E0B', '#EC4899', '#14B8A6', '#8B5CF6', '#F97316', '#0EA5E9'];
+      const translatedClients: Client[] = dbClients.map((c: any, i: number) => ({
+        id: c.id,
+        code: (c.short_code || c.shortCode || '').toUpperCase(),
+        name: c.name,
+        category: c.category || 'other',
+        monthlyRetainerINR: Number(c.monthly_retainer_inr || 0), // 0 for roles the API withholds commercials from
+        agencyFeeINR: 0,
+        contractStatus: c.contract_status || 'active',
+        primaryContact: c.primary_contact_name || '',
+        notes: c.notes || '',
+        budgetUtilization: 0,
+        color: c.color_hex || CLIENT_COLORS[i % CLIENT_COLORS.length],
+      }));
       const toDbClient: Record<string, string> = {};
       const toMockClient: Record<string, string> = {};
-      for (const mock of CLIENTS) {
-        const match = dbClients.find((c: any) => (c.short_code || c.shortCode)?.toUpperCase() === mock.code?.toUpperCase());
-        if (match) { toDbClient[mock.id] = match.id; toMockClient[match.id] = mock.id; }
-      }
+      for (const c of translatedClients) { toDbClient[c.id] = c.id; toMockClient[c.id] = c.id; }
       clientIdMapRef.current = { toDb: toDbClient, toMock: toMockClient };
 
       const translatedTasks = dbTasks.map((t: any) => ({
@@ -1317,6 +1336,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
 
       dispatch({ type: 'HYDRATE_STATE', payload: {
+        ...(clientsRes.ok ? { clients: translatedClients } : {}),
         tasks: translatedTasks,
         activeTimers,
         notifications: translatedNotifications,
@@ -1584,7 +1604,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setStoppingTaskTargetStatus(targetStatus || null);
   }, []);
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   const setTaskStatus = useCallback((taskId: string, status: Task['status'], note?: string) => {
     const task = state.tasks.find(t => t.id === taskId);
@@ -1655,7 +1674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           const dbClientId = clientIdMapRef.current.toDb[data.clientId];
           if (!dbClientId) {
-            console.warn('No backend client mapping for', data.clientId, '— task created locally only.');
+            warnSyncFailure('This task was NOT saved: its client is not in the database. Refresh and pick a client from the list.');
             return null;
           }
           const dbAssignedTo = data.assignedTo || [];
@@ -1737,7 +1756,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })();
     }
     return null;
-  }, [user]);
+  }, [user, warnSyncFailure]);
 
   // File attachments. Uploaded bytes live in Postgres (task_assets.file_data) and are served
   // back through an authenticated download endpoint — there are no public file URLs.
@@ -1797,9 +1816,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (!res.ok) return { error: data.error || 'Failed to create client' };
 
-      const mockId = `c-${shortCode.toLowerCase()}`;
       const newClient: Client = {
-        id: mockId,
+        id: data.id,
         code: shortCode.toUpperCase(),
         name,
         category: 'other',
@@ -1808,11 +1826,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         contractStatus: 'active',
         primaryContact: '',
         notes: '',
+        budgetUtilization: 0,
+        color: '#2AB182',
       };
       dispatch({ type: 'ADD_CLIENT', payload: newClient });
-      clientIdMapRef.current.toDb[mockId] = data.id;
-      clientIdMapRef.current.toMock[data.id] = mockId;
-      return { id: mockId };
+      clientIdMapRef.current.toDb[data.id] = data.id;
+      clientIdMapRef.current.toMock[data.id] = data.id;
+      return { id: data.id };
     } catch (err) {
       return { error: 'Could not connect to the server' };
     }
