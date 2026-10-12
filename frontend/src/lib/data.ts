@@ -568,6 +568,7 @@ export const NAV_SECTIONS = [
   { href: '/campaigns',      label: 'Campaigns',         icon: 'campaign',              color: 'var(--c-primary)', section: 'campaigns' },
   { href: '/ad-budget',      label: 'Ad Budget',         icon: 'account_balance',       color: 'var(--c-primary)', section: 'ad-budget' },
   { href: '/team',           label: 'Team',              icon: 'groups',                color: 'var(--c-primary)', section: 'team' },
+  { href: '/delivery',       label: 'Delivery',          icon: 'workspaces',            color: 'var(--c-primary)', section: 'delivery' },
   { href: '/development',    label: 'Development',       icon: 'terminal',              color: 'var(--c-primary)', section: 'development' },
   { href: '/team/workload',  label: 'Team Workload',     icon: 'workspaces',            color: 'var(--c-primary)', section: 'team-workload' },
   { href: '/analytics',      label: 'Analytics',         icon: 'insights',              color: 'var(--c-primary)', section: 'analytics' },
