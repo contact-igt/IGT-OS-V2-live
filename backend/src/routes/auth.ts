@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { logAudit } from '../lib/auditLog';
 import { requireAuth } from '../middleware/auth';
-import { AI_TICKET_TTL_SEC, signAiTicket, verifyAiTicket } from '../lib/tokens';
+import { AI_TICKET_TTL_SEC, signAiTicket } from '../lib/tokens';
+import { authenticateAiCaller, AiAuthError } from '../lib/aiTicket';
 import {
   REFRESH_COOKIE,
   clearAuthCookies,
@@ -111,37 +112,15 @@ router.post('/ai-ticket', requireAuth, (req: Request, res: Response) => {
   res.json({ ticket: signAiTicket(req.user.id), expiresInSec: AI_TICKET_TTL_SEC });
 });
 
-// Per-user sliding-window limiter for costly AI calls (in-memory: single backend instance).
-const AI_WINDOW_MS = 60_000;
-const AI_MAX_PER_WINDOW = 30;
-const aiHits = new Map<string, number[]>();
-
-// GET /api/auth/ai-ticket/verify - called server-to-server by the Next.js AI routes with the
-// ticket as Bearer. Confirms the ticket, that the account is still active, and applies the rate limit.
+// GET /api/auth/ai-ticket/verify - called server-to-server by the Next.js AI routes with the ticket as Bearer.
+// Confirms the ticket, that the account is still active, and applies the per-user rate limit.
 router.get('/ai-ticket/verify', async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
-  const bearer = req.headers.authorization?.split(' ')[1];
-  if (!bearer) return res.status(401).json({ error: 'Unauthorized' });
-  let userId: string;
   try {
-    userId = verifyAiTicket(bearer).id;
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired ticket' });
-  }
-  try {
-    const u = await pool.query('SELECT role FROM public.users WHERE id = $1 AND is_active = true', [userId]);
-    if (u.rows.length === 0) return res.status(401).json({ error: 'Unauthorized' });
-
-    const now = Date.now();
-    const recent = (aiHits.get(userId) || []).filter(t => now - t < AI_WINDOW_MS);
-    if (recent.length >= AI_MAX_PER_WINDOW) {
-      aiHits.set(userId, recent);
-      return res.status(429).json({ error: 'Too many AI requests - try again in a minute' });
-    }
-    recent.push(now);
-    aiHits.set(userId, recent);
-    res.json({ ok: true, userId, role: u.rows[0].role });
+    const caller = await authenticateAiCaller(pool, req.headers.authorization);
+    res.json({ ok: true, userId: caller.id, role: caller.role });
   } catch (err) {
+    if (err instanceof AiAuthError) return res.status(err.status).json({ error: err.message });
     console.error('/api/auth/ai-ticket/verify error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }

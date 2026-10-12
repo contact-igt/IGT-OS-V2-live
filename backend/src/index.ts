@@ -34,6 +34,7 @@ import meetingsRoutes from './routes/meetings';
 import googleAuthRoutes from './routes/googleAuth';
 import appSecretsRoutes from './routes/appSecrets';
 import commandCenterRoutes from './routes/commandCenter';
+import cortexRoutes from './routes/cortex';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import authRoutes from './routes/auth';
 import { requireAuth, requirePageAccess, requireRole } from './middleware/auth';
@@ -366,6 +367,7 @@ app.use('/api/meetings', meetingsRoutes);
 app.use('/api/google', googleAuthRoutes);
 app.use('/api/app-secrets', appSecretsRoutes);
 app.use('/api/command-center', commandCenterRoutes);
+app.use('/api/cortex', cortexRoutes);
 
 // Public — no auth required (login page hero). At most 20 paid provider calls/day in total.
 const publicHeroCalls = { day: '', n: 0 };

@@ -2,98 +2,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { TEAM_MEMBERS } from '@/lib/data';
 import { aiFetch } from '@/lib/aiFetch';
 
 // ──────────────────────────────────────────────
-// ROLE HIERARCHY & ACCESS CONTROL
+// UI LABELS ONLY - what Cortex may see is decided server-side (backend /api/cortex/context)
 // ──────────────────────────────────────────────
 const LEADERSHIP_IDS = ['u-sushil', 'u-anitha', 'u-abhilash'];
 const LEADERSHIP_ROLES = ['super_admin', 'admin', 'ops'];
 
 function isLeadership(userId: string, role: string): boolean {
   return LEADERSHIP_IDS.includes(userId) || LEADERSHIP_ROLES.includes(role);
-}
-
-function getAccessibleData(state: any, currentUser: any) {
-  if (!currentUser) return { tasks: [], teamMembers: [], clients: [] };
-
-  const isLeader = isLeadership(currentUser.id, currentUser.role);
-
-  if (isLeader) {
-    return {
-      tasks: state.tasks || [],
-      teamMembers: state.teamMembers || [],
-      clients: state.clients || [],
-    };
-  }
-
-  // Team member: only their department
-  const myDepartment = currentUser.department;
-  const departmentMembers = (state.teamMembers || []).filter(
-    (m: any) => m.department === myDepartment
-  );
-  const departmentMemberIds = new Set(departmentMembers.map((m: any) => m.id));
-  const departmentTasks = (state.tasks || []).filter((t: any) =>
-    t.assignedTo?.some((uid: string) => departmentMemberIds.has(uid))
-  );
-
-  return {
-    tasks: departmentTasks,
-    teamMembers: departmentMembers,
-    clients: state.clients || [],
-  };
-}
-
-function buildSystemPrompt(currentUser: any, accessibleData: any): string {
-  const isLeader = isLeadership(currentUser.id, currentUser.role);
-
-  const teamInfo = accessibleData.teamMembers.map((m: any) =>
-    `- ${m.name} (${m.department}, ${m.roleTag || m.role})`
-  ).join('\n') || 'None';
-
-  const clientInfo = accessibleData.clients.slice(0, 15).map((c: any) =>
-    `- ${c.name} [${c.code}] — ${c.category} — Retainer: ₹${(c.monthlyRetainerINR || 0).toLocaleString()}`
-  ).join('\n') || 'No clients';
-
-  const taskInfo = accessibleData.tasks.slice(0, 30).map((t: any) => {
-    const assignees = (t.assignedTo || []).map((id: string) => {
-      const m = accessibleData.teamMembers.find((tm: any) => tm.id === id) ||
-                TEAM_MEMBERS.find((tm: any) => tm.id === id);
-      return m?.name || id;
-    }).join(', ') || 'Unassigned';
-    const client = accessibleData.clients.find((c: any) => c.id === t.clientId);
-    const dl = t.deadline ? new Date(t.deadline).toLocaleDateString('en-IN') : 'None';
-    return `- [${(t.priority || 'medium').toUpperCase()}] ${t.title} | ${t.status} | ${assignees} | ${client?.name || 'Internal'} | Due: ${dl}`;
-  }).join('\n') || 'No tasks yet — tasks will appear as the team adds them.';
-
-  const scopeNote = isLeader
-    ? 'You have FULL ACCESS to all team data, all departments, all tasks, and all client financials.'
-    : `You have access ONLY to your department (${currentUser.department}). You can see what your teammates in the same department are working on, but NOT other departments.`;
-
-  return `You are Invictus Cortex, the private AI assistant for Invictus Global Tech, a digital marketing agency.
-
-CURRENT USER: ${currentUser.name}
-ROLE: ${currentUser.roleTag || currentUser.role} | DEPARTMENT: ${currentUser.department || 'N/A'}
-ACCESS: ${isLeader ? 'Full Leadership Access' : 'Department Scope Only'}
-
-${scopeNote}
-
-TEAM MEMBERS IN SCOPE:
-${teamInfo}
-
-CLIENTS:
-${clientInfo}
-
-TASKS IN SCOPE:
-${taskInfo}
-
-RULES:
-${isLeader
-  ? '- You can see all team members, tasks, clients, and financial data.\n- You can answer strategic questions about agency health and performance.'
-  : `- You can ONLY see and discuss tasks from ${currentUser.department} department.\n- NEVER reveal tasks, salaries, or data from other departments.\n- If asked about other departments, say: "I can only help with ${currentUser.department} tasks."`}
-
-STYLE: Be concise, direct, use bullet points. Address the user by first name: ${(currentUser.name || '').split(' ')[0] || 'there'}.`;
 }
 
 function getQuickPrompts(isLeader: boolean, department: string) {
@@ -145,7 +63,6 @@ export default function AIPage() {
     : null;
 
   const isLeader = currentUser ? isLeadership(currentUser.id, currentUser.role) : false;
-  const accessibleData = getAccessibleData(state, currentUser);
   const quickPrompts = getQuickPrompts(isLeader, currentUser?.department || '');
 
   useEffect(() => {
@@ -164,14 +81,13 @@ export default function AIPage() {
     setLoading(true);
 
     try {
-      const systemPrompt = buildSystemPrompt(currentUser, accessibleData);
       // Routed through our own backend so the OpenAI key stays server-side — this used to
       // call api.openai.com directly from the browser with NEXT_PUBLIC_OPENAI_API_KEY,
       // which would expose the key to anyone inspecting network requests.
       const response = await aiFetch('/api/cortex-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages }),
       });
 
       if (!response.ok) {
