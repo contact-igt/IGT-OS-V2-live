@@ -1,0 +1,59 @@
+# CI: secret guard, typecheck, lint, and the backend API + schema suite on a throwaway Postgres.
+# NOTE: written from the commands verified locally; first real run on GitHub is UNVERIFIED.
+# The Next production build is not run here yet: the macOS-generated lockfile lacks Linux native binaries
+# (lightningcss / @tailwindcss/oxide) - see CLAUDE.md.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main, stage]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: ci, POSTGRES_DB: igt_test }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:ci@localhost:5432/igt_test
+      JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      FRONTEND_URL: http://localhost:3000
+      PORT: '4000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: Generate a throwaway test password (never committed)
+        run: |
+          PW="Ci-$(openssl rand -hex 12)-1a"
+          echo "::add-mask::$PW"
+          echo "INITIAL_USER_PASSWORD=$PW" >> "$GITHUB_ENV"
+          echo "TEST_PASSWORD=$PW" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: Secret guard
+        run: npm run test:secrets
+      - name: Typecheck
+        run: |
+          npx tsc --noEmit -p backend
+          npx tsc --noEmit -p frontend
+      - name: Lint (frontend)
+        run: npx eslint src --quiet
+        working-directory: frontend
+      - name: Bootstrap test DB (migrate + seed)
+        run: npm run db:init -w backend
+      - name: Clear forced password change on the four test accounts
+        run: >
+          psql "$DATABASE_URL" -c "update users set must_change_password=false where email in
+          ('sushilathithiyaa@invictusglobaltech.com','contact@invictusglobaltech.com','aiswarya.saiju.igt@gmail.com','rutuja.rajbhar.igt@gmail.com')"
+      - name: Start backend
+        run: |
+          npm run dev -w backend > backend.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf localhost:4000/api/health && break; sleep 2; done
+      - name: API + schema tests
+        run: npm run test:api -w backend
+      - if: failure()
+        run: tail -n 80 backend.log || true
