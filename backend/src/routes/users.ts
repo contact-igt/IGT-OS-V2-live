@@ -168,6 +168,14 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: 
   }
 
   try {
+    // Privilege boundary: an admin must not be able to mint a super_admin (themselves included)
+    // or alter an existing one - only a super_admin can.
+    if (req.user.role !== 'super_admin') {
+      const target = await pool.query('SELECT role FROM public.users WHERE id = $1', [id]);
+      if (role === 'super_admin' || target.rows[0]?.role === 'super_admin') {
+        return res.status(403).json({ error: 'Only a super admin can grant or change the super admin role' });
+      }
+    }
     const result = await pool.query(
       `UPDATE public.users
        SET color = COALESCE($1, color),

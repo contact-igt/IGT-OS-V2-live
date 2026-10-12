@@ -308,7 +308,7 @@ export default function MyProfilePage() {
   const handleConnectGmail = () => {
     if (!user?.id) return;
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    window.location.href = `${baseUrl}/api/google/connect?userId=${user.id}`;
+    window.location.href = `${baseUrl}/api/google/connect`;
   };
 
   const handleDisconnectGmail = async () => {

@@ -96,3 +96,19 @@ export function clearAuthCookies(res: Response) {
   res.clearCookie(ACCESS_COOKIE, { ...baseCookieOptions(), path: '/' });
   res.clearCookie(REFRESH_COOKIE, { ...baseCookieOptions(), path: '/api/auth' });
 }
+
+// OAuth `state`: signed, short-lived, and bound to the authenticated user who started the flow.
+// The callback must also present that user's session, so a forwarded/forged consent link cannot
+// attach someone else's provider account (or tokens) to a different user or client.
+export function signOAuthState(payload: Record<string, unknown>, userId: string): string {
+  return jwt.sign({ ...payload, typ: 'oauth-state', uid: userId }, JWT_SECRET, { expiresIn: 600 });
+}
+export function verifyOAuthState(state: unknown, expectedUserId: string): Record<string, any> | null {
+  if (typeof state !== 'string') return null;
+  try {
+    const p = jwt.verify(state, JWT_SECRET) as Record<string, any>;
+    return p.typ === 'oauth-state' && p.uid === expectedUserId ? p : null;
+  } catch {
+    return null;
+  }
+}

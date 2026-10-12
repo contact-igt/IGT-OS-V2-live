@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -21,7 +21,7 @@ function serializeEntry(row: any) {
 
 // GET /api/audit-log — most recent entries, newest first (matches the frontend's
 // local convention of prepending new entries to the front of the array)
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+router.get('/', requireAuth, requireRole('admin', 'ops'), async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 

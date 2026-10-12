@@ -106,3 +106,47 @@ describe('task object-level authorization + persistence', () => {
     assert.equal((await admin.call(`/api/tasks/${taskId}`, { method: 'DELETE' })).status, 204);
   });
 });
+
+describe('privilege boundaries', () => {
+  test('admin cannot promote anyone (incl. self) to super_admin', async () => {
+    const admin = await login(ADMIN);
+    assert.equal((await admin.call('/api/users/101', { method: 'PUT', body: JSON.stringify({ role: 'super_admin' }) })).status, 403);
+    assert.equal((await admin.call('/api/users/111', { method: 'PUT', body: JSON.stringify({ role: 'super_admin' }) })).status, 403);
+  });
+  test('team role cannot change roles', async () => {
+    assert.equal((await (await login(TEAM)).call('/api/users/111', { method: 'PUT', body: JSON.stringify({ role: 'admin' }) })).status, 403);
+  });
+});
+
+describe('OAuth connect flows require an authenticated session and signed state', () => {
+  for (const path of ['/api/google/connect', '/api/auth/instagram/connect', '/api/auth/youtube/connect']) {
+    test(`${path} rejects anonymous callers`, async () => {
+      assert.equal((await fetch(`${API}${path}?userId=101`, { redirect: 'manual' })).status, 401);
+    });
+  }
+  for (const path of ['/api/google/callback', '/api/auth/instagram/callback', '/api/auth/youtube/callback']) {
+    test(`${path} rejects anonymous callers and forged state`, async () => {
+      assert.equal((await fetch(`${API}${path}?code=x&state=${encodeURIComponent('{"userId":"101"}')}`, { redirect: 'manual' })).status, 401);
+      const u = await login(TEAM);
+      const res = await u.call(`${path.replace(/^/, '')}?code=x&state=${encodeURIComponent('{"userId":"101"}')}`, { redirect: 'manual' });
+      assert.ok([400, 403].includes(res.status), `forged state must be refused, got ${res.status}`);
+    });
+  }
+});
+
+describe('audit log + meeting confidentiality', () => {
+  test('audit log is staff-only', async () => {
+    assert.equal((await (await login(TEAM)).call('/api/audit-log')).status, 403);
+    assert.equal((await (await login(ADMIN)).call('/api/audit-log')).status, 200);
+  });
+  test('meeting transcripts: creator + staff only; persists across sessions', async () => {
+    const admin = await login(ADMIN);
+    const created = await admin.call('/api/meetings', { method: 'POST', body: JSON.stringify({ title: 'Confidential probe', result: { summary: 'x' }, transcriptSnippet: 'secret talk' }) });
+    assert.equal(created.status, 201, await created.clone().text());
+    const { id } = await created.json();
+    const other = await login(OTHER);
+    assert.equal((await other.call(`/api/meetings/${id}`)).status, 404);
+    assert.ok(!(await (await other.call('/api/meetings')).json()).find(m => m.id === id));
+    assert.equal((await (await login(ADMIN)).call(`/api/meetings/${id}`)).status, 200);
+  });
+});
