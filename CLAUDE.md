@@ -12,11 +12,16 @@ Project memory lives in `docs/igt-os/` (start with LOOP_STATUS.md and RISK_REGIS
   (migrate -> seed fixtures if empty -> one-time passwords; random ones are printed if INITIAL_USER_PASSWORD is unset; refuses NODE_ENV=production).
   Existing DB that already has the old baseline: `npm run db:migrate -w backend -- --baseline-existing` once, then `npm run db:migrate -w backend`. VERIFY the live DB's
   `time_entries`/`campaign_weekly_logs`/`ad_account_balances` columns first (see RISK_REGISTER P1-1).
-- API + schema regression: start backend on :4000 against the test DB, then `DATABASE_URL=<test db> TEST_PASSWORD=<same> npm run test:api -w backend`.
-  Refuses to run if API_URL looks like production.
+- API + schema + route-auth sweep: start backend on :4000 against the test DB, then `DATABASE_URL=<test db> TEST_PASSWORD=<same> npm run test:api -w backend`
+  (80 tests). Refuses to run if API_URL looks like production. Seeded accounts need `must_change_password=false` for the browser journeys.
+- Browser journeys (need `playwright` installed, `next start` on :3000): `TEST_PASSWORD=... node scripts/e2e/task-journey.mjs` and `delivery-journey.mjs`.
+  In this container launch Chromium with `--disable-background-networking --proxy-bypass-list=*` or it hangs on the egress proxy.
+- Next production build needs `NEXT_PUBLIC_API_URL`; type errors fail it (no ignoreBuildErrors).
 
 ## Rules
 - Never commit credentials, hashes, tokens or real salary/HR data. Seed data must be fixtures only.
 - Server-side authorization is the control; frontend hiding is cosmetic.
 - Every number shown to management needs provenance (docs/igt-os/DATA_PROVENANCE.md). No silent fallback to seed data.
+- Every new backend route must authenticate (the route-auth sweep test fails otherwise); unsafe methods are origin-checked (CSRF).
+- Task lifecycle audit events are written by the SERVER (tasks.ts); never trust a client-supplied actor.
 - Use semantic color tokens (`--c-error|warning|success|info`), not hard-coded colors.

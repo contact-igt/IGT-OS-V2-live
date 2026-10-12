@@ -1,28 +1,28 @@
-# MODULE MATRIX  (WORKING / PARTIAL / UI-ONLY / BROKEN / UNVERIFIED / PROPOSED)
+# MODULE MATRIX  (WORKING / PARTIAL / UI-ONLY / PROPOSED / UNVERIFIED) - after run 2
 
-Basis: code reading + the API/browser checks in LOOP_STATUS. "Verified" = exercised in this run.
+"Verified" = exercised by a test or browser journey in run 2 (see QA_MATRIX).
 
 | Module | State | Evidence / gap |
 |---|---|---|
-| Auth (login, cookies, refresh, forced password change) | WORKING (verified: login, forced /set-password, session survives reload) | public reset closed; weak password policy (P1-5) |
-| Tasks (CRUD, assignment scope, timers) | WORKING (verified create/update/delete, scope, persistence) | assets/timers authz verified only for access check |
-| Clients list/detail | PARTIAL | read APIs verified; commercial/finance depth missing; no Client 360 model |
-| Command center attention queue | WORKING (new) | tasks + leave only; no blockers/invoices/campaign/integration signals yet |
-| Admin/Ops dashboard | PARTIAL | many widgets; render verified; data correctness UNVERIFIED |
-| Audit log | WORKING (read gated) | |
-| Meetings + AI analysis | PARTIAL | persistence + scoping verified; AI quality UNVERIFIED (no keys here) |
-| Cortex AI chat | PARTIAL | now authenticated/rate-limited; still sends client-built prompts (client-side data) to external model; RBAC grounding is NOT enforced server-side (OPEN) |
-| Leave requests / people | PARTIAL | endpoints exist; approval authz UNVERIFIED |
-| Attendance | PARTIAL | needs attendance_breaks migration (P1-1) |
-| Social (IG/YouTube) | PARTIAL / ACCESS REQUIRED | OAuth hardened; live sync UNVERIFIED; no content pipeline model |
-| GitHub dev feed | PARTIAL / ACCESS REQUIRED | |
-| Google Calendar/Gmail | PARTIAL / ACCESS REQUIRED | |
-| Credentials vault (`/credentials`) | PARTIAL | API-key tab: AES-encrypted, write-only, admin-only. Client-credential vault: no backend; demo values removed |
-| Finance / payroll | UI-ONLY | no backend; read-only zeros; label DEMO |
-| Sales / deals / leads / pipeline | UI-ONLY | no backend |
-| Ad budget / campaigns / performance | UI-ONLY (campaign log API exists, partial) | no Meta/Google adapters |
-| HR (employee master, salary, documents, NDAs) | PROPOSED | no model; salary must be restricted server-side |
-| Development projects / roadmap / change requests | PROPOSED | |
-| Social content pipeline / deliverable tracking / monthly reports | PROPOSED | |
-| Integration registry + sync health | PROPOSED | |
-| Notifications / escalation engine | PARTIAL | in-app notifications only; no tiers/ack |
+| Auth (login, cookies, refresh, forced change, policy) | WORKING (verified) | reset takeover closed; CSRF guard; password policy |
+| Tasks (create/assign/priority/deadline/status/timers/comments/attachments) | WORKING (verified end-to-end incl. UI) | server-side audit trail; assignee-or-creator scope; goal/task/subtask exist |
+| Activity / audit log | WORKING (verified) | server-owned task events with previous->new; actor from session; admin/ops read |
+| Clients | PARTIAL | real DB clients in UI; commercial columns staff-only; no Client 360 model (contacts/owners/services/renewal); Agency fee + budget utilisation have no source (shown as "-") |
+| Command center (attention queue) | WORKING (verified) | tasks, leave, blockers, change requests; CEO vs ops routing; no invoice/campaign/integration-failure signals yet |
+| Delivery: change requests | WORKING (verified, API + browser) | capture -> classify -> impact -> decision -> roadmap bucket -> link to task; material changes need admin/super_admin + impact analysis |
+| Delivery: blockers | WORKING (verified) | owner, party, severity, expected resolution, next action, escalation owner; feeds queue |
+| Development projects / milestones / QA-UAT-release | PROPOSED | only GitHub activity feed + task goals exist; no project entity |
+| Roadmap (Now/Next/Later) | PARTIAL | bucket stored on accepted change requests; no roadmap view, no progress derivation |
+| Cortex AI | WORKING (verified, API) / provider call UNVERIFIED | server-built, role-scoped context; no provider key in test env -> honest 503 |
+| Integration registry | WORKING (verified) | derived; Meta/Google Ads/GA4/GBP adapters NOT BUILT (ACCESS REQUIRED) |
+| Performance marketing page | PARTIAL | DB campaigns + balances, DERIVED CPL, provenance strip; no live platform data |
+| Monthly client report | WORKING (verified, CSV/JSON) | PDF/XLSX not built; no per-period campaign metrics (campaign table is cumulative) |
+| Social (IG/YouTube) | PARTIAL / ACCESS REQUIRED | OAuth hardened; sync UNVERIFIED; content pipeline absent |
+| GitHub dev feed | PARTIAL / ACCESS REQUIRED | webhook HMAC; UNVERIFIED without credentials |
+| Google Calendar/Gmail | PARTIAL / ACCESS REQUIRED | UNVERIFIED |
+| Credentials vault | PARTIAL | API-key vault: AES, write-only, admin-only (constant-time internal secret). Client credential vault: no backend |
+| Leave / attendance / people | PARTIAL | endpoints exist; leave approval authz UNVERIFIED |
+| HR (employee master, documents, NDAs, compensation) | PROPOSED | no model |
+| Finance / payroll / invoices / collections | UI-ONLY | no backend except `GET /clients/:id/invoices`; finance endpoint returns UNKNOWN for payroll/profit |
+| Sales pipeline | UI-ONLY | no backend |
+| Notifications | PARTIAL | in-app; no tiers/ack/escalation engine |
