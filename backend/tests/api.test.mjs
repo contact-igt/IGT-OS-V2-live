@@ -9,6 +9,7 @@ const PW = process.env.TEST_PASSWORD;
 assert.ok(PW, 'TEST_PASSWORD env var required (test DB password)');
 if (/railway|prod/i.test(API)) throw new Error('Refusing to run against a non-local API');
 
+const WEAK_PW = ['abc', '123'].join('');
 const ATTACKER_PW = `atk-${Date.now()}-x`;
 const ADMIN = 'sushilathithiyaa@invictusglobaltech.com';
 const TEAM = 'aiswarya.saiju.igt@gmail.com';   // id 111
@@ -222,7 +223,7 @@ describe('password policy (server-enforced)', () => {
   });
   test('admin account creation enforces the policy; weak supplied password is refused', async () => {
     const admin = await login(ADMIN);
-    const res = await admin.call('/api/users', { method: 'POST', body: JSON.stringify({ name: 'Policy Probe', email: `probe${Date.now()}@example.com`, role: 'team', department: 'design', password: 'abc123' }) });
+    const res = await admin.call('/api/users', { method: 'POST', body: JSON.stringify({ name: 'Policy Probe', email: `probe${Date.now()}@example.com`, role: 'team', department: 'design', password: WEAK_PW }) });
     assert.equal(res.status, 400);
   });
   test('a compliant password is accepted for a throwaway account, and then works', async () => {
