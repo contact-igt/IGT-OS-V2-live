@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { Pool } from 'pg';
 import multer from 'multer';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../lib/auditLog';
 import { postDepartmentTaskAssignmentAlert, ALERTING_DEPARTMENTS } from '../lib/googleChat';
 
 const router = Router();
@@ -48,6 +49,8 @@ function serializeTask(row: any) {
     // Attachments on this task: either an external link (url) or an uploaded file stored in
     // Postgres (isFile: true, fetched via the download endpoint below).
     assets: row.assets || [],
+    // Review / revision / discussion thread (persisted in task_comments, oldest first)
+    reviewComments: row.comments || [],
   };
 }
 
@@ -57,6 +60,13 @@ function serializeTask(row: any) {
 // file_data is deliberately NOT selected — only whether it exists — so listing tasks never
 // drags every uploaded file's bytes through the query. Files are fetched on demand from the
 // download endpoint instead.
+const COMMENTS_SUBQUERY = `
+  (SELECT COALESCE(json_agg(json_build_object(
+      'id', c.id, 'authorId', c.user_id, 'text', c.content, 'createdAt', c.created_at
+    ) ORDER BY c.created_at), '[]'::json)
+   FROM public.task_comments c WHERE c.task_id = t.id) AS comments
+`;
+
 const ASSETS_SUBQUERY = `
   (SELECT COALESCE(json_agg(json_build_object(
       'id', a.id,
@@ -120,6 +130,28 @@ function splitDeadline(deadline?: string | null): { date: string | null; time: s
 // they are assigned to or created (the same visibility rule GET / applies). Missing tasks pass
 // through so the route's own 404 handling still applies.
 const TASK_STAFF_ROLES = ['admin', 'ops', 'super_admin'];
+const TASK_STATUSES = ['todo', 'in_progress', 'paused', 'in_review', 'done', 'blocked', 'cancelled'];
+const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'];
+const MAX_COMMENT_LENGTH = 4000;
+
+// Server-owned audit trail for task state changes: actor comes from the verified session, never the client.
+async function auditTask(pool: Pool, req: Request, action: string, task: { id: string; title: string; client_id?: string | null }, meta?: string) {
+  let clientName: string | null = null;
+  if (task.client_id) {
+    const c = await pool.query('SELECT name FROM public.clients WHERE id = $1', [task.client_id]).catch(() => null);
+    clientName = c?.rows[0]?.name || null;
+  }
+  await logAudit(pool, {
+    actorId: req.user.id, actorName: req.user.name || req.user.email, action, entity: 'Task',
+    entityRef: task.title, entityId: task.id, clientName: clientName || '—', meta,
+  });
+}
+async function userNames(pool: Pool, ids: string[]): Promise<string> {
+  if (!ids.length) return 'nobody';
+  const r = await pool.query('SELECT name FROM public.users WHERE id = ANY($1) ORDER BY name', [ids]);
+  return r.rows.map(x => x.name).join(', ') || ids.join(', ');
+}
+
 async function canAccessTask(pool: Pool, user: { id: string; role: string }, taskId: string): Promise<boolean> {
   if (TASK_STAFF_ROLES.includes(user.role)) return true;
   const r = await pool.query(
@@ -168,9 +200,9 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     `;
 
     if (role === 'admin' || role === 'super_admin' || role === 'ops') {
-      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
+      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY}, ${COMMENTS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} ORDER BY t.created_at DESC`;
     } else {
-      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) OR t.created_by = $1 ORDER BY t.created_at DESC`;
+      query = `SELECT t.*, tl.logged_minutes, ${ASSETS_SUBQUERY}, ${COMMENTS_SUBQUERY} FROM public.tasks t ${loggedMinutesJoin} WHERE $1 = ANY(t.assigned_to) OR t.created_by = $1 ORDER BY t.created_at DESC`;
       params = [id];
     }
 
@@ -196,6 +228,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     if (!title || !clientId || !category) {
       return res.status(400).json({ error: 'title, clientId, and category are required' });
     }
+    if (status && !TASK_STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of: ${TASK_STATUSES.join(', ')}` });
+    if (priority && !TASK_PRIORITIES.includes(priority)) return res.status(400).json({ error: `priority must be one of: ${TASK_PRIORITIES.join(', ')}` });
 
     const { date: deadlineDate, time: deadlineTime } = splitDeadline(deadline);
 
@@ -238,29 +272,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     await replaceTaskAssets(pool, createdTask.id, assets, req.user.id);
     createdTask.assets = await fetchTaskAssets(pool, createdTask.id);
 
-    // Log task creation in public.audit_log table
-    try {
-      const userRes = await pool.query('SELECT name FROM public.users WHERE id = $1', [req.user.id]);
-      const userName = userRes.rows[0]?.name || 'Unknown';
-
-      const clientRes = await pool.query('SELECT name FROM public.clients WHERE id = $1', [clientId]);
-      const clientName = clientRes.rows[0]?.name || '—';
-
-      await pool.query(
-        `INSERT INTO public.audit_log (actor_id, actor_name, action, entity, entity_ref, entity_id, client_name, meta)
-         VALUES ($1, $2, 'task_create', 'Task', $3, $4, $5, $6)`,
-        [
-          req.user.id,
-          userName,
-          title,
-          createdTask.id,
-          clientName,
-          `Priority: ${priority || 'medium'}`,
-        ]
-      );
-    } catch (auditErr) {
-      console.error('Failed to log task creation audit entry:', auditErr);
-    }
+    await auditTask(pool, req, 'task_create', { id: createdTask.id, title, client_id: clientId }, `Priority: ${priority || 'medium'}`);
 
     // Fire-and-forget: alert each department's Chat space that has an assignee on this task
     // (Development and Design today — see DEPARTMENT_WEBHOOK_ENV). Not awaited so a slow or
@@ -306,14 +318,14 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
     const { id } = req.params;
     const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags, assets, taskType } = req.body;
 
-    // Capture the pre-update assignee list so the Chat alert below fires only for genuinely
-    // *new* dev-department assignees — without this, re-saving the same assignedTo array on
-    // every unrelated edit would re-post the same alert each time.
-    let previousAssignedTo: string[] = [];
-    if (assignedTo) {
-      const prevRes = await pool.query('SELECT assigned_to FROM public.tasks WHERE id = $1', [id]);
-      previousAssignedTo = prevRes.rows[0]?.assigned_to || [];
-    }
+    if (status && !TASK_STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of: ${TASK_STATUSES.join(', ')}` });
+    if (priority && !TASK_PRIORITIES.includes(priority)) return res.status(400).json({ error: `priority must be one of: ${TASK_PRIORITIES.join(', ')}` });
+
+    // Pre-update snapshot: drives the audit diff below and the Chat alert, which must fire only for
+    // genuinely *new* dev-department assignees (re-saving the same array on an unrelated edit must not re-post).
+    const prevRes = await pool.query('SELECT title, client_id, status, priority, assigned_to, deadline_date FROM public.tasks WHERE id = $1', [id]);
+    const before = prevRes.rows[0];
+    const previousAssignedTo: string[] = before?.assigned_to || [];
 
     const hasDeadline = deadline !== undefined;
     const { date: deadlineDate, time: deadlineTime } = hasDeadline ? splitDeadline(deadline) : { date: null, time: null };
@@ -363,6 +375,20 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
     const result = await pool.query(query, params);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+    if (before) {
+      const after = result.rows[0];
+      const ref = { id, title: after.title, client_id: after.client_id };
+      if (status && before.status !== after.status) await auditTask(pool, req, 'task_status_change', ref, `${before.status} → ${after.status}`);
+      if (priority && before.priority !== after.priority) await auditTask(pool, req, 'task_priority_change', ref, `${before.priority} → ${after.priority}`);
+      const prevDeadline = before.deadline_date ? String(before.deadline_date).slice(0, 10) : 'none';
+      const newDeadline = after.deadline_date ? String(after.deadline_date).slice(0, 10) : 'none';
+      if (hasDeadline && prevDeadline !== newDeadline) await auditTask(pool, req, 'task_deadline_change', ref, `${prevDeadline} → ${newDeadline}`);
+      const newAssigned: string[] = after.assigned_to || [];
+      if (assignedTo && [...previousAssignedTo].sort().join() !== [...newAssigned].sort().join()) {
+        await auditTask(pool, req, 'task_assign_change', ref, `${await userNames(pool, previousAssignedTo)} → ${await userNames(pool, newAssigned)}`);
+      }
+    }
 
     // Only touches task_assets when the caller actually sent an assets array — an unrelated
     // edit (status change, rename) leaves existing links untouched.
@@ -528,6 +554,28 @@ router.delete('/assets/:assetId', requireAuth, requireAssetAccess, async (req: R
   }
 });
 
+// POST /api/tasks/:id/comments - discussion / review / rework notes. Same visibility rule as the task itself.
+router.post('/:id/comments', requireAuth, requireTaskAccess, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!text) return res.status(400).json({ error: 'text is required' });
+  if (text.length > MAX_COMMENT_LENGTH) return res.status(400).json({ error: `text must be at most ${MAX_COMMENT_LENGTH} characters` });
+  try {
+    const t = await pool.query('SELECT id, title, client_id FROM public.tasks WHERE id = $1', [req.params.id]);
+    if (t.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+    const r = await pool.query(
+      'INSERT INTO public.task_comments (task_id, user_id, content) VALUES ($1, $2, $3) RETURNING id, user_id, content, created_at',
+      [req.params.id, req.user.id, text]
+    );
+    await auditTask(pool, req, 'commented', t.rows[0], text.slice(0, 200));
+    const c = r.rows[0];
+    res.status(201).json({ id: c.id, authorId: c.user_id, text: c.content, createdAt: c.created_at });
+  } catch (error) {
+    console.error('Error adding task comment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // DELETE /api/tasks/:id — admin/ops only, matching the frontend's canDelete gate. Dependent
 // rows (time_logs, task_comments, task_assets, audit_logs, notifications, subtasks) all cascade
 // via FK ON DELETE CASCADE, so a plain delete here is sufficient.
@@ -537,8 +585,9 @@ router.delete('/:id', requireAuth, requireRole('admin', 'ops'), async (req: Requ
 
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM public.tasks WHERE id = $1 RETURNING id', [id]);
+    const result = await pool.query('DELETE FROM public.tasks WHERE id = $1 RETURNING id, title, client_id', [id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+    await auditTask(pool, req, 'task_deleted', result.rows[0]);
     res.status(204).send();
   } catch (error: any) {
     console.error('Error deleting task:', error);
@@ -567,6 +616,8 @@ router.post('/:id/timer/start', requireAuth, requireTaskAccess, async (req: Requ
       `INSERT INTO public.time_logs (task_id, user_id, started_at) VALUES ($1, $2, NOW()) RETURNING *`,
       [id, userId]
     );
+    const t = await pool.query('SELECT id, title, client_id FROM public.tasks WHERE id = $1', [id]);
+    if (t.rows[0]) await auditTask(pool, req, 'timer_start', t.rows[0], 'Timer started');
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     console.error('Error starting timer:', error);
@@ -605,6 +656,8 @@ router.post('/:id/timer/stop', requireAuth, requireTaskAccess, async (req: Reque
     );
 
     await client.query('COMMIT');
+    const t = await pool.query('SELECT id, title, client_id FROM public.tasks WHERE id = $1', [id]);
+    if (t.rows[0]) await auditTask(pool, req, 'timer_stop', t.rows[0], `Timer stopped after ${durationMinutes} min`);
     res.status(200).json(result.rows[0]);
   } catch (error: any) {
     await client.query('ROLLBACK');

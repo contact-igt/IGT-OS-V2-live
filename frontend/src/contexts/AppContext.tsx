@@ -761,6 +761,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       
       return {
         ...state,
+        // Optimistic copy; the server-persisted comment replaces it on the refetch that follows addReviewComment.
+        tasks: state.tasks.map(t => t.id === taskId
+          ? { ...t, reviewComments: [...(t.reviewComments || []), { id: `tmp-${crypto.randomUUID()}`, authorId, text, createdAt: new Date().toISOString() }] }
+          : t),
         notifications: newNotifications,
         auditLog: addAudit(state.auditLog, {
           actor,
@@ -1369,13 +1373,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const toSync = boundaryIdx === -1 ? state.auditLog.slice(0, 1) : state.auditLog.slice(0, boundaryIdx);
 
     lastSyncedAuditIdRef.current = newest.id;
+    // Task lifecycle events are written by the server itself (authoritative actor + before/after state).
+    const SERVER_OWNED = new Set(['task_create', 'task_status_change', 'task_priority_change', 'task_deadline_change', 'task_assign_change', 'task_deleted', 'timer_start', 'timer_stop', 'commented']);
     for (const entry of [...toSync].reverse()) {
+      if (entry.entity === 'Task' && SERVER_OWNED.has(entry.action)) continue;
       fetch(`${apiBaseUrl}/api/audit-log`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          actorName: entry.actor,
           action: entry.action,
           entity: entry.entity,
           entityRef: entry.entityRef,
@@ -1937,7 +1943,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addReviewComment = useCallback((taskId: string, text: string) => {
     dispatch({ type: 'ADD_REVIEW_COMMENT', payload: { taskId, text, authorId: state.currentUserId } });
-  }, [state.currentUserId]);
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${baseUrl}/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return fetchData(); })
+      .catch(err => { console.error('Error saving comment:', err); warnSyncFailure('Your comment could not be saved to the server.'); });
+  }, [state.currentUserId, user, fetchData, warnSyncFailure]);
 
   const setScreenShareMode = useCallback((active: boolean) => {
     dispatch({ type: 'SET_SCREEN_SHARE_MODE', payload: active });
