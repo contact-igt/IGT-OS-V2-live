@@ -235,3 +235,17 @@ describe('password policy (server-enforced)', () => {
     assert.equal(r.status, 200);
   });
 });
+
+describe('CSRF: unsafe methods from a foreign origin are refused', () => {
+  test('cross-origin POST/DELETE with a valid session cookie is blocked; the real frontend origin and non-browser callers pass', async () => {
+    const u = await login(TEAM);
+    const post = (headers) => fetch(`${API}/api/auth/ai-ticket`, { method: 'POST', headers: { Cookie: u.cookies, ...headers } });
+    assert.equal((await post({ Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await post({ 'Sec-Fetch-Site': 'cross-site' })).status, 403, 'browsers that omit Origin still send Sec-Fetch-Site');
+    assert.equal((await post({ Origin: 'http://localhost:3000' })).status, 200, 'our frontend origin is allowed');
+    assert.equal((await post({})).status, 200, 'no Origin = server-to-server / CLI, not browser CSRF');
+    const del = await fetch(`${API}/api/notifications`, { method: 'DELETE', headers: { Cookie: u.cookies, Origin: 'https://evil.example' } });
+    assert.equal(del.status, 403);
+    assert.equal((await fetch(`${API}/api/clients`, { headers: { Cookie: u.cookies, Origin: 'https://evil.example' } })).status, 200, 'safe (GET) requests are unaffected; CORS already blocks reading them');
+  });
+});

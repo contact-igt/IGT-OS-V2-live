@@ -113,6 +113,21 @@ app.use(cookieParser());
 // body (as Express received it) to verify GitHub's HMAC signature; once express.json()
 // has parsed it, the original bytes are gone.
 app.use('/api/webhooks/github', express.raw({ type: 'application/json' }), githubWebhookRoutes);
+// CSRF defence for cookie auth (cookies are SameSite=None in production, so a hostile site could otherwise fire
+// body-less state-changing requests such as timer/start or logout with the victim's session). Browsers always send
+// Origin on cross-origin unsafe requests: anything from an origin that is not our frontend is refused. Requests with no
+// Origin (server-to-server, curl, tests) are not browser-borne CSRF and pass.
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const origin = req.headers.origin;
+    const fetchSite = req.headers['sec-fetch-site'];
+    if ((origin && !allowedOrigins.includes(origin)) || (!origin && fetchSite === 'cross-site')) {
+      return res.status(403).json({ error: 'Cross-site request blocked' });
+    }
+  }
+  next();
+});
+
 // Default 100kb is too small for a pasted-in markdown architecture doc.
 app.use(express.json({ limit: '2mb' }));
 

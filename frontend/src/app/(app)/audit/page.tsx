@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Activity, Users, Lock, ShieldAlert, CalendarClock, Fingerprint,
   Download, FileText, Search, Eye, ChevronDown, ChevronUp,
@@ -88,19 +89,26 @@ function downloadCsv(rows: (AuditEntry & { severity: Severity; status: string; m
 
 export default function AuditPage() {
   const { state } = useApp();
+  const { user: authUser } = useAuth();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const canView = !!authUser && ['admin', 'ops', 'super_admin'].includes(authUser.role); // server enforces the same rule
 
   const fetchLog = useCallback(async () => {
+    if (!canView) { setLoading(false); return; }
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const res = await fetch(`${baseUrl}/api/audit-log`, { credentials: 'include' });
-      if (res.ok) setEntries(await res.json());
-    } catch (e) {
+      if (!res.ok) throw new Error(`Audit log request failed (${res.status})`);
+      setEntries(await res.json());
+      setLoadError(null);
+    } catch (e: any) {
       console.error('Failed to load audit log:', e);
+      setLoadError(e.message || 'Could not load the audit log'); // never present a failed load as "no events"
     }
     setLoading(false);
-  }, []);
+  }, [canView]);
 
   // "Live" is real, not decorative — the log actually re-polls every 30s.
   useEffect(() => {
@@ -315,6 +323,7 @@ export default function AuditPage() {
 
   return (
     <div className="flex flex-col gap-5 p-6 max-w-[1600px] mx-auto">
+      {loadError && <p role="alert" className="text-sm" style={{ color: 'var(--c-error)' }}>Unavailable: {loadError}. The list below may be incomplete - this is not an empty log.</p>}
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
