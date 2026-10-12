@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { TEAM_MEMBERS } from '@/lib/data';
+import { aiFetch } from '@/lib/aiFetch';
 
 // ──────────────────────────────────────────────
 // ROLE HIERARCHY & ACCESS CONTROL
@@ -167,7 +168,7 @@ export default function AIPage() {
       // Routed through our own backend so the OpenAI key stays server-side — this used to
       // call api.openai.com directly from the browser with NEXT_PUBLIC_OPENAI_API_KEY,
       // which would expose the key to anyone inspecting network requests.
-      const response = await fetch('/api/cortex-chat', {
+      const response = await aiFetch('/api/cortex-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ systemPrompt, messages: newMessages }),

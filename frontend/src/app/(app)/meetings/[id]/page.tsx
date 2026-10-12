@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import MeetingQualityBadge from '@/components/ai/MeetingQualityBadge';
 import TalkTimeBar from '@/components/ai/TalkTimeBar';
 import { ArrowLeft } from 'lucide-react';
+import { aiFetch } from '@/lib/aiFetch';
 
 type Tab = 'overview' | 'decisions' | 'tasks' | 'insights' | 'chat' | 'transcript';
 
@@ -50,7 +51,7 @@ export default function MeetingDetailPage() {
     setIsChatting(true);
 
     try {
-      const res = await fetch('/api/meeting-chat', {
+      const res = await aiFetch('/api/meeting-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

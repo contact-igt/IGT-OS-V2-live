@@ -46,7 +46,22 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, JWT_SECRET) as AccessTokenPayload;
+  const payload = jwt.verify(token, JWT_SECRET) as AccessTokenPayload & { typ?: string };
+  // AI tickets share the signing key but are not sessions - never accept them as access tokens.
+  if (payload.typ) throw new jwt.JsonWebTokenError('wrong token type');
+  return payload;
+}
+
+// Short-lived, single-purpose ticket the browser presents to the Next.js AI routes (which
+// cannot see the backend's HttpOnly cookie on cross-site deployments).
+export const AI_TICKET_TTL_SEC = 5 * 60;
+export function signAiTicket(userId: string): string {
+  return jwt.sign({ typ: 'ai-ticket', id: userId }, JWT_SECRET, { expiresIn: AI_TICKET_TTL_SEC });
+}
+export function verifyAiTicket(token: string): { id: string } {
+  const payload = jwt.verify(token, JWT_SECRET) as { typ?: string; id?: string };
+  if (payload.typ !== 'ai-ticket' || !payload.id) throw new jwt.JsonWebTokenError('wrong token type');
+  return { id: payload.id };
 }
 
 // Refresh tokens are opaque (not JWTs) so a stolen DB row reveals nothing usable — only

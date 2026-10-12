@@ -7,6 +7,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import DateTimePicker from '@/components/ui/DateTimePicker';
 
 import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS, TASK_TYPE_LABELS } from '@/lib/data';
+import { aiFetch } from '@/lib/aiFetch';
 
 interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; }
 
@@ -412,7 +413,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (!aiPrompt.trim()) return;
     setIsGenerating(true);
     try {
-      const res = await fetch('/api/parse-task', {
+      const res = await aiFetch('/api/parse-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

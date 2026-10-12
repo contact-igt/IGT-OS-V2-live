@@ -328,28 +328,18 @@ if (process.env.DATABASE_URL) {
   console.log('Warning: DATABASE_URL not set in env variables. Database queries will not function.');
 }
 
-// Simple health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
+// Health check: actually round-trips to the database (a null-pool check proves nothing).
+app.get('/api/health', async (req: Request, res: Response) => {
+  let dbCheck: 'ok' | 'error' | 'not_configured' = 'not_configured';
+  if (pool) {
+    try { await pool.query('SELECT 1'); dbCheck = 'ok'; } catch { dbCheck = 'error'; }
+  }
+  res.status(dbCheck === 'error' ? 503 : 200).json({
+    status: dbCheck === 'error' ? 'degraded' : 'ok',
     timestamp: new Date(),
-    databaseConnected: pool !== null,
+    databaseConnected: dbCheck === 'ok',
+    dbCheck,
   });
-});
-
-// Example route
-app.get('/api/data', async (req: Request, res: Response) => {
-  if (!pool) {
-    return res.status(500).json({ error: 'Database connection not configured.' });
-  }
-
-  try {
-    const result = await pool.query('SELECT NOW()');
-    res.json({ message: 'Success', serverTime: result.rows[0].now });
-  } catch (error: any) {
-    console.error('Query error:', error);
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // Mount Loop 1 API routes
@@ -375,9 +365,13 @@ app.use('/api/meetings', meetingsRoutes);
 app.use('/api/google', googleAuthRoutes);
 app.use('/api/app-secrets', appSecretsRoutes);
 
-// Public — no auth required (login page hero)
+// Public — no auth required (login page hero). At most 20 paid provider calls/day in total.
+const publicHeroCalls = { day: '', n: 0 };
 app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {
-  const roleKey = (req.query.roleKey as string) || 'leadership';
+  // roleKey is attacker-controlled on this unauthenticated route: allow-list it so it cannot
+  // fan out into unbounded cache keys / paid OpenAI calls, and cap provider calls per day.
+  const requested = String(req.query.roleKey || 'leadership');
+  const roleKey = Object.prototype.hasOwnProperty.call(fallbacks, requested) ? requested : 'leadership';
   const today = new Date();
   const dateKey = today.toISOString().split('T')[0];
   const cacheKey = `${dateKey}_${roleKey}`;
@@ -388,6 +382,12 @@ app.get('/api/ai/login-hero-public', async (req: Request, res: Response) => {
 
   const day = today.toLocaleDateString('en-IN', { weekday: 'long' });
   const date = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  if (publicHeroCalls.day !== dateKey) { publicHeroCalls.day = dateKey; publicHeroCalls.n = 0; }
+  if (!process.env.OPENAI_API_KEY || publicHeroCalls.n >= 20) {
+    return res.json({ success: true, data: fallbacks[roleKey], error: null });
+  }
+  publicHeroCalls.n++;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {

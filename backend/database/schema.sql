@@ -66,8 +66,8 @@ CREATE TABLE public.tasks (
   description TEXT,
   client_id UUID REFERENCES public.clients(id) ON DELETE CASCADE NOT NULL,
   category task_category NOT NULL,
-  assigned_to UUID[] DEFAULT '{}', -- Array of user_ids
-  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  assigned_to VARCHAR(20)[] DEFAULT '{}', -- Array of user_ids
+  created_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   priority task_priority DEFAULT 'medium',
   status task_status DEFAULT 'todo',
   deadline_date DATE,
@@ -84,7 +84,7 @@ CREATE TABLE public.tasks (
 CREATE TABLE public.task_assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE NOT NULL,
-  uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  uploaded_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   file_name TEXT NOT NULL,
   file_url TEXT NOT NULL,
   file_size_bytes BIGINT,
@@ -96,7 +96,7 @@ CREATE TABLE public.task_assets (
 CREATE TABLE public.time_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at TIMESTAMPTZ,
   duration_minutes INTEGER,
@@ -108,7 +108,7 @@ CREATE TABLE public.time_logs (
 CREATE TABLE public.audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   action audit_action NOT NULL,
   old_value JSONB,
   new_value JSONB,
@@ -121,9 +121,9 @@ CREATE TABLE public.audit_logs (
 CREATE TABLE public.task_comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   content TEXT NOT NULL,
-  mentions UUID[] DEFAULT '{}',
+  mentions VARCHAR(20)[] DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -152,7 +152,7 @@ CREATE TABLE public.client_kpi_snapshots (
   benchmark_value FLOAT,
   performance_score INTEGER CHECK (performance_score BETWEEN 1 AND 10),
   notes TEXT,
-  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -174,15 +174,15 @@ CREATE TABLE public.campaigns (
   roas FLOAT,
   status campaign_status DEFAULT 'planned',
   notes TEXT,
-  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- 11. Export Requests
 CREATE TABLE public.export_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  requested_by UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-  approved_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  requested_by VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  approved_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   export_type export_type NOT NULL,
   date_range_start DATE,
   date_range_end DATE,
@@ -211,8 +211,8 @@ CREATE TABLE public.invoices (
 -- 13. Notifications
 CREATE TABLE public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-  actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  actor_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   type TEXT NOT NULL DEFAULT 'assignment',
   task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
   message TEXT NOT NULL,
@@ -240,7 +240,7 @@ CREATE TABLE public.leave_requests (
 -- back in after a break), so this is intentionally NOT unique on (user_id, date).
 CREATE TABLE public.attendance_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   date DATE NOT NULL,
   clock_in TIMESTAMPTZ NOT NULL,
   clock_out TIMESTAMPTZ,
@@ -261,7 +261,7 @@ ALTER TABLE public.tasks ADD COLUMN display_code TEXT UNIQUE;
 CREATE TABLE public.github_installations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   github_org TEXT NOT NULL,
-  installed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  installed_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   installed_at TIMESTAMPTZ DEFAULT now(),
   is_active BOOLEAN DEFAULT true
 );
@@ -280,7 +280,7 @@ CREATE TABLE public.github_commits (
   repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
   sha TEXT UNIQUE NOT NULL,
   author_github_username TEXT NOT NULL,
-  author_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  author_user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   message TEXT NOT NULL,
   committed_at TIMESTAMPTZ NOT NULL,
   additions INTEGER DEFAULT 0,
@@ -294,7 +294,7 @@ CREATE TABLE public.github_pull_requests (
   repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
   pr_number INTEGER NOT NULL,
   title TEXT NOT NULL,
-  author_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  author_user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   opened_at TIMESTAMPTZ NOT NULL,
   merged_at TIMESTAMPTZ,
   closed_at TIMESTAMPTZ,
@@ -309,7 +309,7 @@ CREATE TABLE public.github_pull_requests (
 CREATE TABLE public.github_reviews (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pr_id UUID REFERENCES public.github_pull_requests(id) ON DELETE CASCADE NOT NULL,
-  reviewer_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  reviewer_user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   state TEXT NOT NULL,
   submitted_at TIMESTAMPTZ NOT NULL
 );
@@ -318,7 +318,7 @@ CREATE TABLE public.github_deployments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   repo_id TEXT REFERENCES public.github_repos(id) ON DELETE CASCADE NOT NULL,
   environment TEXT NOT NULL,
-  deployed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  deployed_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   deployed_at TIMESTAMPTZ NOT NULL,
   status TEXT NOT NULL
 );
@@ -356,17 +356,17 @@ CREATE TABLE public.agency_metrics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   monthly_arr NUMERIC,
   agency_health_percent NUMERIC,
-  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE public.strategic_initiatives (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-  owner_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  owner_user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   progress_percent INTEGER NOT NULL DEFAULT 0 CHECK (progress_percent BETWEEN 0 AND 100),
   quarter_label TEXT,
-  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -374,9 +374,9 @@ CREATE TABLE public.strategic_initiatives (
 -- 19. Page Access Grants (admin-granted, additive access to pages beyond role defaults)
 CREATE TABLE public.page_access (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   page_path TEXT NOT NULL,
-  granted_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  granted_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(user_id, page_path)
 );
@@ -388,7 +388,7 @@ CREATE TABLE public.architecture_docs (
   doc_type TEXT NOT NULL CHECK (doc_type IN ('frontend', 'backend')) UNIQUE,
   filename TEXT NOT NULL,
   content TEXT NOT NULL,
-  uploaded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  uploaded_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -397,7 +397,7 @@ CREATE TABLE public.architecture_docs (
 -- concept that never survived a reload; now persisted so it's a real audit trail)
 CREATE TABLE public.audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  actor_id VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   actor_name TEXT NOT NULL,
   action TEXT NOT NULL,
   entity TEXT NOT NULL,
@@ -416,7 +416,7 @@ CREATE TABLE public.meetings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   client_id UUID REFERENCES public.clients(id) ON DELETE SET NULL,
-  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   transcript_snippet TEXT,
   analysis_preference TEXT,
   result JSONB NOT NULL,
@@ -431,7 +431,7 @@ CREATE TABLE public.meetings (
 -- employee's own Google account, so it's keyed by user_id instead of client_id)
 CREATE TABLE public.google_accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  user_id VARCHAR(20) REFERENCES public.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
   -- The connected Google account's own email — shown in the UI so a mismatched OAuth
   -- consent (wrong Google account picked at sign-in) is immediately visible to the user,
   -- rather than silently surfacing another employee's calendar under their login.
@@ -454,7 +454,7 @@ CREATE TABLE public.app_secrets (
   key_name TEXT NOT NULL UNIQUE,
   encrypted_value BYTEA NOT NULL,
   value_iv BYTEA NOT NULL,
-  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_by VARCHAR(20) REFERENCES public.users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { requireAiUser } from '@/lib/aiGuard';
 
 export async function POST(req: Request) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const { prompt, clients, teamMembers, categories } = await req.json();
     

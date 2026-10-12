@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
+import { requireAiUser } from '@/lib/aiGuard';
 
 export const dynamic = 'force-dynamic';
 
 // Lists available Gemini models for whichever key is currently configured, instead of
 // hardcoding model name strings that Google can rename/deprecate over time.
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const apiKey = await getServerSecret('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
     if (!apiKey) {

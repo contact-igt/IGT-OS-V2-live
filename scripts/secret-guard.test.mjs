@@ -10,7 +10,7 @@ const files = execSync('git ls-files -z', { encoding: 'utf8' }).split('\0').filt
 
 const RULES = [
   ['bcrypt hash committed', /\$2[aby]\$\d{2}\$[A-Za-z0-9./]{40,}/],
-  ['password/pass literal', /\b(pass|passwd|password|pwd)['"]?\s*[:=]\s*['"][^'"\s]{6,}['"]/i],
+  ['password/pass literal', /\b(pass|passwd|password\w*|pwd)['"]?\s*[:=]\s*['"][^'"\s]{6,}['"]/i],
   ['JWT/secret literal', /\b(jwt_?secret|secret_?key|api_?key|client_?secret)['"]?\s*[:=]\s*['"][^'"\s]{8,}['"]/i],
   ['guessable secret fallback', /\|\|\s*['"][^'"]*(secret|fallback)[^'"]*['"]/i],
   ['jwt.sign with literal secret', /jwt\.sign\([^)]*,\s*['"][^'"]{8,}['"]/],

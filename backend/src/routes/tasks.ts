@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { Pool } from 'pg';
 import multer from 'multer';
 import { requireAuth, requireRole } from '../middleware/auth';
@@ -116,6 +116,39 @@ function splitDeadline(deadline?: string | null): { date: string | null; time: s
 }
 
 // GET /api/tasks — all tasks for admin/ops, only assigned tasks for everyone else
+// Object-level authorization: admin/ops/super_admin may touch any task; everyone else only tasks
+// they are assigned to or created (the same visibility rule GET / applies). Missing tasks pass
+// through so the route's own 404 handling still applies.
+const TASK_STAFF_ROLES = ['admin', 'ops', 'super_admin'];
+async function canAccessTask(pool: Pool, user: { id: string; role: string }, taskId: string): Promise<boolean> {
+  if (TASK_STAFF_ROLES.includes(user.role)) return true;
+  const r = await pool.query(
+    'SELECT ($2 = ANY(assigned_to) OR created_by = $2) AS ok FROM public.tasks WHERE id = $1',
+    [taskId, user.id]
+  );
+  return r.rows.length === 0 || r.rows[0].ok === true;
+}
+function requireTaskAccess(req: Request, res: Response, next: NextFunction) {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  canAccessTask(pool, req.user, req.params.id)
+    .then(ok => (ok ? next() : res.status(403).json({ error: 'Forbidden' })))
+    .catch(() => res.status(400).json({ error: 'Invalid task id' }));
+}
+// Same rule for /assets/:assetId routes, resolved through the asset's owning task.
+async function requireAssetAccess(req: Request, res: Response, next: NextFunction) {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  try {
+    const a = await pool.query('SELECT task_id FROM public.task_assets WHERE id = $1', [req.params.assetId]);
+    if (a.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+    if (!(await canAccessTask(pool, req.user, a.rows[0].task_id))) return res.status(403).json({ error: 'Forbidden' });
+    next();
+  } catch {
+    res.status(400).json({ error: 'Invalid asset id' });
+  }
+}
+
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
@@ -265,7 +298,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 });
 
 // PUT /api/tasks/:id — partial update; only provided fields are changed
-router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
@@ -412,7 +445,7 @@ const upload = multer({
 });
 
 // POST /api/tasks/:id/assets — upload one file and attach it to this task.
-router.post('/:id/assets', requireAuth, (req: Request, res: Response) => {
+router.post('/:id/assets', requireAuth, requireTaskAccess, (req: Request, res: Response) => {
   upload.single('file')(req, res, async (err: any) => {
     // Multer surfaces the size cap as an error code rather than a rejected promise, so it's
     // translated here into a message the UI can show verbatim.
@@ -457,7 +490,7 @@ router.post('/:id/assets', requireAuth, (req: Request, res: Response) => {
 
 // GET /api/tasks/assets/:assetId/download — streams an uploaded file back. requireAuth keeps
 // attachments behind the same login as the task itself; there are no public file URLs.
-router.get('/assets/:assetId/download', requireAuth, async (req: Request, res: Response) => {
+router.get('/assets/:assetId/download', requireAuth, requireAssetAccess, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
@@ -481,7 +514,7 @@ router.get('/assets/:assetId/download', requireAuth, async (req: Request, res: R
 });
 
 // DELETE /api/tasks/assets/:assetId — removes an attachment (link or uploaded file).
-router.delete('/assets/:assetId', requireAuth, async (req: Request, res: Response) => {
+router.delete('/assets/:assetId', requireAuth, requireAssetAccess, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
@@ -514,7 +547,7 @@ router.delete('/:id', requireAuth, requireRole('admin', 'ops'), async (req: Requ
 });
 
 // POST /api/tasks/:id/timer/start
-router.post('/:id/timer/start', requireAuth, async (req: Request, res: Response) => {
+router.post('/:id/timer/start', requireAuth, requireTaskAccess, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
@@ -542,7 +575,7 @@ router.post('/:id/timer/start', requireAuth, async (req: Request, res: Response)
 });
 
 // POST /api/tasks/:id/timer/stop
-router.post('/:id/timer/stop', requireAuth, async (req: Request, res: Response) => {
+router.post('/:id/timer/stop', requireAuth, requireTaskAccess, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 

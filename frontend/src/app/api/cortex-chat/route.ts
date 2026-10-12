@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
+import { requireAiUser } from '@/lib/aiGuard';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -65,11 +66,16 @@ const PROVIDERS: { name: string; run: (systemPrompt: string, messages: ChatMessa
 ];
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const { systemPrompt, messages } = await req.json();
 
     if (!systemPrompt || !Array.isArray(messages)) {
       return NextResponse.json({ error: 'systemPrompt and messages are required' }, { status: 400 });
+    }
+    if (typeof systemPrompt !== 'string' || systemPrompt.length > 60_000 || messages.length > 50) {
+      return NextResponse.json({ error: 'Request too large' }, { status: 413 });
     }
 
     const errors: string[] = [];
