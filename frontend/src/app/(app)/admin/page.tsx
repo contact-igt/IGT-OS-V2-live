@@ -301,7 +301,6 @@ export default function AdminPage() {
         permissions: [],
         monthlySalaryINR: 50000,
         roleTag: newRoleTag,
-        password: data.tempPassword,
       });
 
       alert(`User created! Temporary Password: ${data.tempPassword}\n\nThis is the real login for ${newEmail} — share it securely.`);

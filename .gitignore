@@ -33,3 +33,10 @@ Thumbs.db
 .gemini/
 
 audit
+# Tracked-by-mistake artifacts (never commit)
+.next_dev.log
+v6 frontend/
+generated_users.sql
+*.sql.local
+frontend/eslint.json
+frontend/lint_output.txt

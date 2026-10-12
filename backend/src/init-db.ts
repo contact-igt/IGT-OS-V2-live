@@ -2,6 +2,8 @@ import dotenv from 'dotenv';
 import { Pool } from 'pg';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 dotenv.config();
 
@@ -52,6 +54,19 @@ async function run() {
     console.log('Executing seed.sql...');
     await client.query(seedSql);
     console.log('Seed data inserted successfully.');
+
+    // seed.sql ships NO usable credentials. Give each seeded account a one-time password
+    // (INITIAL_USER_PASSWORD if set, otherwise random per user and printed once). All are forced to change.
+    const pending = await client.query("SELECT id, email FROM public.users WHERE password_hash LIKE '!%'");
+    for (const u of pending.rows) {
+      const pw = process.env.INITIAL_USER_PASSWORD || crypto.randomBytes(12).toString('base64url');
+      await client.query(
+        'UPDATE public.users SET password_hash = $1, must_change_password = true WHERE id = $2',
+        [await bcrypt.hash(pw, 12), u.id]
+      );
+      if (!process.env.INITIAL_USER_PASSWORD) console.log(`One-time password for ${u.email}: ${pw}`);
+    }
+    if (pending.rows.length) console.log(`Provisioned ${pending.rows.length} seeded accounts (must change on first login).`);
 
     console.log('Database initialized successfully!');
   } catch (error) {

@@ -8,8 +8,18 @@ export const REFRESH_COOKIE = 'igt_refresh_token';
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key';
 const isProd = process.env.NODE_ENV === 'production';
+
+// No guessable fallback: production must configure JWT_SECRET; dev gets a per-process random
+// secret (sessions reset on restart) so a forgotten env var can never yield forgeable tokens.
+function resolveJwtSecret(): string {
+  const configured = process.env.JWT_SECRET;
+  if (configured && configured.length >= 32) return configured;
+  if (isProd) throw new Error('JWT_SECRET must be set (min 32 chars) in production');
+  console.warn('[auth] JWT_SECRET missing/short - using an ephemeral random secret for this process');
+  return crypto.randomBytes(48).toString('hex');
+}
+const JWT_SECRET = resolveJwtSecret();
 
 export interface AccessTokenPayload {
   id: string;
