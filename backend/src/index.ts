@@ -37,6 +37,7 @@ import commandCenterRoutes from './routes/commandCenter';
 import cortexRoutes from './routes/cortex';
 import deliveryRoutes from './routes/delivery';
 import integrationsRoutes from './routes/integrations';
+import reportsRoutes from './routes/reports';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
 import authRoutes from './routes/auth';
 import { requireAuth, requirePageAccess, requireRole } from './middleware/auth';
@@ -372,6 +373,7 @@ app.use('/api/command-center', commandCenterRoutes);
 app.use('/api/cortex', cortexRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/integrations', integrationsRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Public — no auth required (login page hero). At most 20 paid provider calls/day in total.
 const publicHeroCalls = { day: '', n: 0 };

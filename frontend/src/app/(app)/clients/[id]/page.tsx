@@ -8,6 +8,7 @@ import { useState, useEffect, use } from 'react';
 import TaskCard from '@/components/tasks/TaskCard';
 import { useMarketingData } from '@/lib/useMarketingData';
 import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
+import MonthlyReportButton from '@/components/clients/MonthlyReportButton';
 import { Activity, TrendingUp } from 'lucide-react';
 
 export default function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -72,7 +73,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   return (
     <div className="p-8 max-w-6xl mx-auto flex flex-col gap-8 min-h-[calc(100vh-4rem)]">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <Link href="/clients" className="p-2 rounded-lg hover:bg-[var(--c-surface-2)] transition-colors flex items-center justify-center text-[var(--c-text-3)] hover:text-[var(--c-text)]">
           <span className="material-symbols-outlined">arrow_back</span>
         </Link>
@@ -84,10 +85,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             <span>•</span>
             <span className="flex items-center gap-1">
               <span className="material-symbols-outlined text-[16px]">person</span>
-              {client.primary_contact || 'Main Contact'}
+              {client.primary_contact_name || 'No contact recorded'}
             </span>
           </div>
         </div>
+        {user && ['admin', 'ops', 'super_admin'].includes(user.role) && (
+          <div className="ml-auto"><MonthlyReportButton clientId={String(id)} /></div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
