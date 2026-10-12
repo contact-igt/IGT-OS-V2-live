@@ -6,6 +6,8 @@ import { logAudit } from '../lib/auditLog';
 import { getDestination } from '../lib/destination';
 
 const router = Router();
+const resetRequests = new Map<string, number>();
+const RESET_REQUEST_COOLDOWN_MS = 10 * 60 * 1000;
 
 // Any authenticated user can read the roster (needed to populate assignee pickers
 // and the frontend's mock-id <-> real-id mapping) — only non-sensitive columns are selected.
@@ -246,65 +248,35 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
+  // Always the same answer, whether or not the account exists (no account enumeration).
+  const generic = { ok: true, message: 'If that account exists, your administrator has been notified and will issue a temporary password.' };
   try {
-    const { email } = req.body;
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    const result = await pool.query(
-      'SELECT id FROM public.users WHERE email = $1 AND is_active = true',
-      [email.toLowerCase()]
-    );
-
-    if (result.rows.length === 0) {
-      return res.json({ ok: false, error: 'No account found with that email' });
+    const result = await pool.query('SELECT id, name FROM public.users WHERE email = $1 AND is_active = true', [email]);
+    const last = resetRequests.get(email) || 0;
+    if (result.rows.length > 0 && Date.now() - last > RESET_REQUEST_COOLDOWN_MS) {
+      resetRequests.set(email, Date.now());
+      // Admins act on this via POST /:id/admin-reset-password (one-time temp password, forced change).
+      await pool.query(
+        `INSERT INTO public.notifications (user_id, type, message)
+         SELECT id, 'status_change', $1 FROM public.users WHERE role IN ('admin', 'super_admin') AND is_active = true`,
+        [`${result.rows[0].name} requested a password reset - issue a temporary password from Admin`]
+      );
     }
-    res.json({ ok: true });
+    res.json(generic);
   } catch (error: any) {
     console.error('Error in forgot-password:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /reset-password — public. Sets a real new password, lifts any lockout, and
-// notifies every admin that this account's password was changed via self-service.
-router.post('/reset-password', async (req: Request, res: Response) => {
-  const pool: Pool = req.app.locals.pool;
-  if (!pool) return res.status(500).json({ error: 'Database not configured' });
-
-  try {
-    const { email, newPassword } = req.body;
-    if (!email || !newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: 'email and a password of at least 6 characters are required' });
-    }
-
-    const userResult = await pool.query(
-      'SELECT id, name FROM public.users WHERE email = $1 AND is_active = true',
-      [email.toLowerCase()]
-    );
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No account found with that email' });
-    }
-    const user = userResult.rows[0];
-
-    const hash = await bcrypt.hash(newPassword, 12);
-    await pool.query(
-      `UPDATE public.users
-       SET password_hash = $1, must_change_password = false, failed_login_attempts = 0, locked_until = NULL
-       WHERE id = $2`,
-      [hash, user.id]
-    );
-
-    await pool.query(
-      `INSERT INTO public.notifications (user_id, type, message)
-       SELECT id, 'status_change', $1 FROM public.users WHERE role = 'admin'`,
-      [`${user.name} reset their password via Forgot Password`]
-    );
-
-    res.json({ ok: true });
-  } catch (error: any) {
-    console.error('Error in reset-password:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+// POST /reset-password was removed: it accepted an email + new password from ANYONE with no proof of
+// identity (full account takeover). Resets are admin-issued via /:id/admin-reset-password until an
+// emailed, single-use, expiring token flow exists (needs an approved mail provider).
+router.post('/reset-password', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Self-service reset is disabled. Ask your administrator for a temporary password.' });
 });
 
 router.post('/set-password', requireAuth, async (req: Request, res: Response) => {

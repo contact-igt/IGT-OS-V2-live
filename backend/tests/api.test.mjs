@@ -9,6 +9,7 @@ const PW = process.env.TEST_PASSWORD;
 assert.ok(PW, 'TEST_PASSWORD env var required (test DB password)');
 if (/railway|prod/i.test(API)) throw new Error('Refusing to run against a non-local API');
 
+const ATTACKER_PW = `atk-${Date.now()}-x`;
 const ADMIN = 'sushilathithiyaa@invictusglobaltech.com';
 const TEAM = 'aiswarya.saiju.igt@gmail.com';   // id 111
 const OTHER = 'rutuja.rajbhar.igt@gmail.com';  // id 113 - unrelated team member
@@ -23,7 +24,7 @@ async function login(email) {
 
 describe('auth basics', () => {
   test('wrong password is rejected', async () => {
-    const res = await fetch(`${API}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ADMIN, password: 'definitely-wrong' }) });
+    const res = await fetch(`${API}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ADMIN, password: `wrong-${Date.now()}` }) });
     assert.ok([400, 401, 403, 429].includes(res.status));
   });
   test('protected route without credentials is 401', async () => {
@@ -191,5 +192,22 @@ describe('command center attention queue (derived from DB, role-gated)', () => {
     const body = await (await (await login(ADMIN)).call('/api/command-center/attention')).json();
     assert.ok(![...body.ceoQueue, ...body.operationsQueue].find(i => i.id === `task:${ids.overdueCritical}`));
     for (const k of Object.keys(ids)) await admin.call(`/api/tasks/${ids[k]}`, { method: 'DELETE' });
+  });
+});
+
+describe('account takeover paths are closed', () => {
+  const post = (path, body) => fetch(`${API}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  test('public reset-password cannot change anyone\'s password', async () => {
+    const res = await post('/api/users/reset-password', { email: TEAM, newPassword: ATTACKER_PW });
+    assert.equal(res.status, 410);
+    // original password still works, attacker's does not
+    assert.equal((await post('/api/login', { email: TEAM, password: ATTACKER_PW })).status === 200, false);
+    await login(TEAM);
+  });
+  test('forgot-password does not reveal whether an account exists', async () => {
+    const a = await post('/api/users/forgot-password', { email: TEAM });
+    const b = await post('/api/users/forgot-password', { email: 'nobody-here@example.com' });
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    assert.deepEqual(await a.json(), await b.json());
   });
 });
