@@ -47,3 +47,23 @@ export function useMarketingData() {
 
   return { campaigns, balances, loading, error, canSeeBalances };
 }
+
+export interface IntegrationProvider { key: string; label: string; status: 'NOT_CONFIGURED' | 'ACCESS_REQUIRED' | 'HEALTHY' | 'DEGRADED' | 'ERROR'; adapter: string; note?: string; missingConfig: string[]; lastSuccessfulSync: string | null }
+
+// Derived integration registry (staff only). Returns null when unavailable - callers must show "unknown", never "connected".
+export function useIntegrations(): { providers: IntegrationProvider[] | null; error: string | null } {
+  const { user } = useAuth();
+  const [providers, setProviders] = useState<IntegrationProvider[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const staff = !!user && ['admin', 'ops', 'super_admin'].includes(user.role);
+  useEffect(() => {
+    if (!staff) return;
+    let cancelled = false;
+    fetch(`${baseUrl}/api/integrations`, { credentials: 'include' })
+      .then(r => { if (!r.ok) throw new Error(`Registry request failed (${r.status})`); return r.json(); })
+      .then(b => { if (!cancelled) setProviders(b.providers); })
+      .catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [staff]);
+  return { providers, error };
+}

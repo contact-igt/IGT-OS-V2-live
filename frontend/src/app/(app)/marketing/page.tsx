@@ -3,8 +3,8 @@
 import React, { useMemo, useState } from 'react';
 import { Megaphone } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
-import { useMarketingData, DbCampaign } from '@/lib/useMarketingData';
-import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
+import { useMarketingData, useIntegrations, DbCampaign } from '@/lib/useMarketingData';
+import ProvenanceBadge, { Provenance } from '@/components/ui/ProvenanceBadge';
 
 // Pacing thresholds (days of balance remaining). Operational policy, kept in one place so they can be made configurable.
 const BALANCE_CRITICAL_DAYS = 3;
@@ -34,6 +34,7 @@ function Kpi({ label, value, kind, hint }: { label: string; value: string; kind:
 export default function MarketingDashboard() {
   const { state } = useApp();
   const { campaigns, balances, loading, error, canSeeBalances } = useMarketingData();
+  const registry = useIntegrations();
   const [tab, setTab] = useState<(typeof PLATFORMS)[number]>('overview');
 
   const clientName = (id: string) => state.clients.find(c => c.id === id)?.name || 'Unknown client';
@@ -64,8 +65,13 @@ export default function MarketingDashboard() {
 
       <section aria-label="Data sources" className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] px-4 py-3 text-xs text-[var(--c-text-2)]">
         <span className="flex items-center gap-2">Campaign figures <ProvenanceBadge kind="DATABASE" note="Entered in IGT OS by the team; not verified against the ad platform" /> manually entered</span>
-        <span className="flex items-center gap-2">Meta Ads sync <ProvenanceBadge kind="ACCESS REQUIRED" note="No Meta Marketing API credentials/approval configured" /></span>
-        <span className="flex items-center gap-2">Google Ads sync <ProvenanceBadge kind="ACCESS REQUIRED" note="No Google Ads API credentials/approval configured" /></span>
+        {['meta_ads', 'google_ads', 'instagram', 'youtube'].map(key => {
+          const p = registry.providers?.find(x => x.key === key);
+          const kind: Provenance = !p ? 'UNKNOWN' : p.status === 'HEALTHY' ? 'LIVE API' : p.status === 'DEGRADED' || p.status === 'ERROR' ? 'UNKNOWN' : 'ACCESS REQUIRED';
+          const label = p?.label || ({ meta_ads: 'Meta Ads', google_ads: 'Google Ads', instagram: 'Instagram', youtube: 'YouTube' } as Record<string, string>)[key];
+          const note = !p ? (registry.error || 'Integration status is visible to operations and leadership') : `${p.status.replace('_', ' ').toLowerCase()}${p.adapter === 'not_built' ? ' - adapter not built' : ''}${p.missingConfig.length ? ` - needs ${p.missingConfig.join(', ')}` : ''}`;
+          return <span key={key} className="flex items-center gap-2">{label} <ProvenanceBadge kind={kind} note={note} /></span>;
+        })}
       </section>
 
       {loading && <p className="text-sm text-[var(--c-text-2)]">Loading…</p>}
