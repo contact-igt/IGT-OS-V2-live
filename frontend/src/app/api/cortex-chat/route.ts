@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     if (!anyConfigured) {
       return NextResponse.json({
         error: 'No AI provider is configured. Add an OpenAI, Gemini, or Anthropic key under Credentials → API Keys.',
-      }, { status: 500 });
+      }, { status: 503 }); // a configuration state, not a server crash
     }
     return NextResponse.json({
       error: `All configured AI providers failed. ${errors.join(' | ')}`,

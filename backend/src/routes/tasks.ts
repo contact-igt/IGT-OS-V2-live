@@ -643,8 +643,10 @@ router.post('/:id/timer/stop', requireAuth, requireTaskAccess, async (req: Reque
     );
 
     if (timerResult.rows.length === 0) {
+      // Idempotent: a status change auto-closes running timers server-side, so a client's explicit stop can
+      // legitimately arrive second. The caller's intent (no running timer) is already satisfied.
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Timer not found' });
+      return res.status(200).json({ stopped: false, reason: 'no running timer' });
     }
 
     const startedAt = new Date(timerResult.rows[0].started_at);

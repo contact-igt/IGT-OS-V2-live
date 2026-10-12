@@ -1585,8 +1585,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.currentUserId, user]);
 
   const stopTimer = useCallback((taskId: string) => {
+    const hadTimer = stateRef.current.activeTimers.some(t => t.taskId === taskId && t.userId === stateRef.current.currentUserId);
     dispatch({ type: 'STOP_TIMER', payload: { taskId, userId: state.currentUserId } });
-    if (user) {
+    if (user && hadTimer) {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       // keepalive: this fetch must still reach the server even if the page is mid-navigation
       // or a refresh fires right after the click — without it, the browser can cancel the
@@ -1634,6 +1635,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
         keepalive: true,
+      }).then(() => {
+        // The reason typed for Paused / Blocked / In Review is the "why" operations needs - keep it on the task.
+        // (Rework requests post their own comment via addReviewComment, so 'todo' is deliberately excluded.)
+        if (note && note.trim() && (status === 'blocked' || status === 'paused' || status === 'in_review')) {
+          const label = status === 'blocked' ? 'Blocked' : status === 'paused' ? 'Paused' : 'Sent for review';
+          return fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}/comments`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: `${label}: ${note.trim()}` }),
+          }).then(() => fetchData());
+        }
       }).catch(err => console.error('Failed to sync status change to backend:', err));
 
       // Mirror the local status-change notification (see SET_TASK_STATUS reducer case) to the
@@ -1661,7 +1674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [state.currentUserId, state.tasks, state.teamMembers, user]);
+  }, [state.currentUserId, state.tasks, state.teamMembers, user, fetchData]);
 
   // Resolves to the real backend task id (or null if it couldn't be created there), so
   // callers that need to act on the persisted task — e.g. uploading a file attachment, which

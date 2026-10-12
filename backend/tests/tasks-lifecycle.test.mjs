@@ -53,6 +53,8 @@ describe('task lifecycle: create -> assign -> start -> comment -> block -> revie
     assert.equal(stop.status, 200); const log = await stop.json(); assert.ok(log.ended_at && log.duration_minutes >= 0);
     assert.ok(!(await (await me.call('/api/time-logs?active=true')).json()).find(l => (l.task_id || l.taskId) === taskId));
     const a = await auditFor(taskId); assert.ok(a.includes('timer_start:Aiswarya Saiju') && a.includes('timer_stop:Aiswarya Saiju'));
+    const again = await me.call(`/api/tasks/${taskId}/timer/stop`, { method: 'POST' });
+    assert.equal(again.status, 200, 'stopping an already-stopped timer is idempotent'); assert.equal((await again.json()).stopped, false);
   });
 
   test('status changes persist, are audited with previous->new, and survive a fresh session', async () => {
