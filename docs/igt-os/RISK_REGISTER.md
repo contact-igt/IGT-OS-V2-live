@@ -17,7 +17,8 @@
 ## P1 - persistence, broken flows, mock-as-real, inert controls
 | ID | Finding | Status |
 |---|---|---|
-| P1-1 | `schema.sql` + `init-db` cannot reproduce the live DB: user FKs were UUID vs VARCHAR ids (fixed), but ~12 `add_*.ts` migrations (task_type, completed_at, attendance_breaks, meetings, google_accounts, app_secrets, ...) are not part of init and hardcode SSL. `attendance_breaks` migration script also uses UUID user_id (stale). | PARTIAL |
+| P1-1 | Schema was not reproducible (UUID vs VARCHAR user ids, ~12 stray `add_*.ts` scripts, competing snake_case/camelCase definitions of `time_entries`/`campaign_weekly_logs`/`ad_account_balances`). **Fixed**: single ordered-migration strategy (`database/migrations/0001_baseline`, `0002_...`, `src/migrate.ts`), fresh bootstrap + 31-test suite verified. **Still to do by a human**: compare the LIVE DB's three legacy tables to migration 0002 (camelCase, what the code queries) before running migrate there, and run `--baseline-existing` once. | FIXED locally / live DB UNVERIFIED |
+| P0-10 | Old `schema.sql` began with `DROP SCHEMA public CASCADE`: `npm run db:init` against a real DB destroyed all data. Removed; init refuses NODE_ENV=production; test asserts no migration drops/truncates. | FIXED |
 | P1-2 | Modules with NO backend (state is in-memory; lost on refresh): finance/payments/opex/projections, sales/deals/leads, approvals, expense claims, hiring, devProjects, ad recharges, campaign weekly logs | OPEN (see MODULE_MATRIX) |
 | P1-3 | No compensation/HR data model: payroll dashboards read `monthlySalaryINR` from a roster that is now 0; `analytics.ts /agency/finance` queries a non-existent column (silently 0); `/team/:userId/*` analytics query a non-existent `time_entries` table (500) | OPEN |
 | P1-4 | `team/[id]` page hardcodes a 25,000 INR salary placeholder in "estimated cost" | OPEN |

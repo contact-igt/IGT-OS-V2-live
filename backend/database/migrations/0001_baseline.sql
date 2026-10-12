@@ -1,8 +1,7 @@
 -- Cleaned PostgreSQL Schema for IGT OS
 
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO public;
+-- NOTE: the original file began with DROP SCHEMA public CASCADE (wiped the whole database when
+-- run). Removed: migrations must never be destructive.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

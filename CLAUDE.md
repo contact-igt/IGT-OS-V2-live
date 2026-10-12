@@ -7,10 +7,12 @@ Project memory lives in `docs/igt-os/` (start with LOOP_STATUS.md and RISK_REGIS
 - `npm ci` (root) installs workspaces. On Linux you may need the native `lightningcss-linux-x64-gnu` / `@tailwindcss/oxide-linux-x64-gnu` (`npm i --no-save`), the lockfile was made on macOS.
 - Secret guard (run before every commit): `npm run test:secrets`
 - Backend typecheck: `cd backend && npx tsc --noEmit`; frontend: `cd frontend && npx tsc --noEmit`
-- Fresh LOCAL test DB: `DATABASE_URL=postgres://.../igt_test INITIAL_USER_PASSWORD=<throwaway> npm run db:init -w backend`
-  (without INITIAL_USER_PASSWORD, random one-time passwords are printed). Then apply the idempotent `backend/add_*.ts` migrations
-  (see RISK_REGISTER P1-1: schema.sql does not yet include them; `attendance_breaks` also needs creating).
-- API regression: start backend on :4000 against the test DB, then `TEST_PASSWORD=<same> npm run test:api -w backend`.
+- Schema = ordered SQL in `backend/database/migrations/` + tracker `public.schema_migrations`. Never edit an applied migration; add a new one.
+  Fresh LOCAL test DB: `DATABASE_URL=postgres://.../igt_test INITIAL_USER_PASSWORD=<throwaway> npm run db:init -w backend`
+  (migrate -> seed fixtures if empty -> one-time passwords; random ones are printed if INITIAL_USER_PASSWORD is unset; refuses NODE_ENV=production).
+  Existing DB that already has the old baseline: `npm run db:migrate -w backend -- --baseline-existing` once, then `npm run db:migrate -w backend`. VERIFY the live DB's
+  `time_entries`/`campaign_weekly_logs`/`ad_account_balances` columns first (see RISK_REGISTER P1-1).
+- API + schema regression: start backend on :4000 against the test DB, then `DATABASE_URL=<test db> TEST_PASSWORD=<same> npm run test:api -w backend`.
   Refuses to run if API_URL looks like production.
 
 ## Rules
