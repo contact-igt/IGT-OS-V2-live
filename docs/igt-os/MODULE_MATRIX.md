@@ -11,7 +11,8 @@
 | Command center (attention queue) | WORKING (verified) | tasks, leave, blockers, change requests; CEO vs ops routing; no invoice/campaign/integration-failure signals yet |
 | Delivery: change requests | WORKING (verified, API + browser) | capture -> classify -> impact -> decision -> roadmap bucket -> link to task; material changes need admin/super_admin + impact analysis |
 | Delivery: blockers | WORKING (verified) | owner, party, severity, expected resolution, next action, escalation owner; feeds queue |
-| Development projects / milestones / QA-UAT-release | PROPOSED | only GitHub activity feed + task goals exist; no project entity |
+| Client projects (details, timeline, who worked, hours) | WORKING (verified, API + browser) | `projects` + `project_events`, `tasks.project_id`; team and hours DERIVED from linked tasks + timer logs; timeline = project updates + task audit events + blockers |
+| Development milestones / QA-UAT-release states | PROPOSED | not built; projects have status only (planned/active/on_hold/completed/cancelled) |
 | Roadmap (Now/Next/Later) | PARTIAL | bucket stored on accepted change requests; no roadmap view, no progress derivation |
 | Cortex AI | WORKING (verified, API) / provider call UNVERIFIED | server-built, role-scoped context; no provider key in test env -> honest 503 |
 | Integration registry | WORKING (verified) | derived; Meta/Google Ads/GA4/GBP adapters NOT BUILT (ACCESS REQUIRED) |

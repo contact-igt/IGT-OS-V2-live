@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
   { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/meetings', '/clients', '/my-profile'] },
-  { title: 'Agency Ops',  items: ['/team', '/delivery', '/development', '/social'] },
+  { title: 'Agency Ops',  items: ['/team', '/delivery', '/projects', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];
 
@@ -127,7 +127,7 @@ function SideNavBarInner({ collapsed, onToggleCollapsed, mobileOpen }: SideNavPr
               if (role === 'ops') {
                 const allowedForOps = [
                   '/dashboard/coo', '/dashboard/ops',
-                  '/my-workspace', '/tasks', '/my-profile'
+                  '/my-workspace', '/tasks', '/my-profile', '/projects'
                 ];
                 if (!allowedForOps.includes(item.href) && !isGranted) return false;
                 return true;
@@ -137,7 +137,7 @@ function SideNavBarInner({ collapsed, onToggleCollapsed, mobileOpen }: SideNavPr
               if (item.section === 'dashboard') return false; // Hide completely
 
               // General Section Filtering for team
-              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/meetings', '/my-profile', '/team'];
+              const allowedForTeam = ['/my-workspace', '/tasks', '/calendar', '/meetings', '/my-profile', '/team', '/projects'];
               if (!allowedForTeam.includes(item.href) && !isGranted) return false;
 
               return true;
