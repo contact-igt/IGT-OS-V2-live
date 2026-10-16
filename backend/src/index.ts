@@ -36,6 +36,7 @@ import appSecretsRoutes from './routes/appSecrets';
 import commandCenterRoutes from './routes/commandCenter';
 import cortexRoutes from './routes/cortex';
 import deliveryRoutes from './routes/delivery';
+import projectsRoutes from './routes/projects';
 import integrationsRoutes from './routes/integrations';
 import reportsRoutes from './routes/reports';
 import loginHeroRoute, { heroCache, buildPrompt, fallbacks, resolveRoleKey } from './routes/loginHero.route';
@@ -387,6 +388,7 @@ app.use('/api/app-secrets', appSecretsRoutes);
 app.use('/api/command-center', commandCenterRoutes);
 app.use('/api/cortex', cortexRoutes);
 app.use('/api/delivery', deliveryRoutes);
+app.use('/api/projects', projectsRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/reports', reportsRoutes);
 
