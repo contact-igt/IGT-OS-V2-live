@@ -13,6 +13,7 @@ import TalkTimeBar from './TalkTimeBar';
 import MeetingQualityBadge from './MeetingQualityBadge';
 import TaskApprovalCard from './TaskApprovalCard';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
+import { aiFetch } from '@/lib/aiFetch';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -163,7 +164,7 @@ export default function MeetingNotesTab() {
   // Model list comes from Gemini's own API (not hardcoded) so it stays correct as Google
   // renames/deprecates model versions over time.
   useEffect(() => {
-    fetch('/api/gemini-models')
+    aiFetch('/api/gemini-models')
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
@@ -232,7 +233,7 @@ export default function MeetingNotesTab() {
     setCreatedCount(0);
 
     try {
-      const res = await fetch('/api/analyze-meeting', {
+      const res = await aiFetch('/api/analyze-meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -303,7 +304,7 @@ export default function MeetingNotesTab() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch('/api/recordings/upload-audio', {
+      const res = await aiFetch('/api/recordings/upload-audio', {
         method: 'POST',
         body: formData,
       });

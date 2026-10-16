@@ -7,6 +7,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import DateTimePicker from '@/components/ui/DateTimePicker';
 
 import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS, TASK_TYPE_LABELS } from '@/lib/data';
+import { aiFetch } from '@/lib/aiFetch';
 
 interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; }
 
@@ -142,6 +143,20 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
   });
 
   // Reset form when opened
+  
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [isAssigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState('');
+  const assigneeTriggerRef = useRef<HTMLDivElement>(null);
+  const assigneePortalRef = useRef<HTMLDivElement>(null);
+  const assigneeSearchRef = useRef<HTMLInputElement>(null);
+  const [assigneeCoords, setAssigneeCoords] = useState({ top: 0, left: 0, width: 0 });
+  const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchTitles, setBatchTitles] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+
   useEffect(() => {
     if (isOpen) {
       setForm({
@@ -174,20 +189,8 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
       setAiPrompt('');
     }
   }, [isOpen, defaultTitle, defaultType, defaultClientId, state.currentUserId, state.teamMembers]);
-  
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [isAssigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
-  const [assigneeSearch, setAssigneeSearch] = useState('');
-  const assigneeTriggerRef = useRef<HTMLDivElement>(null);
-  const assigneePortalRef = useRef<HTMLDivElement>(null);
-  const assigneeSearchRef = useRef<HTMLInputElement>(null);
-  const [assigneeCoords, setAssigneeCoords] = useState({ top: 0, left: 0, width: 0 });
-  const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
-  const [isBatchMode, setIsBatchMode] = useState(false);
-  const [batchTitles, setBatchTitles] = useState('');
-  const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAssigneeDropdownOpen) return;
@@ -289,7 +292,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     if (isBatchMode) {
       const titles = batchTitles.split('\n').map(s => s.trim()).filter(Boolean);
       titles.forEach(title => {
-        const newTaskId = `TSK-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+        const newTaskId = `TSK-${crypto.randomUUID().slice(0, 7).toUpperCase()}`;
         createTask({
           id: newTaskId,
           title,
@@ -316,7 +319,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         }
       });
     } else {
-      const newTaskId = `TSK-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+      const newTaskId = `TSK-${crypto.randomUUID().slice(0, 7).toUpperCase()}`;
       const createdIdPromise = createTask({
         id: newTaskId,
         title: form.title.trim(),
@@ -411,8 +414,9 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
   const handleGenerateAI = async () => {
     if (!aiPrompt.trim()) return;
     setIsGenerating(true);
+    setAiError(null);
     try {
-      const res = await fetch('/api/parse-task', {
+      const res = await aiFetch('/api/parse-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -426,9 +430,13 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         const parsed = await res.json();
         setForm(p => ({ ...p, ...parsed }));
         setActiveTab('manual');
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setAiError(body.error || `AI parsing failed (${res.status}). Create the task manually.`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setAiError(e?.message || 'AI parsing failed. Create the task manually.');
     } finally {
       setIsGenerating(false);
     }
@@ -506,6 +514,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
                   onChange={(e) => setAiPrompt(e.target.value)}
                 />
               </div>
+              {aiError && <p role="alert" className="text-[12px]" style={{ color: 'var(--c-error)' }}>{aiError}</p>}
               <button 
                 type="button"
                 onClick={handleGenerateAI}

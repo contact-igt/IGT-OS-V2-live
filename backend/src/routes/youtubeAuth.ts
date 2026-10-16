@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { requireAuth, requirePageAccess } from '../middleware/auth';
+import { signOAuthState, verifyOAuthState } from '../lib/tokens';
 import { Pool } from 'pg';
 import { encrypt } from '../lib/crypto';
 import { buildRedirectUri } from '../lib/oauthRedirect';
@@ -13,7 +15,7 @@ function redirectUri(): string {
 }
 
 // Step 1: kick off the OAuth flow
-router.get('/connect', (req: Request, res: Response) => {
+router.get('/connect', requireAuth, requirePageAccess('/social', ['admin', 'ops']), (req: Request, res: Response) => {
   const { clientId, label } = req.query;
 
   const params = new URLSearchParams({
@@ -30,14 +32,14 @@ router.get('/connect', (req: Request, res: Response) => {
       'https://www.googleapis.com/auth/youtube.readonly',
       'https://www.googleapis.com/auth/yt-analytics.readonly',
     ].join(' '),
-    state: JSON.stringify({ clientId: clientId || null, label: label || '' }),
+    state: signOAuthState({ clientId: clientId || null, label: String(label || '') }, req.user.id),
   });
 
   res.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
 });
 
 // Step 2: handle Google's redirect back with the auth code
-router.get('/callback', async (req: Request, res: Response) => {
+router.get('/callback', requireAuth, requirePageAccess('/social', ['admin', 'ops']), async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   const { code, state } = req.query;
 
@@ -45,10 +47,8 @@ router.get('/callback', async (req: Request, res: Response) => {
     return res.status(400).send('Missing authorization code');
   }
 
-  let parsedState: any = {};
-  try {
-    parsedState = JSON.parse((state as string) || '{}');
-  } catch (e) {}
+  const parsedState = verifyOAuthState(state, req.user.id);
+  if (!parsedState) return res.status(400).send('Invalid or expired authorization state - please start the connection again.');
 
   try {
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {

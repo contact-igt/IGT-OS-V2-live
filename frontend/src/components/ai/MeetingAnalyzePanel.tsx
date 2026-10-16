@@ -4,6 +4,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { GoogleEvent } from '@/lib/googleCalendar';
 import { X, Mail, Mic, ChevronDown, ChevronUp, CheckCircle, Sparkles } from 'lucide-react';
+import { aiFetch } from '@/lib/aiFetch';
 
 interface Props {
   event: GoogleEvent;
@@ -84,7 +85,7 @@ export default function MeetingAnalyzePanel({ event, onClose, onSaved }: Props) 
 
   // Fetch Gemini Models
   useEffect(() => {
-    fetch('/api/gemini-models')
+    aiFetch('/api/gemini-models')
       .then(async r => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || "Request failed");
@@ -141,7 +142,7 @@ export default function MeetingAnalyzePanel({ event, onClose, onSaved }: Props) 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch('/api/recordings/upload-audio', { method: 'POST', body: formData });
+      const res = await aiFetch('/api/recordings/upload-audio', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Audio transcription failed');
       setTranscript(data.transcript);
@@ -163,7 +164,7 @@ export default function MeetingAnalyzePanel({ event, onClose, onSaved }: Props) 
     setError(null);
     setAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze-meeting', {
+      const res = await aiFetch('/api/analyze-meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

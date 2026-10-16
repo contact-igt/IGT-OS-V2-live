@@ -27,11 +27,6 @@ export default function LoginPreviewPage() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const [forgotError, setForgotError] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetError, setResetError] = useState('');
-  const [resetSuccess, setResetSuccess] = useState(false);
   
   const nameInputRef = useRef<HTMLInputElement>(null);
   
@@ -127,54 +122,12 @@ export default function LoginPreviewPage() {
       if (data.ok) {
         setStep(5);
       } else {
-        setForgotError(data.error || 'No account found with that email.');
+        setForgotError(data.error || 'Could not send the request.');
       }
     } catch (err) {
       setForgotError('Could not connect to the server.');
     } finally {
       setIsCheckingEmail(false);
-    }
-  };
-
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
-      setResetError('Password must be at least 6 characters long.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setResetError('Passwords do not match.');
-      return;
-    }
-
-    setIsResetting(true);
-    setResetError('');
-
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/users/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail, newPassword }),
-      });
-      const data = await res.json();
-
-      if (data.ok) {
-        setResetSuccess(true);
-        setEmail(forgotEmail);
-        setPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-        setTimeout(() => {
-          setResetSuccess(false);
-          setStep(3);
-        }, 1800);
-      } else {
-        setResetError(data.error || 'Failed to reset password.');
-      }
-    } catch (err) {
-      setResetError('Could not connect to the server.');
-    } finally {
-      setIsResetting(false);
     }
   };
 
@@ -483,7 +436,7 @@ export default function LoginPreviewPage() {
         </div>
       </div>
 
-      {/* SCREEN 5: FORGOT PASSWORD — SET NEW PASSWORD */}
+      {/* SCREEN 5: FORGOT PASSWORD — REQUEST SENT TO ADMIN */}
       <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700 ${step === 5 ? 'opacity-100 z-10 translate-y-0' : 'opacity-0 -z-10 translate-y-8 pointer-events-none'}`}
            style={{ background: 'linear-gradient(135deg, #0A0A18 0%, #0D1A14 100%)' }}>
 
@@ -500,58 +453,17 @@ export default function LoginPreviewPage() {
             <Logo />
           </div>
 
-          {resetSuccess ? (
-            <div className="text-center">
-              <span className="material-symbols-outlined text-[#2AB182] text-[48px] mb-4">check_circle</span>
-              <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Password updated</h2>
-              <p className="text-white/60">Taking you back to sign in...</p>
-            </div>
-          ) : (
-            <>
-              <h2 className="text-3xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Set a new password</h2>
-              <p className="text-white/60 mb-8">Choose a new password for {forgotEmail}.</p>
-
-              <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
-                <input
-                  type="password"
-                  placeholder="New password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white outline-none focus:border-[#2AB182] focus:bg-white/10 transition-all placeholder:text-white/20"
-                  disabled={isResetting}
-                  required
-                />
-                <input
-                  type="password"
-                  placeholder="Confirm new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white outline-none focus:border-[#2AB182] focus:bg-white/10 transition-all placeholder:text-white/20"
-                  disabled={isResetting}
-                  required
-                />
-
-                {resetError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
-                    <span className="material-symbols-outlined text-red-400 text-[18px] mt-0.5">error</span>
-                    <p className="text-sm text-red-200 leading-tight">{resetError}</p>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={!newPassword || !confirmPassword || isResetting}
-                  className="mt-4 w-full py-4 bg-[#2AB182] hover:bg-[#1A8F68] disabled:bg-white/5 disabled:text-white/30 text-white rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
-                >
-                  {isResetting ? (
-                    <span className="material-symbols-outlined animate-spin">progress_activity</span>
-                  ) : (
-                    'Update password'
-                  )}
-                </button>
-              </form>
-            </>
-          )}
+          <div className="text-center">
+            <span className="material-symbols-outlined text-[#2AB182] text-[48px] mb-4">mark_email_read</span>
+            <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: 'var(--font-syne-var)' }}>Request sent</h2>
+            <p className="text-white/60 mb-8">If an account exists for {forgotEmail}, your administrator has been notified and will issue you a temporary password. You will be asked to choose a new one when you sign in.</p>
+            <button
+              onClick={() => setStep(3)}
+              className="w-full py-4 bg-[#2AB182] hover:bg-[#1A8F68] text-white rounded-xl font-bold transition-colors"
+            >
+              Back to sign in
+            </button>
+          </div>
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { encrypt } from '../lib/crypto';
 import { requireAuth } from '../middleware/auth';
+import { signOAuthState, verifyOAuthState } from '../lib/tokens';
 import { getValidAccessToken } from '../lib/googleAccount';
 import { buildRedirectUri } from '../lib/oauthRedirect';
 
@@ -18,9 +19,9 @@ function redirectUri(): string {
 // account. This is a full-page browser redirect (not an XHR), so it can't carry an
 // Authorization header — the caller's real backend user id is passed as a query param
 // instead, same trust model already used by youtubeAuth.ts's /connect for clientId.
-router.get('/connect', (req: Request, res: Response) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).send('Missing userId');
+router.get('/connect', requireAuth, (req: Request, res: Response) => {
+  // Identity comes from the session cookie, never from a query parameter.
+  const userId = req.user.id;
 
   let callbackUri: string;
   try {
@@ -43,22 +44,21 @@ router.get('/connect', (req: Request, res: Response) => {
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/userinfo.email',
     ].join(' '),
-    state: JSON.stringify({ userId }),
+    state: signOAuthState({}, userId),
   });
 
   res.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
 });
 
 // Step 2: handle Google's redirect back with the auth code
-router.get('/callback', async (req: Request, res: Response) => {
+router.get('/callback', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   const { code, state } = req.query;
 
   if (!code) return res.status(400).send('Missing authorization code');
 
-  let parsedState: any = {};
-  try { parsedState = JSON.parse((state as string) || '{}'); } catch (e) {}
-  const userId = parsedState.userId;
+  if (!verifyOAuthState(state, req.user.id)) return res.status(400).send('Invalid or expired authorization state - please start the connection again.');
+  const userId = req.user.id;
   if (!userId) return res.status(400).send('Missing user reference');
 
   try {

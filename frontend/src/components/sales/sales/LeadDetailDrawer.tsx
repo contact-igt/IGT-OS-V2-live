@@ -64,7 +64,7 @@ export default function LeadDetailDrawer({ leadId, onClose }: { leadId: string |
   const saveNote = () => {
     if (!noteText.trim()) return;
     const newNote: Note = {
-      id: `note-${Date.now()}`,
+      id: `note-${crypto.randomUUID()}`,
       type: noteType,
       text: noteText.trim(),
       timestamp: new Date().toISOString(),

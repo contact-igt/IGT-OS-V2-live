@@ -6,6 +6,7 @@ import { postMeetingSummaryAlertDiscord } from '../lib/discord';
 import { logAudit } from '../lib/auditLog';
 
 const router = Router();
+const STAFF_ROLES = ['admin', 'ops', 'super_admin'];
 
 function serializeMeeting(row: any) {
   return {
@@ -28,7 +29,12 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
   try {
-    const result = await pool.query('SELECT * FROM public.meetings ORDER BY created_at DESC LIMIT 200');
+    // Transcripts/analysis are sensitive: staff see all meetings, everyone else only their own.
+    const staff = STAFF_ROLES.includes(req.user.role);
+    const result = await pool.query(
+      `SELECT * FROM public.meetings ${staff ? '' : 'WHERE created_by = $1'} ORDER BY created_at DESC LIMIT 200`,
+      staff ? [] : [req.user.id]
+    );
     res.json(result.rows.map(serializeMeeting));
   } catch (error) {
     console.error('Error fetching meetings:', error);
@@ -44,6 +50,9 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT * FROM public.meetings WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Meeting not found' });
+    if (!STAFF_ROLES.includes(req.user.role) && result.rows[0].created_by !== req.user.id) {
+      return res.status(404).json({ error: 'Meeting not found' }); // 404, not 403: don't confirm existence
+    }
     res.json(serializeMeeting(result.rows[0]));
   } catch (error) {
     console.error('Error fetching meeting:', error);
@@ -120,9 +129,9 @@ router.patch('/:id/tasks-created', requireAuth, async (req: Request, res: Respon
     const result = await pool.query(
       `UPDATE public.meetings
        SET tasks_created = (SELECT ARRAY(SELECT DISTINCT unnest(tasks_created || $1::uuid[])))
-       WHERE id = $2
+       WHERE id = $2 AND ($3::boolean OR created_by = $4)
        RETURNING *`,
-      [taskIds, req.params.id]
+      [taskIds, req.params.id, STAFF_ROLES.includes(req.user.role), req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Meeting not found' });
     res.json(serializeMeeting(result.rows[0]));

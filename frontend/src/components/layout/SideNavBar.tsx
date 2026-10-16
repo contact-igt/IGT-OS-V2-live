@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const SIDEBAR_GROUPS = [
   { title: 'Workspace',    items: ['/dashboard', '/my-workspace', '/tasks', '/calendar', '/meetings', '/clients', '/my-profile'] },
-  { title: 'Agency Ops',  items: ['/team', '/development', '/social'] },
+  { title: 'Agency Ops',  items: ['/team', '/delivery', '/development', '/social'] },
   { title: 'Settings & AI', items: ['/credentials', '/audit', '/ai', '/admin'] },
 ];
 
@@ -30,11 +30,12 @@ const ICON_MAP: Record<string, React.ElementType> = {
   forum: MessageSquare,
 };
 
-function SideNavBarInner() {
+interface SideNavProps { collapsed: boolean; onToggleCollapsed: () => void; mobileOpen: boolean }
+
+function SideNavBarInner({ collapsed, onToggleCollapsed, mobileOpen }: SideNavProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { state, dispatch } = useApp();
-  const [collapsed, setCollapsed] = useState(false);
   const { logout, user: currentUser } = useAuth();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     'Workspace': true,
@@ -71,7 +72,8 @@ function SideNavBarInner() {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-full z-50 flex flex-col transition-all duration-300 bg-app-sidebar border-r border-app-border"
+      className={`fixed left-0 top-0 h-full z-50 flex flex-col transition-all duration-300 bg-app-sidebar border-r border-app-border ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
+      aria-label="Main navigation"
       style={{
         width: collapsed ? '64px' : '240px',
       }}
@@ -88,7 +90,8 @@ function SideNavBarInner() {
           </span>
         )}
         <button
-          onClick={() => setCollapsed(p => !p)}
+          onClick={onToggleCollapsed}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="ml-auto text-app-text3 hover:text-app-text transition-colors"
         >
           {collapsed ? <Menu className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
@@ -269,10 +272,10 @@ function SideNavBarInner() {
   );
 }
 
-export default function SideNavBar() {
+export default function SideNavBar(props: SideNavProps) {
   return (
-    <Suspense fallback={<div className="w-[240px] h-full bg-app-sidebar border-r border-app-border"></div>}>
-      <SideNavBarInner />
+    <Suspense fallback={<div className="hidden md:block w-[240px] h-full bg-app-sidebar border-r border-app-border"></div>}>
+      <SideNavBarInner {...props} />
     </Suspense>
   );
 }

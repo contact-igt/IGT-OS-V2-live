@@ -81,8 +81,12 @@ export default function MyWorkspacePage() {
             )}
           </h2>
           <p className="text-[var(--c-primary)] text-sm mt-1 italic">&ldquo;{dailyQuote}&rdquo;</p>
-          <p className="text-[var(--c-text-2)] text-sm mt-1 flex items-center gap-2">
-            {dateStr} &middot; <span className="font-semibold text-[var(--c-text)]">{todaysFocus.length} due today</span> &middot; <span className="font-semibold text-red-500">{overdueCount} overdue</span>
+          <p className="text-[var(--c-text-2)] text-sm mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>{dateStr}</span>
+            <span aria-hidden>&middot;</span>
+            <span className="font-semibold text-[var(--c-text)] whitespace-nowrap">{todaysFocus.length} due today</span>
+            <span aria-hidden>&middot;</span>
+            <span className="font-semibold whitespace-nowrap" style={{ color: 'var(--c-error)' }}>{overdueCount} overdue</span>
           </p>
         </div>
         <div className="flex items-center gap-3 md:gap-4">

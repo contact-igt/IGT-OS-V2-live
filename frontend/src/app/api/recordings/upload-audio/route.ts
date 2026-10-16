@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
+import { requireAiUser } from '@/lib/aiGuard';
 
 const DEFAULT_MODEL = 'gemini-2.0-flash';
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File;

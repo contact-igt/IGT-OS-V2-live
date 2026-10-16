@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
+import crypto from 'crypto';
 import { encrypt, decrypt } from '../lib/crypto';
 import { requireAuth, requireRole } from '../middleware/auth';
 
@@ -97,7 +98,9 @@ router.get('/internal/:keyName', async (req: Request, res: Response) => {
 
   const provided = req.header('x-internal-secret');
   const expected = process.env.INTERNAL_API_SECRET;
-  if (!expected || provided !== expected) {
+  // Constant-time comparison (equal-length digests) so the shared secret cannot be recovered by timing.
+  const digest = (v: string) => crypto.createHash('sha256').update(v).digest();
+  if (!expected || !provided || !crypto.timingSafeEqual(digest(provided), digest(expected))) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

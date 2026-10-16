@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
 
 const router = Router();
@@ -106,7 +106,8 @@ router.get('/:id/deliverables', requireAuth, async (req: Request, res: Response)
   }
 });
 
-router.get('/:id/invoices', requireAuth, async (req: Request, res: Response) => {
+// Finance: server-enforced - invoices are never readable by 'team' accounts.
+router.get('/:id/invoices', requireAuth, requireRole('admin', 'ops'), async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 

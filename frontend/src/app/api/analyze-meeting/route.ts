@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
+import { requireAiUser } from '@/lib/aiGuard';
 
 const DEFAULT_MODEL = 'gemini-2.0-flash';
 const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -140,6 +141,8 @@ ${transcript}`;
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const { transcript, context, analysisPreference, model } = await req.json();
 

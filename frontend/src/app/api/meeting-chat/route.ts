@@ -1,8 +1,11 @@
 import { Anthropic } from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSecret } from '@/lib/serverSecrets';
+import { requireAiUser } from '@/lib/aiGuard';
 
 export async function POST(req: NextRequest) {
+  const denied = await requireAiUser(req);
+  if (denied) return denied;
   try {
     const { question, transcript, previousMessages = [] } = await req.json();
 

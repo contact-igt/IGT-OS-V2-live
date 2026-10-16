@@ -14,8 +14,8 @@ interface AuditParams {
 // Fire-and-forget audit trail write, shared by every route that wants its actions to show
 // up on the System Audit Logs dashboard — callers don't await this, matching the existing
 // non-blocking convention already used for Google Chat / Discord alerts elsewhere.
-export function logAudit(pool: Pool, params: AuditParams): void {
-  pool.query(
+export function logAudit(pool: Pool, params: AuditParams): Promise<void> {
+  return pool.query(
     `INSERT INTO public.audit_log (actor_id, actor_name, action, entity, entity_ref, entity_id, client_name, meta)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
@@ -26,7 +26,7 @@ export function logAudit(pool: Pool, params: AuditParams): void {
       params.entityRef,
       params.entityId || null,
       params.clientName || null,
-      params.meta ? JSON.stringify(params.meta) : null,
+      params.meta == null ? null : typeof params.meta === 'string' ? params.meta : JSON.stringify(params.meta),
     ]
-  ).catch(err => console.error(`Failed to write audit log (${params.entity}/${params.action}):`, err));
+  ).then(() => undefined).catch(err => console.error(`Failed to write audit log (${params.entity}/${params.action}):`, err));
 }

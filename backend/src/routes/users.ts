@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import { validatePassword } from '../lib/passwordPolicy';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
 import { getDestination } from '../lib/destination';
 
 const router = Router();
+const resetRequests = new Map<string, number>();
+const RESET_REQUEST_COOLDOWN_MS = 10 * 60 * 1000;
 
 // Any authenticated user can read the roster (needed to populate assignee pickers
 // and the frontend's mock-id <-> real-id mapping) — only non-sensitive columns are selected.
@@ -85,11 +89,35 @@ router.patch('/me', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// users.id is a short VARCHAR key with no DB default (a fresh schema cannot generate one), so allocate the next
+// numeric id here. The advisory lock serialises concurrent creates; works whether or not a DB default exists.
+async function insertUserWithNextId(pool: Pool, v: [string, string, string, string | null, string]) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(7001)');
+    const next = await client.query(`SELECT COALESCE(MAX(id::int), 100) + 1 AS n FROM public.users WHERE id ~ '^[0-9]{1,9}$'`);
+    const result = await client.query(
+      `INSERT INTO public.users (id, name, email, role, department, password_hash, must_change_password, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true, true)
+       RETURNING id, name, email, role, department, must_change_password`,
+      [String(next.rows[0].n), ...v]
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let pass = '';
   for (let i = 0; i < 12; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    pass += chars.charAt(crypto.randomInt(chars.length)); // CSPRNG - these are credentials
   }
   return pass;
 }
@@ -121,15 +149,14 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
       return res.status(400).json({ error: `department must be one of: ${VALID_DEPARTMENTS.join(', ')}` });
     }
 
+    if (password) {
+      const policyError = validatePassword(password, email);
+      if (policyError) return res.status(400).json({ error: policyError });
+    }
     const tempPassword = password || generateTempPassword();
     const hash = await bcrypt.hash(tempPassword, 12);
 
-    const result = await pool.query(
-      `INSERT INTO public.users (name, email, role, department, password_hash, must_change_password, is_active)
-       VALUES ($1, $2, $3, $4, $5, true, true)
-       RETURNING id, name, email, role, department, must_change_password`,
-      [name, email.toLowerCase(), role || 'team', department || null, hash]
-    );
+    const result = await insertUserWithNextId(pool, [name, email.toLowerCase(), role || 'team', department || null, hash]);
 
     logAudit(pool, {
       actorId: req.user.id,
@@ -168,6 +195,14 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: 
   }
 
   try {
+    // Privilege boundary: an admin must not be able to mint a super_admin (themselves included)
+    // or alter an existing one - only a super_admin can.
+    if (req.user.role !== 'super_admin') {
+      const target = await pool.query('SELECT role FROM public.users WHERE id = $1', [id]);
+      if (role === 'super_admin' || target.rows[0]?.role === 'super_admin') {
+        return res.status(403).json({ error: 'Only a super admin can grant or change the super admin role' });
+      }
+    }
     const result = await pool.query(
       `UPDATE public.users
        SET color = COALESCE($1, color),
@@ -238,65 +273,35 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
+  // Always the same answer, whether or not the account exists (no account enumeration).
+  const generic = { ok: true, message: 'If that account exists, your administrator has been notified and will issue a temporary password.' };
   try {
-    const { email } = req.body;
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    const result = await pool.query(
-      'SELECT id FROM public.users WHERE email = $1 AND is_active = true',
-      [email.toLowerCase()]
-    );
-
-    if (result.rows.length === 0) {
-      return res.json({ ok: false, error: 'No account found with that email' });
+    const result = await pool.query('SELECT id, name FROM public.users WHERE email = $1 AND is_active = true', [email]);
+    const last = resetRequests.get(email) || 0;
+    if (result.rows.length > 0 && Date.now() - last > RESET_REQUEST_COOLDOWN_MS) {
+      resetRequests.set(email, Date.now());
+      // Admins act on this via POST /:id/admin-reset-password (one-time temp password, forced change).
+      await pool.query(
+        `INSERT INTO public.notifications (user_id, type, message)
+         SELECT id, 'status_change', $1 FROM public.users WHERE role IN ('admin', 'super_admin') AND is_active = true`,
+        [`${result.rows[0].name} requested a password reset - issue a temporary password from Admin`]
+      );
     }
-    res.json({ ok: true });
+    res.json(generic);
   } catch (error: any) {
     console.error('Error in forgot-password:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /reset-password — public. Sets a real new password, lifts any lockout, and
-// notifies every admin that this account's password was changed via self-service.
-router.post('/reset-password', async (req: Request, res: Response) => {
-  const pool: Pool = req.app.locals.pool;
-  if (!pool) return res.status(500).json({ error: 'Database not configured' });
-
-  try {
-    const { email, newPassword } = req.body;
-    if (!email || !newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: 'email and a password of at least 6 characters are required' });
-    }
-
-    const userResult = await pool.query(
-      'SELECT id, name FROM public.users WHERE email = $1 AND is_active = true',
-      [email.toLowerCase()]
-    );
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No account found with that email' });
-    }
-    const user = userResult.rows[0];
-
-    const hash = await bcrypt.hash(newPassword, 12);
-    await pool.query(
-      `UPDATE public.users
-       SET password_hash = $1, must_change_password = false, failed_login_attempts = 0, locked_until = NULL
-       WHERE id = $2`,
-      [hash, user.id]
-    );
-
-    await pool.query(
-      `INSERT INTO public.notifications (user_id, type, message)
-       SELECT id, 'status_change', $1 FROM public.users WHERE role = 'admin'`,
-      [`${user.name} reset their password via Forgot Password`]
-    );
-
-    res.json({ ok: true });
-  } catch (error: any) {
-    console.error('Error in reset-password:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+// POST /reset-password was removed: it accepted an email + new password from ANYONE with no proof of
+// identity (full account takeover). Resets are admin-issued via /:id/admin-reset-password until an
+// emailed, single-use, expiring token flow exists (needs an approved mail provider).
+router.post('/reset-password', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Self-service reset is disabled. Ask your administrator for a temporary password.' });
 });
 
 router.post('/set-password', requireAuth, async (req: Request, res: Response) => {
@@ -304,9 +309,8 @@ router.post('/set-password', requireAuth, async (req: Request, res: Response) =>
   const { password } = req.body;
   const userId = (req as any).user.id;
 
-  if (!password || password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
+  const policyError = validatePassword(password, (req as any).user.email);
+  if (policyError) return res.status(400).json({ error: policyError });
 
   try {
     const hash = await bcrypt.hash(password, 12);

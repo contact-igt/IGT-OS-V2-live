@@ -37,8 +37,8 @@ function SetPasswordForm() {
     e.preventDefault();
     setError('');
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setError('Password must be at least 10 characters and include a letter and a number.');
       return;
     }
 

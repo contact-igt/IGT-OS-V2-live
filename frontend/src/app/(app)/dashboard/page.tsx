@@ -14,6 +14,7 @@ import TasksByStatusChart from '@/components/dashboard/TasksByStatusChart';
 import DashboardFilterBar, { DashboardFilters, EMPTY_FILTERS } from '@/components/dashboard/DashboardFilterBar';
 import AllTasksTable from '@/components/dashboard/AllTasksTable';
 import TaskDrawer from '@/components/tasks/TaskDrawer';
+import AttentionQueue from '@/components/dashboard/AttentionQueue';
 import MeetingAnalyzePanel from '@/components/ai/MeetingAnalyzePanel';
 import { Check, Sparkles, Calendar as CalendarIcon, Users, CheckSquare, Share2, X, Clock, ArrowRight } from 'lucide-react';
 
@@ -121,6 +122,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <AttentionQueue />
 
       {/* Sticky Tab Navigation Bar */}
       <div className="sticky top-0 z-30 flex items-center gap-2 px-6 py-2.5 bg-[var(--c-bg)]/90 backdrop-blur-md border-b border-[var(--c-border)]">

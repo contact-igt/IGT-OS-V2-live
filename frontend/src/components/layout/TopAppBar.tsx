@@ -3,13 +3,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useApp } from '@/contexts/AppContext';
-import { Search, StopCircle, ChevronDown, Plus, Sun, Moon, Bell, X, AlertTriangle } from 'lucide-react';
+import { Search, StopCircle, ChevronDown, Plus, Sun, Moon, Bell, X, AlertTriangle, Menu } from 'lucide-react';
 import NewTaskModal from '@/components/tasks/NewTaskModal';
 import TaskDrawer from '@/components/tasks/TaskDrawer';
 import LiveTimer from '@/components/ui/LiveTimer';
 import { computeAlerts } from '@/lib/alerts';
 
-export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
+export default function TopAppBar({ sidebarWidth, onMenuClick }: { sidebarWidth: number; onMenuClick: () => void }) {
   const { theme, toggle } = useTheme();
   const { state, dispatch, requestStopTimer, getTimerElapsed } = useApp();
   const [modalOpen, setModalOpen] = useState(false);
@@ -70,12 +70,13 @@ export default function TopAppBar({ sidebarWidth }: { sidebarWidth: number }) {
   return (
     <>
       <header
-        className="fixed top-0 right-0 z-40 flex items-center justify-between px-5 bg-app-surface border-b border-app-border transition-all duration-300"
-        style={{
-          left: sidebarWidth,
-          height: 56,
-        }}
+        className="fixed top-0 right-0 z-40 flex items-center justify-between px-3 md:px-5 left-0 md:left-[var(--sw)] bg-app-surface border-b border-app-border transition-all duration-300"
+        style={{ height: 56 }}
       >
+        <button type="button" onClick={onMenuClick} aria-label="Open navigation menu"
+          className="md:hidden mr-2 shrink-0 rounded-lg p-2 text-app-text2 hover:bg-app-surface3">
+          <Menu className="w-5 h-5" />
+        </button>
         {/* Left: Search */}
         <div className="flex items-center gap-3 flex-1 max-w-md">
           <div className="flex items-center gap-2 rounded-lg px-3 py-2 flex-1 cursor-pointer bg-app-input border border-app-border"

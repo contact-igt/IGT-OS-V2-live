@@ -1,24 +1,30 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { Pool } from 'pg';
 import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/team/:userId/week', requireAuth, async (req: Request, res: Response) => {
+// A member's time analytics are visible to that member and to staff only.
+const selfOrStaff = (req: Request, res: Response, next: NextFunction) => {
+  if (req.user.id === req.params.userId || ['admin', 'ops', 'super_admin'].includes(req.user.role)) return next();
+  res.status(403).json({ error: 'Forbidden' });
+};
+
+router.get('/team/:userId/week', requireAuth, selfOrStaff, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
   try {
     const { userId } = req.params;
     
-    // Aggregation reading time_entries and tasks
+    // Aggregates real timer sessions (time_logs); the legacy time_entries table is no longer read
     const query = `
       SELECT 
-        COALESCE(SUM(te."durationMinutes"), 0) as "totalMinutes",
-        COUNT(DISTINCT te."taskId") as "tasksWorkedOn"
-      FROM public.time_entries te
-      WHERE te."userId" = $1
-      AND te.date >= date_trunc('week', NOW())
+        COALESCE(SUM(tl.duration_minutes), 0)::int as "totalMinutes",
+        COUNT(DISTINCT tl.task_id)::int as "tasksWorkedOn"
+      FROM public.time_logs tl
+      WHERE tl.user_id = $1 AND tl.ended_at IS NOT NULL
+      AND tl.started_at >= date_trunc('week', NOW())
     `;
     const result = await pool.query(query, [userId]);
     res.json(result.rows[0]);
@@ -28,7 +34,7 @@ router.get('/team/:userId/week', requireAuth, async (req: Request, res: Response
   }
 });
 
-router.get('/team/:userId/month', requireAuth, async (req: Request, res: Response) => {
+router.get('/team/:userId/month', requireAuth, selfOrStaff, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
@@ -36,11 +42,11 @@ router.get('/team/:userId/month', requireAuth, async (req: Request, res: Respons
     const { userId } = req.params;
     const query = `
       SELECT 
-        COALESCE(SUM(te."durationMinutes"), 0) as "totalMinutes",
-        COUNT(DISTINCT te."taskId") as "tasksWorkedOn"
-      FROM public.time_entries te
-      WHERE te."userId" = $1
-      AND te.date >= date_trunc('month', NOW())
+        COALESCE(SUM(tl.duration_minutes), 0)::int as "totalMinutes",
+        COUNT(DISTINCT tl.task_id)::int as "tasksWorkedOn"
+      FROM public.time_logs tl
+      WHERE tl.user_id = $1 AND tl.ended_at IS NOT NULL
+      AND tl.started_at >= date_trunc('month', NOW())
     `;
     const result = await pool.query(query, [userId]);
     res.json(result.rows[0]);
@@ -135,21 +141,18 @@ router.get('/agency/finance', requireAuth, requireRole('admin'), async (req: Req
     // Admin only: SUM retainers, SUM salaries, P&L
     const retainersResult = await pool.query(`SELECT COALESCE(SUM(monthly_retainer_inr), 0) as "totalRetainers" FROM public.clients WHERE contract_status = 'active'`);
     
-    // Assuming monthlySalaryINR exists on users table, if not, we default to 0 for this exercise
-    // The prompt says /api/users returns monthlySalaryINR, implying it's there or we mock it in query.
-    let totalSalaries = 0;
-    try {
-      const salariesResult = await pool.query(`SELECT COALESCE(SUM("monthlySalaryINR"), 0) as "totalSalaries" FROM public.users WHERE is_active = true`);
-      totalSalaries = salariesResult.rows[0].totalSalaries;
-    } catch(e) {
-      // Column might not exist yet, fallback
-    }
-
-    const totalRetainers = retainersResult.rows[0].totalRetainers;
+    // Payroll/compensation is NOT modelled in IGT OS yet (see RISK_REGISTER P1-3), so salaries and profit cannot be
+    // computed. Report that explicitly instead of a silent 0 (which made profit look equal to the full retainer).
+    const totalRetainers = Number(retainersResult.rows[0].totalRetainers);
     res.json({
-      totalRetainers: Number(totalRetainers),
-      totalSalaries: Number(totalSalaries),
-      profitAndLoss: Number(totalRetainers) - Number(totalSalaries)
+      totalRetainers,
+      totalSalaries: null,
+      profitAndLoss: null,
+      provenance: {
+        totalRetainers: 'DATABASE - contracted monthly retainer value of active clients (not invoiced or collected revenue)',
+        totalSalaries: 'UNKNOWN - compensation is not modelled',
+        profitAndLoss: 'UNKNOWN - needs payroll, expenses and collections data',
+      },
     });
   } catch (error: any) {
     console.error('Error fetching finance analytics:', error);

@@ -30,6 +30,12 @@
   --c-primary:      #2AB182;
   --c-secondary:    #6366F1;
   --c-tertiary:     #F43F5E;
+
+  /* Semantic status colors (use these - never hard-code red/amber/green in components) */
+  --c-error:        #F87171;
+  --c-warning:      #FBBF24;
+  --c-success:      #34D399;
+  --c-info:         #60A5FA;
   
   --shadow-card:    0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
   --shadow-drawer:  -8px 0 40px rgba(0,0,0,0.6);
@@ -59,6 +65,11 @@
   --c-primary:      #2AB182;
   --c-secondary:    #0E0E0E;
   --c-tertiary:     #6366F1;
+
+  --c-error:        #B91C1C;
+  --c-warning:      #B45309;
+  --c-success:      #047857;
+  --c-info:         #1D4ED8;
   
   --shadow-card:    0 1px 3px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.05);
   --shadow-drawer:  -8px 0 40px rgba(0,0,0,0.08);

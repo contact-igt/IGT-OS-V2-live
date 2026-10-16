@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { logAudit } from '../lib/auditLog';
+import { requireAuth } from '../middleware/auth';
+import { AI_TICKET_TTL_SEC, signAiTicket } from '../lib/tokens';
+import { authenticateAiCaller, AiAuthError } from '../lib/aiTicket';
 import {
   REFRESH_COOKIE,
   clearAuthCookies,
@@ -102,6 +105,25 @@ router.post('/logout', async (req: Request, res: Response) => {
 
   clearAuthCookies(res);
   res.json({ success: true });
+});
+
+// POST /api/auth/ai-ticket - cookie-authenticated; mints a 5-minute ticket for the Next.js AI routes.
+router.post('/ai-ticket', requireAuth, (req: Request, res: Response) => {
+  res.json({ ticket: signAiTicket(req.user.id), expiresInSec: AI_TICKET_TTL_SEC });
+});
+
+// GET /api/auth/ai-ticket/verify - called server-to-server by the Next.js AI routes with the ticket as Bearer.
+// Confirms the ticket, that the account is still active, and applies the per-user rate limit.
+router.get('/ai-ticket/verify', async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  try {
+    const caller = await authenticateAiCaller(pool, req.headers.authorization);
+    res.json({ ok: true, userId: caller.id, role: caller.role });
+  } catch (err) {
+    if (err instanceof AiAuthError) return res.status(err.status).json({ error: err.message });
+    console.error('/api/auth/ai-ticket/verify error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 export default router;

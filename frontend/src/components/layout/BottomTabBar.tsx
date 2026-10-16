@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckSquare, Clock, Bell, User } from 'lucide-react';
+import { CheckSquare, KanbanSquare, User } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 
 export default function BottomTabBar() {
@@ -14,13 +14,12 @@ export default function BottomTabBar() {
     return null;
   }
 
-  const unreadCount = state.notifications.filter(n => n.userId === state.currentUserId && !n.read).length;
-
-  const tabs = [
+  // Only routes that exist: the previous Timer/Alerts/Profile hrefs under /my-workspace/* 404'd.
+  // Notifications live in the top-bar popover.
+  const tabs: { href: string; icon: typeof User; label: string; badge?: number }[] = [
     { href: '/my-workspace', icon: CheckSquare, label: 'My Tasks' },
-    { href: '/my-workspace/timer', icon: Clock, label: 'Timer' },
-    { href: '/my-workspace/notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
-    { href: '/my-workspace/profile', icon: User, label: 'Profile' }
+    { href: '/tasks', icon: KanbanSquare, label: 'Board' },
+    { href: '/my-profile', icon: User, label: 'Profile' },
   ];
 
   return (

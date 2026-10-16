@@ -105,7 +105,7 @@ export default function ClientsPage() {
 
       {/* ── Summary strip ───────────────────────────────────────────────── */}
       <div
-        className="grid grid-cols-4 gap-4 mb-7"
+        className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-7"
       >
         {[
           {
@@ -120,12 +120,12 @@ export default function ClientsPage() {
           },
           {
             label: 'Total Agency Fee',
-            value: formatINR(totalAgencyFee),
+            value: totalAgencyFee > 0 ? formatINR(totalAgencyFee) : '—', // no data source yet: never show a made-up 0
             icon: Wallet,
           },
           {
             label: 'Avg Budget Utilization',
-            value: `${avgBudgetUtil}%`,
+            value: avgBudgetUtil > 0 ? `${avgBudgetUtil}%` : '—', // no data source yet
             icon: PieChart,
           },
         ].map(({ label, value, icon: Icon }) => (
@@ -134,11 +134,11 @@ export default function ClientsPage() {
             className="card flex items-center gap-4 px-5 py-4"
           >
             <Icon className="w-6 h-6 text-amber-600 shrink-0" />
-            <div>
+            <div className="min-w-0">
               <p className="m-0 text-xs text-app-text3 font-medium">
                 {label}
               </p>
-              <p className="m-0 text-xl font-bold text-app-text">
+              <p className="m-0 text-lg xl:text-xl font-bold text-app-text truncate">
                 {value}
               </p>
             </div>
@@ -280,21 +280,20 @@ export default function ClientsPage() {
                   </div>
                 </div>
 
-                {/* ── Budget utilization bar ────────────────────────────── */}
+                {/* ── Budget utilization bar (only when a real figure exists) ── */}
                 <div>
                   <div className="flex items-center justify-between gap-[0.4rem] mb-[0.2rem]">
                     <span className="text-[0.7rem] text-app-text3 font-medium">Budget Used</span>
-                    <span className="text-[0.8rem] font-bold text-app-text">{client.budgetUtilization || 0}%</span>
+                    <span className="text-[0.8rem] font-bold text-app-text">{client.budgetUtilization ? `${client.budgetUtilization}%` : '—'}</span>
                   </div>
-                  <div className="h-[6px] rounded-full bg-app-surface3 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition duration-400 ease-in-out"
-                      style={{
-                        width: `${Math.min(client.budgetUtilization || 0, 100)}%`,
-                        background: barColor,
-                      }}
-                    />
-                  </div>
+                  {client.budgetUtilization ? (
+                    <div className="h-[6px] rounded-full bg-app-surface3 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition duration-400 ease-in-out"
+                        style={{ width: `${Math.min(client.budgetUtilization, 100)}%`, background: barColor }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* ── Task stats ───────────────────────────────────────── */}

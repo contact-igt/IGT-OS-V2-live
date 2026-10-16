@@ -160,11 +160,8 @@ export default function LoginPreviewPage() {
     
     // Simulate auth check
     setTimeout(() => {
-      if (password === 'password' || password === 'Invictus2026') {
-        alert('Successful login simulated! In production, this redirects to the dashboard.');
-      } else {
-        setLoginError('Invalid email or password.');
-      }
+      // Preview only: no credential is checked client-side. Real sign-in is /login (server-verified).
+      setLoginError('Preview only — use the real sign-in page to access IGT OS.');
       setIsLoggingIn(false);
     }, 800);
   };

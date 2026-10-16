@@ -124,7 +124,7 @@ export default function TeamPage() {
                 {isAdmin && (
                   <div className="col-span-2 flex flex-col gap-1 p-2 rounded bg-surface border border-border mt-1">
                     <span className="text-[10px] uppercase text-text-3 font-bold tracking-wider">Monthly Cost</span>
-                    <span className="text-[14px] text-rose-500 font-bold">₹{(member.monthlySalaryINR || 0).toLocaleString()}</span>
+                    <span className="text-[14px] text-rose-500 font-bold">{member.monthlySalaryINR ? `₹${member.monthlySalaryINR.toLocaleString()}` : '—'}</span>
                   </div>
                 )}
               </div>

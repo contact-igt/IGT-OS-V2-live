@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "build": "npm run build --workspaces",
-    "install:all": "npm install"
+    "install:all": "npm install",
+    "test:secrets": "node --test scripts/secret-guard.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
