@@ -15,6 +15,8 @@ Push status: **BLOCKED** - GitHub returns 403 (Claude GitHub App has no write ac
 | 5 | Password policy (10+, letter+digit, no name); CSPRNG temp passwords; admin create-user was broken on the schema | api tests |
 | 6 | Real clients from DB (UI used a mock roster; unmapped tasks silently saved 'locally only'); fake metrics removed (marketing, client tab, cost-efficiency, parse-task, alerts) | browser journey + code |
 | 7 | Command center: blockers + change requests feed the CEO/ops queue | delivery tests |
+| 9 | Client projects: /projects list + detail (timeline, derived team and hours), migration 0004 | 7 API tests + browser journey |
+| 10 | Projects linked to tasks (Tasks page), AI meetings and Delivery change requests; developer-started; paged timeline; migration 0005 | 9 more API tests + 30-check browser journey |
 | 8 | Delivery: change-request workflow with leadership gating of material changes; structured blockers; /delivery page | 13 API tests + 10-check browser journey |
 | 9 | Integration registry (derived, no secrets) + marketing provenance strip | integrations tests |
 | 10 | Monthly client report (CSV/JSON) from traceable data + download | reports tests + browser download |
@@ -26,9 +28,9 @@ Push status: **BLOCKED** - GitHub returns 403 (Claude GitHub App has no write ac
 - `node --test scripts/secret-guard.test.mjs` -> 1/1
 - backend `tsc --noEmit` OK; frontend `tsc --noEmit` OK
 - `eslint src` -> **0 errors**, 179 warnings (unused vars etc., not enforced)
-- backend suite (`node --test tests/*.test.mjs`) -> **80/80** (api 32, tasks-lifecycle 10, cortex 6, delivery 13, reports 8, integrations 4, schema 3, analytics 2, route-auth sweep 2)
+- backend suite (`node --test tests/*.test.mjs`) -> **96/96** (api 32, tasks-lifecycle 10, cortex 6, delivery 13, projects 16, reports 8, integrations 4, schema 3, analytics 2, route-auth sweep 2)
 - `next build` -> compiled, 59 pages
-- browser journeys: task journey 21/21, delivery journey 10/10
+- browser journeys: task journey 21/21, delivery journey 10/10, projects journey 30/30
 - responsive sweep (Chromium): admin 1440/1024/768/375/320 dark + 1440 light + 375 light, ops 1280, team 1440/768/375/320 + redirects: **73/77 clean**;
   the 4 flagged are one expected 404 (`/api/google/calendar/events` for a user with no Google account - the "not connected" signal), zero horizontal overflow anywhere, zero console errors.
 

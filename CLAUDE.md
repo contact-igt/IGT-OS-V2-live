@@ -13,7 +13,7 @@ Project memory lives in `docs/igt-os/` (start with LOOP_STATUS.md and RISK_REGIS
   Existing DB that already has the old baseline: `npm run db:migrate -w backend -- --baseline-existing` once, then `npm run db:migrate -w backend`. VERIFY the live DB's
   `time_entries`/`campaign_weekly_logs`/`ad_account_balances` columns first (see RISK_REGISTER P1-1).
 - API + schema + route-auth sweep: start backend on :4000 against the test DB, then `DATABASE_URL=<test db> TEST_PASSWORD=<same> npm run test:api -w backend`
-  (80 tests). Refuses to run if API_URL looks like production. Seeded accounts need `must_change_password=false` for the browser journeys.
+  (96 tests). Refuses to run if API_URL looks like production. Seeded accounts need `must_change_password=false` for the browser journeys.
 - Browser journeys (need `playwright` installed, `next start` on :3000): `TEST_PASSWORD=... node scripts/e2e/task-journey.mjs` and `delivery-journey.mjs`.
   In this container launch Chromium with `--disable-background-networking --proxy-bypass-list=*` or it hangs on the egress proxy.
 - Next production build needs `NEXT_PUBLIC_API_URL`; type errors fail it (no ignoreBuildErrors).

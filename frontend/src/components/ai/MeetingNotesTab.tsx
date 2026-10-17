@@ -14,6 +14,7 @@ import MeetingQualityBadge from './MeetingQualityBadge';
 import TaskApprovalCard from './TaskApprovalCard';
 import { fetchGoogleCalendarEvents, GoogleEvent } from '@/lib/googleCalendar';
 import { aiFetch } from '@/lib/aiFetch';
+import MeetingProjectLink from '@/components/meetings/MeetingProjectLink';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,8 @@ export default function MeetingNotesTab() {
   // Set once this analysis has been persisted, so the "Create Tasks" step reuses that row
   // rather than saving a second copy of the same meeting.
   const [savedMeetingId, setSavedMeetingId] = useState<string | null>(null);
+  // Project this meeting is linked to; tasks approved below join it (same client only).
+  const [meetingProjectId, setMeetingProjectId] = useState<string | null>(null);
 
   // Model list comes from Gemini's own API (not hardcoded) so it stays correct as Google
   // renames/deprecates model versions over time.
@@ -285,6 +288,7 @@ export default function MeetingNotesTab() {
       // rather than saving a duplicate of it.
       const savedId = await saveMeetingNote(newNote);
       setSavedMeetingId(savedId);
+      setMeetingProjectId(null);
       alert(`Meeting Analyzed! Found ${tasks.length} action items to review.`);
     } catch (err: any) {
       setAnalyzeError(err.message || 'Something went wrong. Please try again.');
@@ -395,6 +399,7 @@ export default function MeetingNotesTab() {
     // createTask() (not a raw dispatch) so these actually sync to the backend — dispatching
     // CREATE_TASK directly only updates local state, which used to make meeting-derived
     // tasks vanish on refresh and stay invisible to everyone else.
+    const meetingClientId = result ? state.clients.find(c => c.name.toLowerCase() === (result.meetingMeta?.clientName || '').toLowerCase())?.id : undefined;
     approved.forEach(t => {
       const clientId = resolveClientId(t.clientName, state.clients);
       createTask({
@@ -409,13 +414,15 @@ export default function MeetingNotesTab() {
         deadline: t.deadline || null,
         estimatedHours: 2,
         tags,
+        // only when the task resolves to the meeting's own client: the server refuses cross-client projects
+        projectId: meetingProjectId && clientId === meetingClientId ? meetingProjectId : undefined,
       } as any);
     });
 
     setCreatedCount(approved.length);
     // Mark as approved so button shows success
     setTimeout(() => router.push('/tasks'), 1800);
-  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, createTask, saveMeetingNote, router, savedMeetingId, linkedEventId]);
+  }, [proposedTasks, result, state.clients, state.currentUserId, transcript, createTask, saveMeetingNote, router, savedMeetingId, linkedEventId, meetingProjectId]);
 
   const handleSendClientMOM = useCallback(() => {
     if (!result) return;
@@ -856,6 +863,24 @@ Example: 'Sushil: Thanks for joining Dr. Rasheed. Let me walk you through the Ju
       {/* ── Tab: Tasks ── */}
       {activeSection === 'tasks' && (
         <div>
+          {savedMeetingId && (() => {
+            const meetingClientId = state.clients.find(c => c.name.toLowerCase() === (result.meetingMeta?.clientName || '').toLowerCase())?.id || null;
+            return (
+              <div className="p-3 rounded-xl mb-4" style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-border)' }}>
+                <p className="text-[12px] mb-2" style={{ color: 'var(--c-text-3)' }}>Link this meeting to a client project: it appears on the project timeline, and the tasks you approve below join that project.</p>
+                <MeetingProjectLink
+                  meetingId={savedMeetingId}
+                  clientId={meetingClientId}
+                  projectId={meetingProjectId}
+                  onChanged={pid => {
+                    setMeetingProjectId(pid);
+                    const saved = state.meetingNotes.find((n: any) => n.id === savedMeetingId);
+                    if (saved) dispatch({ type: 'ADD_MEETING_NOTE', payload: { ...saved, projectId: pid } });
+                  }}
+                />
+              </div>
+            );
+          })()}
           {/* Bulk actions bar */}
           <div
             className="flex items-center justify-between p-3 rounded-xl mb-4"

@@ -51,7 +51,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const isGranted = grantedPages.some(p => pathname === p || pathname.startsWith(`${p}/`));
 
     if (user.role === 'team' || user.role === 'viewer') {
-      const allowedPaths = ['/my-workspace', '/tasks', '/my-profile', '/calendar', '/meetings', '/team'];
+      const allowedPaths = ['/my-workspace', '/tasks', '/my-profile', '/calendar', '/meetings', '/team', '/projects'];
       const isAllowed = allowedPaths.some(p => pathname === p || pathname.startsWith(`${p}/`)) || isGranted;
       if (!isAllowed && pathname !== '/') {
         router.push('/my-workspace');

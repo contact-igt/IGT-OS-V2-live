@@ -7,12 +7,14 @@ import MeetingQualityBadge from '@/components/ai/MeetingQualityBadge';
 import TalkTimeBar from '@/components/ai/TalkTimeBar';
 import { ArrowLeft } from 'lucide-react';
 import { aiFetch } from '@/lib/aiFetch';
+import MeetingProjectLink from '@/components/meetings/MeetingProjectLink';
+import RaiseChangeRequest from '@/components/meetings/RaiseChangeRequest';
 
 type Tab = 'overview' | 'decisions' | 'tasks' | 'insights' | 'chat' | 'transcript';
 
 export default function MeetingDetailPage() {
   const { id } = useParams();
-  const { state, createTask } = useApp();
+  const { state, createTask, dispatch } = useApp();
   const router = useRouter();
 
   const meeting = state.meetingNotes.find((m: any) => m.id === id);
@@ -85,6 +87,7 @@ export default function MeetingDetailPage() {
       deadline: item.deadline || null,
       estimatedHours: 2,
       tags: ['meeting-generated', `meeting-${meeting.id}`],
+      projectId: meeting.projectId || undefined,
     } as any);
     setCreatedTitles(prev => new Set(prev).add(item.title));
   };
@@ -112,6 +115,14 @@ export default function MeetingDetailPage() {
         {result.meetingMeta?.date && new Date(result.meetingMeta.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
         {result.meetingMeta?.durationMinutes && ` · ${result.meetingMeta.durationMinutes}m`}
       </p>
+      <div className="mb-5">
+        <MeetingProjectLink
+          meetingId={meeting.id}
+          clientId={meeting.clientId}
+          projectId={meeting.projectId || null}
+          onChanged={pid => dispatch({ type: 'ADD_MEETING_NOTE', payload: { ...meeting, projectId: pid } })}
+        />
+      </div>
 
       <div className="flex gap-1 p-1 rounded-xl mb-6 flex-wrap" style={{ background: 'var(--c-surface-2)', border: '1px solid var(--c-border)' }}>
         {TABS.map(t => (
@@ -182,6 +193,9 @@ export default function MeetingDetailPage() {
                 </span>
               </div>
               {d.decidedBy && <p className="text-[12px] mb-2" style={{ color: 'var(--c-text-3)' }}>Decided by: {d.decidedBy}</p>}
+              {meeting.projectId && meeting.clientId && (
+                <div className="mb-2"><RaiseChangeRequest clientId={meeting.clientId} projectId={meeting.projectId} meetingId={meeting.id} title={d.decision} description={`${d.decision}${d.sourceQuote ? ` — "${d.sourceQuote}"` : ''}`} requestedBy={d.decidedBy} /></div>
+              )}
               {d.sourceQuote && (
                 <blockquote className="text-[11px] italic px-3 py-2 rounded-lg mt-2" style={{ color: 'var(--c-text-3)', background: 'var(--c-surface-2)', borderLeft: '3px solid var(--c-border)' }}>
                   "{d.sourceQuote}"
@@ -221,6 +235,9 @@ export default function MeetingDetailPage() {
                   <div>
                     <p className="text-[13px] font-medium" style={{ color: 'var(--c-text)' }}>{item.title}</p>
                     <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#F59E0B' }}>{item.priority}</span>
+                    {meeting.projectId && meeting.clientId && (
+                      <div className="mt-2"><RaiseChangeRequest clientId={meeting.clientId} projectId={meeting.projectId} meetingId={meeting.id} title={item.title} description={`${item.title}${item.description ? ` — ${item.description}` : ''}`} requestedBy={item.owner} /></div>
+                    )}
                   </div>
                   <button
                     onClick={() => handleCreateTask(item)}

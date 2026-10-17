@@ -8,6 +8,7 @@ import { Task, PRIORITY_CONFIG, STATUS_CONFIG, CATEGORY_LABELS, isOverdue, calcu
 import LiveTimer from '@/components/ui/LiveTimer';
 import EditTaskModal from '@/components/tasks/EditTaskModal';
 import DateTimePicker from '@/components/ui/DateTimePicker';
+import { useProjects, isOpenProject } from '@/lib/useProjects';
 
 interface Props {
   taskId: string | null;
@@ -36,7 +37,9 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
   const [reassignTarget, setReassignTarget] = useState('');
   const [editModalOpen, setEditModalOpen] = useState(false);
 
+  const { projects } = useProjects();
   const task = taskId ? state.tasks.find(t => t.id === taskId) : null;
+  const projectOptions = task ? projects.filter(p => p.client_id === task.clientId && (isOpenProject(p) || p.id === task.projectId)) : [];
   const client = task ? state.clients.find(c => c.id === task.clientId) : null;
   const assignees = task ? task.assignedTo.map(id => state.teamMembers.find(m => m.id === id)).filter(Boolean) : [];
   const overdue = task ? isOverdue(task) : false;
@@ -168,6 +171,24 @@ export default function TaskDrawer({ taskId, onClose, onTaskSelect }: Props) {
             </h2>
             {client && (
               <p className="text-[12px] mt-1 font-semibold text-primary">{client.name}</p>
+            )}
+            {(task.projectId || (canEdit && projectOptions.length > 0)) && (
+              <label className="flex items-center gap-2 mt-1.5 text-[11px] text-app-text3">
+                Project
+                {canEdit ? (
+                  <select
+                    aria-label="Project"
+                    className="input-base !py-1 !text-[12px] !w-auto"
+                    value={task.projectId || ''}
+                    onChange={e => updateTask(task.id, { projectId: e.target.value || null })}
+                  >
+                    <option value="">No project</option>
+                    {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                ) : (
+                  <span className="font-semibold text-app-text2">{projects.find(p => p.id === task.projectId)?.name || 'Project'}</span>
+                )}
+              </label>
             )}
             {/* Action buttons: Edit (creator/leadership) + Delete (admin/ops only) */}
             <div className="flex items-center gap-2 mt-3">

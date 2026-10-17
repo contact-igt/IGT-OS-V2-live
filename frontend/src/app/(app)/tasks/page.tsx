@@ -19,6 +19,7 @@ import { Task, STATUS_CONFIG, PRIORITY_CONFIG, getClientById, isOverdue, canAppr
 
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import { useProjects } from '@/lib/useProjects';
 
 const STATUSES: Task['status'][] = ['todo', 'in_progress', 'paused', 'in_review', 'blocked', 'done'];
 
@@ -59,6 +60,9 @@ function TasksPageInner() {
     setIsBrowser(true);
   }, []);
   const [clientFilter, setClientFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
+  const { projects } = useProjects();
+  const projectName = (id?: string | null) => (id ? projects.find(p => p.id === id)?.name : undefined);
   const [priorityFilter, setPriorityFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
   // Drill-down from the dashboard's Tasks Overview tiles (?status=active|due-today|overdue|in-review)
@@ -107,6 +111,7 @@ function TasksPageInner() {
     if (!showArchivedDone && t.status === 'done' && isArchivedDone(t)) return false;
 
     if (clientFilter && t.clientId !== clientFilter) return false;
+    if (projectFilter && t.projectId !== projectFilter) return false;
     if (priorityFilter && t.priority !== priorityFilter) return false;
     if (memberFilter && !t.assignedTo.includes(memberFilter)) return false;
 
@@ -142,7 +147,7 @@ function TasksPageInner() {
     }
     
     return true;
-  }), [state.tasks, view, clientFilter, priorityFilter, memberFilter, statusFilter, state.currentUserId, state.teamMembers, showArchivedDone]);
+  }), [state.tasks, view, clientFilter, projectFilter, priorityFilter, memberFilter, statusFilter, state.currentUserId, state.teamMembers, showArchivedDone]);
 
   const sortedTasks = useMemo(() => [...tasks].sort((a, b) => {
     let cmp = 0;
@@ -271,6 +276,12 @@ function TasksPageInner() {
           <option value="">All Clients</option>
           {state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {projects.length > 0 && (
+          <select aria-label="Filter by project" className="input-base font-semibold" style={{ width: 200, fontSize: '13px' }} value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
+            <option value="">All Projects</option>
+            {projects.filter(p => !clientFilter || p.client_id === clientFilter).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
         <select className="input-base font-semibold" style={{ width: 180, fontSize: '13px' }} value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}>
           <option value="">All Priorities</option>
           {Object.keys(PRIORITY_CONFIG).map(p => <option key={p} value={p}>{PRIORITY_CONFIG[p as Task['priority']].label}</option>)}
@@ -349,7 +360,7 @@ function TasksPageInner() {
                                   opacity: snapshot.isDragging ? 0.8 : 1,
                                 }}
                               >
-                                <TaskCard task={t} onClick={() => setSelectedTaskId(t.id)} />
+                                <TaskCard task={t} projectName={projectName(t.projectId)} onClick={() => setSelectedTaskId(t.id)} />
                               </div>
                             )}
                           </Draggable>
@@ -420,7 +431,7 @@ function TasksPageInner() {
                     <td className="p-4 w-[40%]">
                       <p className="text-[14px] font-bold" style={{ color: t.status === 'done' ? 'var(--c-text-3)' : 'var(--c-text)', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{t.title}</p>
                     </td>
-                    <td className="p-4 text-[13px] font-medium w-[15%]" style={{ color: 'var(--c-text-2)' }}>{client?.name}</td>
+                    <td className="p-4 text-[13px] font-medium w-[15%]" style={{ color: 'var(--c-text-2)' }}>{client?.name}{projectName(t.projectId) && <span className="block text-[11px] font-normal" style={{ color: 'var(--c-text-3)' }}>{projectName(t.projectId)}</span>}</td>
                     <td className="p-4 w-[15%]">
                       <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full w-fit" style={{ background: STATUS_CONFIG[t.status].bg, color: STATUS_CONFIG[t.status].color }}>
                         <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_CONFIG[t.status].color }} />
@@ -621,7 +632,7 @@ function TasksPageInner() {
                           <td className="p-3 px-4">
                             <p className="text-[13px] font-bold" style={{ color: t.status === 'done' ? 'var(--c-text-3)' : 'var(--c-text)', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{t.title}</p>
                           </td>
-                          <td className="p-3 px-4 text-[12px] font-medium" style={{ color: 'var(--c-text-2)' }}>{client?.name}</td>
+                          <td className="p-3 px-4 text-[12px] font-medium" style={{ color: 'var(--c-text-2)' }}>{client?.name}{projectName(t.projectId) && <span className="block text-[11px] font-normal" style={{ color: 'var(--c-text-3)' }}>{projectName(t.projectId)}</span>}</td>
                           <td className="p-3 px-4">
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full w-fit" style={{ background: STATUS_CONFIG[t.status].bg, color: STATUS_CONFIG[t.status].color }}>
                               <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_CONFIG[t.status].color }} />
@@ -723,6 +734,12 @@ function TasksPageInner() {
                           </span>
                         ) : null;
                       })()}
+                      {projectName(t.projectId) && (
+                        <span className="flex items-center gap-1.5 bg-[var(--c-surface-3)] px-2.5 py-1 rounded-lg text-[var(--c-text-2)]">
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>view_timeline</span>
+                          {projectName(t.projectId)}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-5 ml-9 border-t border-[var(--c-border)] pt-4 flex justify-between items-center">
                       <div className="flex -space-x-2">

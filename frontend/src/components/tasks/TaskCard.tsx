@@ -11,10 +11,11 @@ interface TaskCardProps {
   task: Task;
   onClick?: () => void;
   showClient?: boolean;
+  projectName?: string; // passed down by pages that already know the user's projects (avoids a fetch per card)
   compact?: boolean;
 }
 
-export default memo(function TaskCard({ task, onClick, showClient = true, compact = false }: TaskCardProps) {
+export default memo(function TaskCard({ task, onClick, showClient = true, compact = false, projectName }: TaskCardProps) {
   const { state, setTaskStatus, requestStopTimer, startTimer, getTaskLoggedMinutes } = useApp();
   const client = useMemo(() => state.clients.find(c => c.id === task.clientId), [state.clients, task.clientId]);
   const assignees = useMemo(
@@ -154,6 +155,7 @@ export default memo(function TaskCard({ task, onClick, showClient = true, compac
               {client.name}
             </p>
           )}
+          {projectName && <p className="text-[10px] font-medium mb-1 text-app-text3">{projectName}</p>}
           <p className="text-[13px] font-semibold leading-snug text-app-text font-grotesk">
             {task.title}
           </p>
