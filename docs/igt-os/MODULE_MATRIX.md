@@ -11,7 +11,8 @@
 | Command center (attention queue) | WORKING (verified) | tasks, leave, blockers, change requests; CEO vs ops routing; no invoice/campaign/integration-failure signals yet |
 | Delivery: change requests | WORKING (verified, API + browser) | capture -> classify -> impact -> decision -> roadmap bucket -> link to task; material changes need admin/super_admin + impact analysis |
 | Delivery: blockers | WORKING (verified) | owner, party, severity, expected resolution, next action, escalation owner; feeds queue |
-| Client projects (details, timeline, who worked, hours) | WORKING (verified, API + browser) | `projects` + `project_events`, `tasks.project_id`; team and hours DERIVED from linked tasks + timer logs; timeline = project updates + task audit events + blockers |
+| Client projects (details, timeline, who worked, hours) | WORKING (verified, API + browser) | `projects` + `project_events`; `project_id` on tasks, AI meetings (`meetings`) and Delivery change requests; team, start dates, hours DERIVED from linked tasks + timer logs; paged timeline = project notes + developer-started + linked meetings (summary + decisions only) + change requests and decisions + task audit events + blockers |
+| Project -> Tasks page / Delivery links | WORKING (verified) | New Task form + task drawer + board/list show and filter by project; change requests raised from a linked meeting land in Delivery with project + source meeting |
 | Development milestones / QA-UAT-release states | PROPOSED | not built; projects have status only (planned/active/on_hold/completed/cancelled) |
 | Roadmap (Now/Next/Later) | PARTIAL | bucket stored on accepted change requests; no roadmap view, no progress derivation |
 | Cortex AI | WORKING (verified, API) / provider call UNVERIFIED | server-built, role-scoped context; no provider key in test env -> honest 503 |

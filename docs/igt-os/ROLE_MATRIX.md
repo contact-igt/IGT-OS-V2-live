@@ -24,7 +24,9 @@ Roles: `super_admin` > `admin` > `ops` > `team` / `viewer`. `super_admin` satisf
 | Change requests: view | all | all | all | own captures + accepted ones linked to their tasks |
 | Projects: create / edit / attach or remove tasks | yes | yes | yes | no |
 | Projects: view | all | all | all | only projects they lead or have a task on (others get 404) |
-| Projects: add note / meeting / recording link | yes | yes | yes | members only |
+| Projects: add note / recording link | yes | yes | yes | members only |
+| Set a project on a task / AI meeting / change request | yes | yes | yes | only if project lead or already on the project (same client required for everyone) |
+| Project page shows linked meetings | summary + decisions only (never transcript, role insights, source quotes) | same | same | same; link to the meeting page only for the meeting's owner and staff |
 | Integration registry | yes | yes | yes | no |
 | Monthly client report | yes | yes | yes | no |
 | Finance endpoint (retainers; payroll/profit UNKNOWN) | yes | yes | no | no |

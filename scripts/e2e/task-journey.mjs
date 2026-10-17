@@ -38,7 +38,9 @@ await modal.getByRole('button', { name: /^high$/i }).click();
 await modal.getByText('Select date & time...').click(); await A.p.waitForTimeout(400);
 await A.p.getByRole('button', { name: '25', exact: true }).first().click();
 await A.p.getByRole('button', { name: /confirm/i }).first().click(); await A.p.waitForTimeout(400);
-await modal.getByText('Select team members...').click(); await A.p.waitForTimeout(400);
+// scroll first: the assignee dropdown closes on any scroll event, so let Playwright's auto-scroll happen before the click
+const assigneeField = modal.getByText('Select team members...'); await assigneeField.scrollIntoViewIfNeeded(); await A.p.waitForTimeout(600);
+await assigneeField.click(); await A.p.waitForTimeout(400);
 await A.p.getByText('Aiswarya Saiju', { exact: false }).last().click(); await A.p.waitForTimeout(300);
 await modal.getByText('New Task', { exact: true }).first().click(); await A.p.waitForTimeout(300);
 await modal.getByText('Select a client', { exact: false }).count();

@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
+import Link from 'next/link';
+import { useProjects, isOpenProject } from '@/lib/useProjects';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const CLASSES = ['bug', 'content_change', 'design_change', 'new_feature', 'integration_change', 'scope_change', 'production_issue'];
@@ -30,17 +32,23 @@ function ChangeRequests({ canDecide, isLeadership }: { canDecide: boolean; isLea
   const { state } = useApp();
   const [rows, setRows] = useState<any[]>([]);
   const [filter, setFilter] = useState('pending');
+  const [projectFilter, setProjectFilter] = useState('');
+  const { projects } = useProjects();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ clientId: '', title: '', description: '', classification: 'content_change', source: 'whatsapp', requestedBy: '', priority: 'medium' });
+  const [form, setForm] = useState({ clientId: '', projectId: '', title: '', description: '', classification: 'content_change', source: 'whatsapp', requestedBy: '', priority: 'medium' });
+  const projectOptions = projects.filter(p => p.client_id === form.clientId && isOpenProject(p));
   const [msg, setMsg] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setRows(await api(`/change-requests${filter === 'all' ? '' : `?decision=${filter}`}`)); } catch (e: any) { setError(e.message); } finally { setLoading(false); }
-  }, [filter]);
+    const q = new URLSearchParams();
+    if (filter !== 'all') q.set('decision', filter);
+    if (projectFilter) q.set('projectId', projectFilter);
+    try { setRows(await api(`/change-requests${q.toString() ? `?${q}` : ''}`)); } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  }, [filter, projectFilter]);
   useEffect(() => { load(); }, [load]);
 
   const run = async (id: string, fn: () => Promise<unknown>) => {
@@ -56,16 +64,28 @@ function ChangeRequests({ canDecide, isLeadership }: { canDecide: boolean; isLea
             {['pending', 'accepted', 'deferred', 'rejected', 'all'].map(f => <option key={f} value={f}>{f}</option>)}
           </select>
         </label>
+        {projects.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-[var(--c-text-2)]">Project
+            <select aria-label="Filter by project" className={`${field} !w-auto`} value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
+              <option value="">All projects</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        )}
         <button className={`${btn} bg-[var(--c-primary)] text-white`} onClick={() => setAdding(a => !a)}>{adding ? 'Close' : '+ Capture client request'}</button>
       </div>
 
       {adding && (
         <form className="grid gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)] p-4 md:grid-cols-2" onSubmit={async e => {
           e.preventDefault(); setError(null);
-          try { await api('/change-requests', { method: 'POST', body: JSON.stringify(form) }); setAdding(false); setForm(f => ({ ...f, title: '', description: '', requestedBy: '' })); setFilter('pending'); await load(); } catch (err: any) { setError(err.message); }
+          try { await api('/change-requests', { method: 'POST', body: JSON.stringify({ ...form, projectId: projectOptions.some(p => p.id === form.projectId) ? form.projectId : undefined }) }); setAdding(false); setForm(f => ({ ...f, title: '', description: '', requestedBy: '' })); setFilter('pending'); await load(); } catch (err: any) { setError(err.message); }
         }}>
           <label className="text-xs text-[var(--c-text-2)]">Client
-            <select required className={field} value={form.clientId} onChange={e => setForm({ ...form, clientId: e.target.value })}><option value="">Select client…</option>{state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+            <select required className={field} value={form.clientId} onChange={e => setForm({ ...form, clientId: e.target.value, projectId: '' })}><option value="">Select client…</option>{state.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          {projectOptions.length > 0 && (
+            <label className="text-xs text-[var(--c-text-2)]">Project (optional)
+              <select aria-label="Project" className={field} value={form.projectId} onChange={e => setForm({ ...form, projectId: e.target.value })}><option value="">No project</option>{projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          )}
           <label className="text-xs text-[var(--c-text-2)]">Title<input required maxLength={200} className={field} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></label>
           <label className="text-xs text-[var(--c-text-2)] md:col-span-2">What did the client ask for?<textarea required rows={3} className={field} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
           <label className="text-xs text-[var(--c-text-2)]">Type<select className={field} value={form.classification} onChange={e => setForm({ ...form, classification: e.target.value })}>{CLASSES.map(c => <option key={c} value={c}>{pretty(c)}</option>)}</select></label>
@@ -84,7 +104,7 @@ function ChangeRequests({ canDecide, isLeadership }: { canDecide: boolean; isLea
         {rows.map(cr => (
           <li key={cr.id} className="rounded-xl border border-[var(--c-border)] bg-[var(--c-surface)]">
             <button className="flex w-full flex-wrap items-center gap-2 p-4 text-left" aria-expanded={open === cr.id} onClick={() => setOpen(open === cr.id ? null : cr.id)}>
-              <span className="min-w-0 basis-full sm:basis-0 sm:flex-1 text-sm font-semibold text-[var(--c-text)]">{cr.title}<span className="block text-xs font-normal text-[var(--c-text-3)]">{cr.client_name} · {String(cr.received_at).slice(0, 10)}{cr.requested_by ? ` · ${cr.requested_by}` : ''}</span></span>
+              <span className="min-w-0 basis-full sm:basis-0 sm:flex-1 text-sm font-semibold text-[var(--c-text)]">{cr.title}<span className="block text-xs font-normal text-[var(--c-text-3)]">{cr.client_name}{cr.project_title ? ` · ${cr.project_title}` : ''} · {String(cr.received_at).slice(0, 10)}{cr.requested_by ? ` · ${cr.requested_by}` : ''}</span></span>
               <Chip>{pretty(cr.classification)}</Chip><Chip color={tone(cr.priority)}>{cr.priority}</Chip>
               {cr.is_material && <Chip color="var(--c-warning)">material</Chip>}
               <Chip color={cr.decision === 'accepted' ? 'var(--c-success)' : cr.decision === 'pending' ? 'var(--c-info)' : 'var(--c-text-2)'}>{cr.decision}{cr.roadmap_bucket !== 'none' ? ` · ${cr.roadmap_bucket}` : ''}</Chip>
@@ -92,6 +112,12 @@ function ChangeRequests({ canDecide, isLeadership }: { canDecide: boolean; isLea
             {open === cr.id && (
               <div className="flex flex-col gap-3 border-t border-[var(--c-border)] p-4 text-sm">
                 <p className="whitespace-pre-wrap text-[var(--c-text-2)]">{cr.description}</p>
+                {(cr.project_title || cr.meeting_title) && (
+                  <p className="text-xs text-[var(--c-text-2)]">
+                    {cr.project_id && <>Project: <Link href={`/projects/${cr.project_id}`} className="text-[var(--c-primary)]">{cr.project_title}</Link></>}
+                    {cr.meeting_title && <>{cr.project_id ? ' · ' : ''}From meeting: {cr.meeting_id ? <Link href={`/meetings/${cr.meeting_id}`} className="text-[var(--c-primary)]">{cr.meeting_title}</Link> : cr.meeting_title}</>}
+                  </p>
+                )}
                 <div className="grid gap-1 text-xs text-[var(--c-text-2)] md:grid-cols-3">
                   <span>Scope impact: {cr.scope_impact || '—'}</span>
                   <span>Timeline impact: {cr.timeline_impact_days != null ? `${cr.timeline_impact_days} days` : '—'}</span>

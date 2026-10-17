@@ -36,6 +36,7 @@
 | P1-13 | Comments/revision notes were never persisted (only notifications + audit text) | FIXED |
 | P1-14 | Fake numbers in UI: marketing seed campaigns, 'balance/1000 days left', hard-coded CPL trend, cost-efficiency task counts, parse-task mock result, always-after-10AM alert | FIXED |
 | P1-15 | `time_entries` analytics read a table nothing writes | FIXED (reads time_logs; legacy table now unused -> drop in a future migration, NOT done) |
+| P1-17 | `POST /api/meetings` with a `googleEventId` upserts on `google_event_id` with no owner check: any signed-in user who knows another user's calendar event id can overwrite that meeting's analysis (found while adding project links; NOT changed) | OPEN (add `WHERE meetings.created_by = EXCLUDED.created_by` or staff-only on conflict) |
 | P1-16 | `next.config.js` had `typescript.ignoreBuildErrors: true` and duplicated next.config.ts | FIXED |
 
 ## P2 / P3

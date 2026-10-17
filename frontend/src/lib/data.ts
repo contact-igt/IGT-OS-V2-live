@@ -106,6 +106,7 @@ export interface TaskApproval {
 export interface Task {
   id: string;
   clientId: string;
+  projectId?: string | null; // client project this task belongs to (same client)
   title: string;
   description: string;
   category: TaskCategory;

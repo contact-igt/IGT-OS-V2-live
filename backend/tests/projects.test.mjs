@@ -262,6 +262,7 @@ describe('project links: tasks on the Tasks page, AI meetings, Delivery change r
     assert.equal(started.length, 1, 'once per person, not per event');
     assert.match(started[0].text, /started working on this project/);
     assert.equal(d.summary.developers_started, 1);
+    assert.ok(d.team.find(m => m.id === devId).started_at, 'team row carries the developer start date');
     assert.equal(d.summary.rework_rounds, 1);
     assert.equal(d.tasks.find(t => t.id === taskId).rework_count, 1);
     assert.match(d.provenance.started, /first timer start/);

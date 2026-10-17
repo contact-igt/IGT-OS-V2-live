@@ -110,6 +110,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
 
     const team = await pool.query(
       `WITH pt AS (SELECT id, assigned_to, status FROM public.tasks WHERE project_id = $1),
+            ${STARTS_CTE},
             ids AS (
               SELECT unnest(assigned_to) AS user_id FROM pt
               UNION SELECT user_id FROM public.time_logs WHERE task_id IN (SELECT id FROM pt)
@@ -118,7 +119,8 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
          (u.id = (SELECT lead_id FROM public.projects WHERE id = $1)) AS is_lead,
          COALESCE((SELECT sum(tl.duration_minutes) FROM public.time_logs tl WHERE tl.user_id = u.id AND tl.task_id IN (SELECT id FROM pt)), 0)::int AS minutes_logged,
          (SELECT count(*) FROM pt WHERE u.id = ANY(pt.assigned_to))::int AS tasks_assigned,
-         (SELECT count(*) FROM pt WHERE u.id = ANY(pt.assigned_to) AND pt.status = 'done')::int AS tasks_done
+         (SELECT count(*) FROM pt WHERE u.id = ANY(pt.assigned_to) AND pt.status = 'done')::int AS tasks_done,
+         (SELECT at FROM starts WHERE starts.user_id = u.id) AS started_at
        FROM ids JOIN public.users u ON u.id = ids.user_id
        ORDER BY minutes_logged DESC, u.name`, [id]);
 

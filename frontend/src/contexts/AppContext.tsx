@@ -1315,6 +1315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const meetingNotes = dbMeetings.map((m: any) => ({
         id: m.id,
         clientId: toMockClient[m.clientId] || null,
+        projectId: m.projectId || null,
         processedAt: m.createdAt,
         transcriptSnippet: m.transcriptSnippet,
         result: m.result,
@@ -1697,6 +1698,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               title: data.title,
               description: data.description,
               clientId: dbClientId,
+              projectId: data.projectId || undefined,
               category: data.category,
               assignedTo: dbAssignedTo,
               priority: data.priority,
@@ -1717,6 +1719,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }),
           });
           const created = await res.json();
+          if (!res.ok) {
+            // e.g. the project was refused (other client / not on the project): say so instead of pretending it saved
+            warnSyncFailure(`This task was NOT saved: ${created?.error || `server returned ${res.status}`}`);
+            return null;
+          }
           if (data.id) {
             taskIdMapRef.current[data.id] = created.id;
             taskIdMapRef.current[created.id] = data.id;
@@ -1861,18 +1868,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           delete body.clientId; // client reassignment isn't supported by this path today
 
-          await fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
+          const res = await fetch(`${apiBaseUrl}/api/tasks/${dbTaskId}`, {
             method: 'PUT',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
+          if (!res.ok && 'projectId' in updates) {
+            // The server refuses cross-client projects and projects the caller is not on: undo the optimistic change.
+            const msg = (await res.json().catch(() => ({})))?.error;
+            warnSyncFailure(`Project was NOT changed: ${msg || `server returned ${res.status}`}`);
+            fetchData();
+          }
         } catch (err) {
           console.error('Failed to sync task update to backend:', err);
         }
       })();
     }
-  }, [user]);
+  }, [user, warnSyncFailure, fetchData]);
 
   const deleteTask = useCallback(async (id: string): Promise<boolean> => {
     const task = state.tasks.find(t => t.id === id);

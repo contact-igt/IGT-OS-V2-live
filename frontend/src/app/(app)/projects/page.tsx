@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProvenanceBadge from '@/components/ui/ProvenanceBadge';
+import { invalidateProjects } from '@/lib/useProjects';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const STATUSES = ['planned', 'active', 'on_hold', 'completed', 'cancelled'];
@@ -57,6 +58,7 @@ export default function ProjectsPage() {
           e.preventDefault(); setError(null);
           try {
             const p = await api('', { method: 'POST', body: JSON.stringify({ ...form, leadId: form.leadId || undefined }) });
+            invalidateProjects();
             router.push(`/projects/${p.id}`);
           } catch (err: any) { setError(err.message); }
         }}>

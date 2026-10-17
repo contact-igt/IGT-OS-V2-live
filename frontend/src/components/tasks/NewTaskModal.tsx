@@ -8,8 +8,9 @@ import DateTimePicker from '@/components/ui/DateTimePicker';
 
 import { Task, TEAM_MEMBERS, CATEGORY_LABELS, TaskCategory, DEFAULT_BENCHMARKS, TASK_TYPE_LABELS } from '@/lib/data';
 import { aiFetch } from '@/lib/aiFetch';
+import { useProjects, isOpenProject } from '@/lib/useProjects';
 
-interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; }
+interface Props { isOpen: boolean; onClose: () => void; defaultClientId?: string; defaultTitle?: string; defaultType?: 'goal' | 'task' | 'subtask'; defaultProjectId?: string; }
 
 const PRIORITIES: Task['priority'][] = ['critical', 'high', 'medium', 'low'];
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as TaskCategory[];
@@ -108,7 +109,8 @@ function ClientPicker({ value, onChange }: { value: string; onChange: (id: strin
   );
 }
 
-export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType }: Props) {
+export default function NewTaskModal({ isOpen, onClose, defaultClientId, defaultTitle, defaultType, defaultProjectId }: Props) {
+  const { projects } = useProjects();
   const { createTask, state, requestApproval, notifyUser, uploadTaskFile, reloadData } = useApp();
   const confirm = useConfirm();
   const currentUser = state.teamMembers.find(m => m.id === state.currentUserId);
@@ -126,6 +128,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     type: 'task' as 'goal' | 'task' | 'subtask',
     parentId: '',
     clientId: defaultClientId ?? '',
+    projectId: defaultProjectId ?? '',
     category: 'performance_marketing' as TaskCategory,
     priority: 'high' as Task['priority'],
     assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
@@ -164,6 +167,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         type: defaultType || 'task',
         parentId: '',
         clientId: defaultClientId ?? '',
+        projectId: defaultProjectId ?? '',
         category: 'performance_marketing',
         priority: 'high',
         assignedTo: scope.mode === 'locked' ? [state.currentUserId] : [],
@@ -188,7 +192,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
       setActiveTab('manual');
       setAiPrompt('');
     }
-  }, [isOpen, defaultTitle, defaultType, defaultClientId, state.currentUserId, state.teamMembers]);
+  }, [isOpen, defaultTitle, defaultType, defaultClientId, defaultProjectId, state.currentUserId, state.teamMembers]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
@@ -263,6 +267,11 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     return e;
   };
 
+  // Projects of the chosen client only (closed ones hidden unless already chosen). A project picked before the client
+  // changed is dropped rather than sent: the server refuses cross-client links.
+  const projectOptions = projects.filter(p => p.client_id === form.clientId && (isOpenProject(p) || p.id === form.projectId));
+  const effectiveProjectId = projectOptions.some(p => p.id === form.projectId) ? form.projectId : '';
+
   const handleSubmit = async () => {
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
@@ -299,6 +308,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
           type: form.type,
           parentId: form.type === 'subtask' ? form.parentId : undefined,
           clientId: form.clientId,
+          projectId: effectiveProjectId || undefined,
           category: form.category,
           priority: form.priority,
           status: 'todo',
@@ -326,6 +336,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
         type: form.type,
         parentId: form.type === 'subtask' ? form.parentId : undefined,
         clientId: form.clientId,
+        projectId: effectiveProjectId || undefined,
         category: form.category,
         priority: form.priority,
         status: 'todo',
@@ -380,6 +391,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
             type: 'subtask',
             parentId: realParentId,
             clientId: form.clientId,
+            projectId: effectiveProjectId || undefined,
             category: form.category,
             priority: form.priority,
             status: 'todo',
@@ -406,7 +418,7 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
     setAttachedFile(null);
     setUploadError(null);
     setIsCustomTaskType(false);
-    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
+    setForm({ title: '', type: 'task', parentId: '', clientId: defaultClientId ?? '', projectId: defaultProjectId ?? '', category: 'performance_marketing', priority: 'high', assignedTo: [], deadline: '', estimatedHours: '', estimatedMinutes: '', description: '', tags: '', driveLink: '', requiresAsset: false, subtasksBatch: '', fileName: '', taskType: '', dependencies: [] });
     setErrors({});
     onClose();
   };
@@ -639,6 +651,17 @@ export default function NewTaskModal({ isOpen, onClose, defaultClientId, default
               </select>
             </div>
           </div>
+
+          {/* Project (optional) — only that client's projects; the project page and this task list stay in step. */}
+          {form.clientId && projectOptions.length > 0 && (
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-2)' }}>Project (Optional)</label>
+              <select className="input-base" aria-label="Project" value={effectiveProjectId} onChange={e => set('projectId', e.target.value)}>
+                <option value="">No project</option>
+                {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
 
           {/* Task Type — the usual dropdown, plus a "New task type" entry at the bottom that
               reveals a text box, so the assigner can add a type that isn't on the list yet. */}
