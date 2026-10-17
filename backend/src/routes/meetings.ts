@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth';
 import { postMeetingSummaryAlert } from '../lib/googleChat';
 import { postMeetingSummaryAlertDiscord } from '../lib/discord';
 import { logAudit } from '../lib/auditLog';
+import { checkProjectLink } from '../lib/projectAccess';
 
 const router = Router();
 const STAFF_ROLES = ['admin', 'ops', 'super_admin'];
@@ -13,6 +14,7 @@ function serializeMeeting(row: any) {
     id: row.id,
     title: row.title,
     clientId: row.client_id,
+    projectId: row.project_id || null,
     createdBy: row.created_by,
     transcriptSnippet: row.transcript_snippet,
     analysisPreference: row.analysis_preference,
@@ -65,30 +67,35 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   if (!pool) return res.status(500).json({ error: 'Database not configured' });
 
-  const { title, clientId, transcriptSnippet, analysisPreference, result, googleEventId } = req.body;
+  const { title, clientId, transcriptSnippet, analysisPreference, result, googleEventId, projectId } = req.body;
   if (!title || !result) {
     return res.status(400).json({ error: 'title and result are required' });
   }
 
   try {
+    if (projectId) {
+      const pc = await checkProjectLink(pool, req.user, projectId, clientId);
+      if (!pc.ok) return res.status(pc.status).json({ error: pc.error });
+    }
+
     // When scoped to a calendar event, upsert on google_event_id so re-analyzing the same
     // event updates its existing row instead of creating a duplicate card.
     const insertResult = googleEventId
       ? await pool.query(
-          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result, google_event_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result, google_event_id, project_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (google_event_id) DO UPDATE SET
              title = EXCLUDED.title, client_id = EXCLUDED.client_id,
              transcript_snippet = EXCLUDED.transcript_snippet, analysis_preference = EXCLUDED.analysis_preference,
-             result = EXCLUDED.result
+             result = EXCLUDED.result, project_id = COALESCE(EXCLUDED.project_id, public.meetings.project_id)
            RETURNING *`,
-          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result, googleEventId]
+          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result, googleEventId, projectId || null]
         )
       : await pool.query(
-          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO public.meetings (title, client_id, created_by, transcript_snippet, analysis_preference, result, project_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *`,
-          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result]
+          [title, clientId || null, req.user.id, transcriptSnippet || null, analysisPreference || null, result, projectId || null]
         );
 
     // Fire-and-forget, same non-blocking convention attendance.ts uses for its Chat alert —
@@ -111,6 +118,31 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error saving meeting:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /api/meetings/:id/project — link a meeting to a project (or clear it with null). Owner or staff only; the
+// caller must also be allowed on the project, and the meeting's client must match the project's.
+router.patch('/:id/project', requireAuth, async (req: Request, res: Response) => {
+  const pool: Pool = req.app.locals.pool;
+  if (!pool) return res.status(500).json({ error: 'Database not configured' });
+  const projectId = req.body?.projectId ?? null;
+  try {
+    const cur = await pool.query('SELECT * FROM public.meetings WHERE id = $1', [req.params.id]);
+    const m = cur.rows[0];
+    if (!m || (!STAFF_ROLES.includes(req.user.role) && m.created_by !== req.user.id)) return res.status(404).json({ error: 'Meeting not found' });
+    let name = 'none';
+    if (projectId) {
+      const pc = await checkProjectLink(pool, req.user, projectId, m.client_id);
+      if (!pc.ok) return res.status(pc.status).json({ error: pc.error });
+      name = pc.name;
+    }
+    const r = await pool.query('UPDATE public.meetings SET project_id = $2 WHERE id = $1 RETURNING *', [m.id, projectId]);
+    await logAudit(pool, { actorId: req.user.id, actorName: req.user.name || req.user.email, action: 'meeting_project_linked', entity: 'Meeting', entityRef: m.title, entityId: m.id, meta: `Project: ${name}` });
+    res.json(serializeMeeting(r.rows[0]));
+  } catch (error) {
+    console.error('Error linking meeting to project:', error);
+    res.status(400).json({ error: 'Invalid meeting id' });
   }
 });
 

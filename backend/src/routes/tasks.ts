@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import multer from 'multer';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
+import { checkProjectLink } from '../lib/projectAccess';
 import { postDepartmentTaskAssignmentAlert, ALERTING_DEPARTMENTS } from '../lib/googleChat';
 
 const router = Router();
@@ -23,6 +24,7 @@ function serializeTask(row: any) {
     title: row.title,
     description: row.description,
     clientId: row.client_id,
+    projectId: row.project_id || null,
     category: row.category,
     assignedTo: row.assigned_to || [],
     createdBy: row.created_by,
@@ -222,7 +224,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
       title, description, clientId, assignedTo, category, priority, status,
-      deadline, estimatedHours, parentId, dependencies, tags, assets, taskType, type,
+      deadline, estimatedHours, parentId, dependencies, tags, assets, taskType, type, projectId,
     } = req.body;
 
     if (!title || !clientId || !category) {
@@ -231,18 +233,25 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     if (status && !TASK_STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of: ${TASK_STATUSES.join(', ')}` });
     if (priority && !TASK_PRIORITIES.includes(priority)) return res.status(400).json({ error: `priority must be one of: ${TASK_PRIORITIES.join(', ')}` });
 
+    let projectName: string | null = null;
+    if (projectId) {
+      const pc = await checkProjectLink(pool, req.user, projectId, clientId);
+      if (!pc.ok) return res.status(pc.status).json({ error: pc.error });
+      projectName = pc.name;
+    }
+
     const { date: deadlineDate, time: deadlineTime } = splitDeadline(deadline);
 
     const query = `
       INSERT INTO public.tasks
         (title, description, client_id, category, assigned_to, created_by, priority, status,
          deadline_date, deadline_time, time_estimate_minutes, parent_task_id, dependencies, tags, task_type,
-         type, completed_at)
+         type, completed_at, project_id)
       -- $8 is pinned to text and cast up to task_status here, rather than being inferred as
       -- the enum and cast down to text in the CASE below. Mixing the two directions on one
       -- parameter makes Postgres bail with "inconsistent types deduced for parameter $8".
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::task_status, $9, $10, $11, $12, $13, $14, $15,
-              $16, CASE WHEN $8 = 'done' THEN now() ELSE NULL END)
+              $16, CASE WHEN $8 = 'done' THEN now() ELSE NULL END, $17)
       RETURNING *
     `;
     const params = [
@@ -264,6 +273,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       // A task carrying a parent is a subtask regardless of what the client claimed, which
       // keeps the hierarchy self-consistent.
       ['goal', 'task', 'subtask'].includes(type) ? type : (parentId ? 'subtask' : 'task'),
+      projectId || null,
     ];
 
     const result = await pool.query(query, params);
@@ -272,7 +282,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     await replaceTaskAssets(pool, createdTask.id, assets, req.user.id);
     createdTask.assets = await fetchTaskAssets(pool, createdTask.id);
 
-    await auditTask(pool, req, 'task_create', { id: createdTask.id, title, client_id: clientId }, `Priority: ${priority || 'medium'}`);
+    await auditTask(pool, req, 'task_create', { id: createdTask.id, title, client_id: clientId }, `Priority: ${priority || 'medium'}${projectName ? ` · Project: ${projectName}` : ''}`);
 
     // Fire-and-forget: alert each department's Chat space that has an assignee on this task
     // (Development and Design today — see DEPARTMENT_WEBHOOK_ENV). Not awaited so a slow or
@@ -316,16 +326,26 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
 
   try {
     const { id } = req.params;
-    const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags, assets, taskType } = req.body;
+    const { title, description, category, priority, status, assignedTo, deadline, estimatedHours, tags, assets, taskType, projectId } = req.body;
 
     if (status && !TASK_STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of: ${TASK_STATUSES.join(', ')}` });
     if (priority && !TASK_PRIORITIES.includes(priority)) return res.status(400).json({ error: `priority must be one of: ${TASK_PRIORITIES.join(', ')}` });
 
     // Pre-update snapshot: drives the audit diff below and the Chat alert, which must fire only for
     // genuinely *new* dev-department assignees (re-saving the same array on an unrelated edit must not re-post).
-    const prevRes = await pool.query('SELECT title, client_id, status, priority, assigned_to, deadline_date FROM public.tasks WHERE id = $1', [id]);
+    const prevRes = await pool.query('SELECT title, client_id, status, priority, assigned_to, deadline_date, project_id FROM public.tasks WHERE id = $1', [id]);
     const before = prevRes.rows[0];
     const previousAssignedTo: string[] = before?.assigned_to || [];
+
+    // projectId: undefined = leave alone, null = take the task off its project, uuid = move it (same client only).
+    const hasProject = projectId !== undefined;
+    if (hasProject && before) {
+      const target = !projectId ? before.project_id : projectId;
+      if (target) {
+        const pc = await checkProjectLink(pool, req.user, target, before.client_id);
+        if (!pc.ok) return res.status(pc.status).json({ error: pc.error });
+      }
+    }
 
     const hasDeadline = deadline !== undefined;
     const { date: deadlineDate, time: deadlineTime } = hasDeadline ? splitDeadline(deadline) : { date: null, time: null };
@@ -344,6 +364,7 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
         time_estimate_minutes = COALESCE($10, time_estimate_minutes),
         tags = COALESCE($11, tags),
         task_type = COALESCE($13, task_type),
+        project_id = CASE WHEN $14::boolean THEN $15::uuid ELSE project_id END,
         -- Stamped the moment a task becomes done, and cleared if it's reopened, so the
         -- 7-day archive window measures actual completion rather than last edit. Re-saving
         -- an already-done task keeps its original timestamp instead of resetting the clock.
@@ -371,6 +392,8 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
       tags || null,
       id,
       taskType !== undefined ? (String(taskType).trim().slice(0, 100) || null) : null,
+      hasProject,
+      hasProject ? (projectId || null) : null,
     ];
     const result = await pool.query(query, params);
 
@@ -384,6 +407,11 @@ router.put('/:id', requireAuth, requireTaskAccess, async (req: Request, res: Res
       const prevDeadline = before.deadline_date ? String(before.deadline_date).slice(0, 10) : 'none';
       const newDeadline = after.deadline_date ? String(after.deadline_date).slice(0, 10) : 'none';
       if (hasDeadline && prevDeadline !== newDeadline) await auditTask(pool, req, 'task_deadline_change', ref, `${prevDeadline} → ${newDeadline}`);
+      if (hasProject && (before.project_id || null) !== (after.project_id || null)) {
+        const names = await pool.query('SELECT id, name FROM public.projects WHERE id = ANY($1::uuid[])', [[before.project_id, after.project_id].filter(Boolean)]);
+        const nameOf = (pid: string | null) => names.rows.find((n: any) => n.id === pid)?.name || 'none';
+        await auditTask(pool, req, 'task_project_change', ref, `${nameOf(before.project_id)} → ${nameOf(after.project_id)}`);
+      }
       const newAssigned: string[] = after.assigned_to || [];
       if (assignedTo && [...previousAssignedTo].sort().join() !== [...newAssigned].sort().join()) {
         await auditTask(pool, req, 'task_assign_change', ref, `${await userNames(pool, previousAssignedTo)} → ${await userNames(pool, newAssigned)}`);

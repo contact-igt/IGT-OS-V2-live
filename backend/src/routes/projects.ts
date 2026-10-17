@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { requireAuth } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
+import { UUID_RE } from '../lib/projectAccess';
 
 // Client projects: details, a timeline, and who worked on it. The team and the hours are DERIVED from the
 // tasks linked to the project and their timer logs (time_logs), so there is no second list to keep in sync.
@@ -10,9 +11,21 @@ const STAFF = ['admin', 'ops', 'super_admin'];
 const isStaff = (req: Request) => STAFF.includes(req.user.role);
 
 export const PROJECT_STATUSES = ['planned', 'active', 'on_hold', 'completed', 'cancelled'];
-const EVENT_TYPES = ['note', 'meeting', 'recording'];
+// Meetings come from the AI meeting notes (linked via meetings.project_id), so only plain notes and recording links are typed in here.
+const EVENT_TYPES = ['note', 'recording'];
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A task going back from review to in-progress is a rework round (audit meta is written by tasks.ts as "<from> → <to>").
+const REWORK_STEP = 'in_review → in_progress';
+// First time each person worked on a project task: first timer start, or first move to in_progress by an assignee.
+const STARTS_CTE = `starts AS (
+  SELECT s.user_id, MIN(s.at) AS at FROM (
+    SELECT tl.user_id, tl.started_at AS at FROM public.time_logs tl WHERE tl.task_id IN (SELECT id FROM pt)
+    UNION ALL
+    SELECT l.actor_id, l.created_at FROM public.audit_log l JOIN pt ON pt.id::text = l.entity_id
+     WHERE l.entity = 'Task' AND l.action = 'task_status_change' AND l.meta LIKE '% → in_progress' AND l.actor_id = ANY(pt.assigned_to)
+  ) s WHERE s.user_id IS NOT NULL GROUP BY s.user_id
+)`;
+
 const text = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 const dateOrNull = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
 const httpUrl = (v: unknown): string | null | false => {
@@ -112,19 +125,44 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
     const tasks = await pool.query(
       `SELECT t.id, t.title, t.status, t.deadline_date, t.completed_at, t.assigned_to,
          COALESCE((SELECT sum(tl.duration_minutes) FROM public.time_logs tl WHERE tl.task_id = t.id), 0)::int AS minutes_logged,
-         COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name) FROM public.users u WHERE u.id = ANY(t.assigned_to)), '') AS assignee_names
-       FROM public.tasks t WHERE t.project_id = $1 ORDER BY t.created_at`, [id]);
+         COALESCE((SELECT string_agg(u.name, ', ' ORDER BY u.name) FROM public.users u WHERE u.id = ANY(t.assigned_to)), '') AS assignee_names,
+         (SELECT count(*) FROM public.audit_log l WHERE l.entity = 'Task' AND l.entity_id = t.id::text AND l.action = 'task_status_change' AND l.meta = $2)::int AS rework_count
+       FROM public.tasks t WHERE t.project_id = $1 ORDER BY t.created_at`, [id, REWORK_STEP]);
+
+    const staff = isStaff(req);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '50'), 10) || 50));
+    const beforeRaw = typeof req.query.before === 'string' ? new Date(req.query.before) : null;
+    const before = beforeRaw && !Number.isNaN(beforeRaw.getTime()) ? beforeRaw.toISOString() : null;
 
     const timeline = await pool.query(
-      `SELECT * FROM (
+      `WITH pt AS (SELECT id, assigned_to FROM public.tasks WHERE project_id = $1),
+       ${STARTS_CTE},
+       tl AS (
          SELECT e.created_at AS at, e.event_type AS type, e.note AS text, e.link_url AS link, u.name AS actor
            FROM public.project_events e LEFT JOIN public.users u ON u.id = e.actor_id WHERE e.project_id = $1
+         UNION ALL
+         SELECT st.at, 'dev_started', u.name || ' started working on this project', NULL, u.name
+           FROM starts st JOIN public.users u ON u.id = st.user_id
          UNION ALL
          SELECT l.created_at, CASE l.action WHEN 'task_create' THEN 'task_created' WHEN 'task_status_change' THEN 'task_status' ELSE 'task_assigned' END,
                 l.entity_ref || COALESCE(' — ' || l.meta, ''), NULL, l.actor_name
            FROM public.audit_log l
           WHERE l.entity = 'Task' AND l.action IN ('task_create', 'task_status_change', 'task_assign_change')
-            AND l.entity_id IN (SELECT id::text FROM public.tasks WHERE project_id = $1)
+            AND l.entity_id IN (SELECT id::text FROM pt)
+         UNION ALL
+         SELECT m.created_at, 'meeting', m.title || COALESCE(' — ' || NULLIF(left(m.result->>'summary', 300), ''), ''),
+                CASE WHEN $4::boolean OR m.created_by = $5 THEN '/meetings/' || m.id::text END, u.name
+           FROM public.meetings m LEFT JOIN public.users u ON u.id = m.created_by WHERE m.project_id = $1
+         UNION ALL
+         SELECT cr.created_at, 'change_requested', cr.title || ' (' || replace(cr.classification, '_', ' ') || ')',
+                CASE WHEN $4::boolean THEN '/delivery' END, u.name
+           FROM public.change_requests cr LEFT JOIN public.users u ON u.id = cr.created_by WHERE cr.project_id = $1
+         UNION ALL
+         SELECT cr.decided_at, 'change_decided',
+                cr.title || ' — ' || cr.decision || CASE WHEN cr.roadmap_bucket <> 'none' THEN ' (roadmap: ' || cr.roadmap_bucket || ')' ELSE '' END,
+                CASE WHEN $4::boolean THEN '/delivery' END, du.name
+           FROM public.change_requests cr LEFT JOIN public.users du ON du.id = cr.decided_by
+          WHERE cr.project_id = $1 AND cr.decision <> 'pending' AND cr.decided_at IS NOT NULL
          UNION ALL
          SELECT b.created_at, 'blocker_raised', b.title || ': ' || b.reason, NULL, u.name
            FROM public.blockers b JOIN public.tasks t ON t.id = b.task_id LEFT JOIN public.users u ON u.id = b.created_by WHERE t.project_id = $1
@@ -132,12 +170,55 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
          SELECT b.resolved_at, 'blocker_resolved', b.title, NULL, u.name
            FROM public.blockers b JOIN public.tasks t ON t.id = b.task_id LEFT JOIN public.users u ON u.id = b.resolved_by
           WHERE t.project_id = $1 AND b.resolved_at IS NOT NULL
-       ) x ORDER BY at DESC LIMIT 300`, [id]);
+       )
+       SELECT * FROM tl WHERE ($2::timestamptz IS NULL OR at < $2::timestamptz) ORDER BY at DESC LIMIT $3`,
+      [id, before, limit + 1, staff, req.user.id]);
+    const hasMore = timeline.rows.length > limit;
+    const page = timeline.rows.slice(0, limit);
+
+    const summaryQ = await pool.query(
+      `WITH pt AS (SELECT id, assigned_to FROM public.tasks WHERE project_id = $1),
+       ${STARTS_CTE}
+       SELECT (SELECT count(*) FROM public.meetings WHERE project_id = $1)::int AS meetings_held,
+              (SELECT max(created_at) FROM public.meetings WHERE project_id = $1) AS last_meeting_at,
+              (SELECT count(*) FROM public.change_requests WHERE project_id = $1 AND decision = 'pending')::int AS open_changes,
+              (SELECT count(*) FROM starts)::int AS developers_started,
+              (SELECT count(*) FROM public.audit_log l WHERE l.entity = 'Task' AND l.action = 'task_status_change' AND l.meta = $2
+                 AND l.entity_id IN (SELECT id::text FROM pt))::int AS rework_rounds`, [id, REWORK_STEP]);
+
+    // Meeting reviews and change requests are shown as a small, explicit projection: never the transcript, the
+    // role-specific AI insights, or commercial impact figures.
+    const meetingsQ = await pool.query(
+      `SELECT m.id, m.title, m.created_at, u.name AS created_by_name, m.result->>'summary' AS summary, m.result->'decisions' AS decisions,
+              COALESCE(array_length(m.tasks_created, 1), 0)::int AS tasks_created,
+              (SELECT count(*) FROM public.change_requests cr WHERE cr.meeting_id = m.id)::int AS changes_raised,
+              ($2::boolean OR m.created_by = $3) AS can_open
+         FROM public.meetings m LEFT JOIN public.users u ON u.id = m.created_by WHERE m.project_id = $1 ORDER BY m.created_at DESC LIMIT 50`,
+      [id, staff, req.user.id]);
+    const meetings = meetingsQ.rows.map((m: any) => ({
+      id: m.id, title: m.title, created_at: m.created_at, created_by_name: m.created_by_name, can_open: m.can_open,
+      summary: m.summary ? String(m.summary).slice(0, 1000) : null,
+      decisions: (Array.isArray(m.decisions) ? m.decisions : []).slice(0, 8)
+        .map((d: any) => (typeof d === 'string' ? d : d?.decision)).filter(Boolean).map((d: any) => String(d).slice(0, 300)),
+      tasks_created: m.tasks_created, changes_raised: m.changes_raised,
+    }));
+
+    const changes = await pool.query(
+      `SELECT cr.id, cr.title, cr.classification, cr.priority, cr.decision, cr.roadmap_bucket, cr.created_at, cr.decided_at, cr.meeting_id, m.title AS meeting_title
+         FROM public.change_requests cr LEFT JOIN public.meetings m ON m.id = cr.meeting_id
+        WHERE cr.project_id = $1 ORDER BY cr.created_at DESC LIMIT 100`, [id]);
 
     const minutes = team.rows.reduce((s: number, m: { minutes_logged: number }) => s + m.minutes_logged, 0);
     res.json({
-      ...proj.rows[0], team: team.rows, tasks: tasks.rows, timeline: timeline.rows, minutes_logged: minutes,
-      provenance: { team: 'DERIVED from tasks assigned to this project and timer logs', hours: 'DATABASE timer logs (time_logs); manual entry not included', timeline: 'DATABASE project updates, task audit events, blockers' },
+      ...proj.rows[0], team: team.rows, tasks: tasks.rows, meetings, changes: changes.rows, summary: summaryQ.rows[0],
+      timeline: page, timeline_has_more: hasMore, timeline_next: hasMore ? page[page.length - 1].at : null,
+      minutes_logged: minutes,
+      provenance: {
+        team: 'DERIVED from tasks assigned to this project and timer logs',
+        hours: 'DATABASE timer logs (time_logs); manual entry not included',
+        timeline: 'DATABASE project updates, linked AI meetings, change requests, task audit events, blockers',
+        started: 'DERIVED from each person\'s first timer start or first move to in progress on a project task',
+      },
     });
   } catch (e) { console.error('project detail error:', e); res.status(500).json({ error: 'Internal server error' }); }
 });
@@ -186,7 +267,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
   } catch (e) { console.error('project update error:', e); res.status(500).json({ error: 'Internal server error' }); }
 });
 
-// Notes, meeting notes and recording links on the project timeline. Any member (or staff) may add one.
+// Notes and recording links on the project timeline. Any member (or staff) may add one.
 router.post('/:id/events', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   const id = req.params.id;

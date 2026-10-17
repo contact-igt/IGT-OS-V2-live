@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { requireAuth } from '../middleware/auth';
 import { logAudit } from '../lib/auditLog';
+import { checkProjectLink } from '../lib/projectAccess';
 
 // Structured blockers + client change requests ("client input must not silently destroy the roadmap").
 const router = Router();
@@ -101,21 +102,24 @@ router.post('/blockers/:id/resolve', requireAuth, async (req: Request, res: Resp
 });
 
 // ───────────── CHANGE REQUESTS ─────────────
-const CR_SELECT = `SELECT cr.*, c.name AS client_name, du.name AS decided_by_name FROM public.change_requests cr
-  JOIN public.clients c ON c.id = cr.client_id LEFT JOIN public.users du ON du.id = cr.decided_by`;
+const CR_SELECT = `SELECT cr.*, c.name AS client_name, du.name AS decided_by_name, p.name AS project_title, m.title AS meeting_title
+  FROM public.change_requests cr
+  JOIN public.clients c ON c.id = cr.client_id LEFT JOIN public.users du ON du.id = cr.decided_by
+  LEFT JOIN public.projects p ON p.id = cr.project_id LEFT JOIN public.meetings m ON m.id = cr.meeting_id`;
 const withMateriality = (row: any) => ({ ...row, is_material: isMaterialChange(row) });
 
 router.get('/change-requests', requireAuth, async (req: Request, res: Response) => {
   const pool: Pool = req.app.locals.pool;
   const decision = typeof req.query.decision === 'string' ? req.query.decision : null;
   const clientId = typeof req.query.clientId === 'string' ? req.query.clientId : null;
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : null;
   try {
     const r = await pool.query(
       `${CR_SELECT}
-       WHERE ($1::text IS NULL OR cr.decision = $1) AND ($2::uuid IS NULL OR cr.client_id = $2)
+       WHERE ($1::text IS NULL OR cr.decision = $1) AND ($2::uuid IS NULL OR cr.client_id = $2) AND ($5::uuid IS NULL OR cr.project_id = $5)
          AND ($3::boolean OR cr.created_by = $4 OR (cr.decision = 'accepted' AND cr.linked_task_ids && ARRAY(SELECT id FROM public.tasks WHERE $4 = ANY(assigned_to) OR created_by = $4)))
        ORDER BY cr.created_at DESC LIMIT 200`,
-      [decision, clientId, isStaff(req), req.user.id]
+      [decision, clientId, isStaff(req), req.user.id, projectId]
     );
     res.json(r.rows.map(withMateriality));
   } catch (e) { console.error('cr list error:', e); res.status(400).json({ error: 'Invalid filter' }); }
@@ -132,12 +136,28 @@ router.post('/change-requests', requireAuth, async (req: Request, res: Response)
   if (!CR_SOURCES.includes(source)) return res.status(400).json({ error: `source must be one of: ${CR_SOURCES.join(', ')}` });
   if (!SEVERITIES.includes(priority)) return res.status(400).json({ error: `priority must be one of: ${SEVERITIES.join(', ')}` });
   try {
+    // A request may belong to a project (same client, caller on the project); a source meeting must already be linked to
+    // that project and be one the caller can see.
+    let projectId: string | null = null, projectTitle: string | null = null, meetingId: string | null = null;
+    if (b.projectId) {
+      const pc = await checkProjectLink(pool, req.user, b.projectId, b.clientId);
+      if (!pc.ok) return res.status(pc.status).json({ error: pc.error });
+      projectId = b.projectId; projectTitle = pc.name;
+    }
+    if (b.meetingId) {
+      if (!projectId) return res.status(400).json({ error: 'A source meeting can only be attached together with its project' });
+      const m = await pool.query('SELECT created_by, project_id FROM public.meetings WHERE id = $1', [b.meetingId]);
+      if (!m.rows.length || m.rows[0].project_id !== projectId || (!isStaff(req) && m.rows[0].created_by !== req.user.id)) {
+        return res.status(400).json({ error: 'That meeting is not linked to this project' });
+      }
+      meetingId = b.meetingId;
+    }
     const r = await pool.query(
-      `INSERT INTO public.change_requests (client_id, project_name, title, description, source, requested_by, received_at, classification, priority, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7::date, CURRENT_DATE),$8,$9,$10) RETURNING *`,
-      [b.clientId, text(b.projectName, 200), title, description, source, text(b.requestedBy, 200), dateOrNull(b.receivedAt), b.classification, priority, req.user.id]
+      `INSERT INTO public.change_requests (client_id, project_name, project_id, meeting_id, title, description, source, requested_by, received_at, classification, priority, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::date, CURRENT_DATE),$10,$11,$12) RETURNING *`,
+      [b.clientId, text(b.projectName, 200) ?? projectTitle, projectId, meetingId, title, description, source, text(b.requestedBy, 200), dateOrNull(b.receivedAt), b.classification, priority, req.user.id]
     );
-    await audit(pool, req, 'change_request_created', 'ChangeRequest', title, r.rows[0].id, `${b.classification} · via ${source}`);
+    await audit(pool, req, 'change_request_created', 'ChangeRequest', title, r.rows[0].id, `${b.classification} · via ${source}${projectTitle ? ` · Project: ${projectTitle}` : ''}`);
     res.status(201).json(withMateriality(r.rows[0]));
   } catch (e) { console.error('cr create error:', e); res.status(400).json({ error: 'Could not create change request (check clientId)' }); }
 });
